@@ -144,15 +144,27 @@
     }
     .${NS}-rev[data-status=resolved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
     .${NS}-rev[data-status=rejected] { border-color: #ef4444; background: rgba(239,68,68,.10); }
-    .${NS}-revpin {
-      position: absolute; z-index: 2147483644; min-width: 22px; height: 22px;
-      padding: 0 6px; border-radius: 999px; background: #f59e0b; color: #111;
-      font: 700 11px/22px -apple-system, system-ui, sans-serif; text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,.28); cursor: pointer; user-select: none;
-      display: flex; align-items: center; gap: 4px; justify-content: center;
+    .${NS}-revbar {
+      position: absolute; z-index: 2147483644; display: flex; align-items: center; gap: 4px;
+      padding: 3px; border-radius: 999px; background: #111418;
+      box-shadow: 0 4px 14px rgba(0,0,0,.32); user-select: none;
+      font: 600 11px/1 -apple-system, system-ui, sans-serif;
     }
-    .${NS}-revpin[data-status=resolved] { background: #16a34a; color: #fff; opacity: .85; }
+    .${NS}-revpin {
+      min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px;
+      background: #f59e0b; color: #111; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; white-space: nowrap;
+    }
+    .${NS}-revpin[data-status=resolved] { background: #16a34a; color: #fff; }
     .${NS}-revpin[data-status=rejected] { background: #ef4444; color: #fff; }
+    .${NS}-revbar button {
+      border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
+      font: inherit; white-space: nowrap;
+    }
+    .${NS}-ok { background: #16a34a; color: #fff; }
+    .${NS}-no { background: #2b313d; color: #e5e7eb; }
+    .${NS}-ok:hover { background: #15803d; }
+    .${NS}-no:hover { background: #ef4444; color: #fff; }
     .${NS}-card {
       position: absolute; z-index: 2147483646; width: 300px;
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
@@ -265,7 +277,7 @@
       '<span>Changes are live — click a marker to judge it</span>' +
       '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
       '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
-      '<button data-act="approve">Approve &amp; close</button>';
+      '<button data-act="approve" title="Marks everything still open as resolved">Approve all &amp; close</button>';
 
     // Re-anchor every comment on the changed page so each one can be judged
     // where it actually happened, not from memory.
@@ -1030,26 +1042,73 @@
       document.documentElement.appendChild(box);
       reviewNodes.push(box);
 
+      /*
+        The verdict lives on the element that changed. Making the user open a card
+        first put a click between them and the decision, for every single comment.
+      */
+      const barEl = document.createElement('div');
+      barEl.className = NS + '-revbar';
+      barEl.setAttribute('data-ayna', '1');
+      barEl.style.left = r.x + 'px';
+      barEl.style.top = Math.max(0, r.y - 28) + 'px';
+
       const pin = document.createElement('div');
       pin.className = NS + '-revpin';
-      pin.setAttribute('data-ayna', '1');
       pin.dataset.status = c.status;
-      pin.textContent = c.status === 'resolved' ? '✓ ' + c.n : String(c.n);
-      pin.title = c.comment;
-      pin.style.left = r.x + 'px';
-      pin.style.top = Math.max(0, r.y - 26) + 'px';
-      document.documentElement.appendChild(pin);
-      reviewNodes.push(pin);
+      pin.title = c.comment + '  (click to read)';
+      barEl.appendChild(pin);
 
+      const ok = document.createElement('button');
+      ok.className = NS + '-ok';
+      ok.textContent = 'Looks right';
+      const no = document.createElement('button');
+      no.className = NS + '-no';
+      no.textContent = 'Needs work';
+      barEl.appendChild(ok);
+      barEl.appendChild(no);
+
+      document.documentElement.appendChild(barEl);
+      reviewNodes.push(barEl);
+
+      const paint = () => {
+        pin.dataset.status = c.status;
+        box.dataset.status = c.status;
+        pin.textContent =
+          c.status === 'resolved' ? '✓ ' + c.n : c.status === 'rejected' ? '↺ ' + c.n : String(c.n);
+        // Once judged, collapse to the badge — it stays as the record.
+        ok.style.display = c.status === 'open' ? '' : 'none';
+        no.style.display = c.status === 'open' ? '' : 'none';
+      };
+      paint();
+
+      const set = async (status) => {
+        const res = await window.__aynaResolve(c.id, status);
+        if (!res || !res.ok) return;
+        c.status = status;
+        paint();
+        closeCard();
+        updateReviewBar();
+      };
+
+      ok.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        set('resolved');
+      });
+      no.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        set('rejected');
+      });
       pin.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        openCard(c, r, box, pin);
+        openCard(c, r, box, pin, paint);
       });
     }
   }
 
-  function openCard(c, r, box, pin) {
+  function openCard(c, r, box, pin, paint) {
     closeCard();
     card = document.createElement('div');
     card.className = NS + '-card';
@@ -1083,9 +1142,7 @@
       const res = await window.__aynaResolve(c.id, status);
       if (!res || !res.ok) return;
       c.status = status;
-      box.dataset.status = status;
-      pin.dataset.status = status;
-      pin.textContent = status === 'resolved' ? '✓ ' + c.n : String(c.n);
+      if (paint) paint();
       closeCard();
       updateReviewBar();
     };

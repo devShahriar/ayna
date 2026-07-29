@@ -126,8 +126,9 @@ The round-trip:
    It reloads the page in place so they see the result immediately, and offers
    **Approve & close** / **Comment more**.
 4. **They judge each comment in place.** Every commented portion is re-highlighted
-   on the changed page with its own marker. Per comment they choose **Looks right**
-   (→ `resolved`) or **Needs work** (→ `rejected`).
+   on the changed page with its own **Looks right** / **Needs work** buttons
+   attached to it. Judged comments collapse to a badge that still opens the
+   original text. **Approve all & close** resolves anything they left untouched.
 5. **`ayna wait` wakes you again when anything is rejected.** Re-read
    `comments --json`, fix only the comments whose `status` is `rejected` or `open`
    — **never touch a `resolved` one** — then run `applied` again. Rejected comments

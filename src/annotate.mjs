@@ -324,8 +324,21 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
 
   // They're happy — this is the only thing that closes the window.
   await page.exposeFunction('__aynaApprove', async () => {
+    /*
+      Approving the session means approving what's left. Without this, closing via
+      the global button left every comment 'open' and the resolved history empty —
+      the record of what changed would show nothing changed. Anything explicitly
+      rejected keeps that verdict; it was a deliberate judgement.
+    */
+    for (const c of comments) {
+      if (c.status === 'open') {
+        c.status = 'resolved';
+        c.rounds.push({ round, status: 'resolved', via: 'approve-all' });
+      }
+    }
     phase = 'approved';
     done = true;
+    await writeManifest();
     await writeStatus();
   });
 

@@ -69,10 +69,11 @@ as: this element, this crop, this file, this line, these styles.
 portion you commented on is highlighted again in place** — so you judge each change
 where it happened.
 
-Each marker gets its own verdict: **Looks right** or **Needs work**. Rejecting one
-sends just that comment back for another attempt; the rest are left alone. Approved
-comments don't disappear — they stay as green markers you can click to re-read, so
-by the end of a session the page carries the record of everything that changed.
+**The verdict sits on the element itself** — every changed portion gets its own
+**Looks right** / **Needs work** buttons, right there. Rejecting one sends just
+that comment back for another attempt; the rest are left alone. Approved comments
+don't disappear — they collapse to a green ✓ badge you can click to re-read, so by
+the end of a session the page carries the record of everything that changed.
 
 Only **Approve & close** ends the session.
 

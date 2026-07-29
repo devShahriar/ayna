@@ -2,3 +2,6 @@ node_modules/
 .ayna/
 .DS_Store
 *.log
+
+# never commit personal images dropped in during a review
+demo/user-avatar.*

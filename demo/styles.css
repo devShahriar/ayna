@@ -329,6 +329,55 @@ h3 {
   padding: 4px 10px;
 }
 
+.shot-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex: none;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-wash);
+}
+
+/* Filter chip and period dropdown on the query row */
+.shot-filter,
+.shot-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.shot-filter {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-wash);
+}
+
+.shot-select {
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.shot-chevron {
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: .7;
+}
+
 .shot-body {
   flex: 1;
   min-height: 0;
