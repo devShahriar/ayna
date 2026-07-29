@@ -5,7 +5,7 @@ Thanks for taking a look. Issues and PRs are welcome.
 ## Getting set up
 
 ```bash
-git clone https://github.com/shahriar/ayna.git
+git clone https://github.com/devshahriar/ayna.git
 cd ayna
 npm install
 npm test

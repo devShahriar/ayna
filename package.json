@@ -7,11 +7,11 @@
   "author": "Shahriar",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shahriar/ayna.git"
+    "url": "git+https://github.com/devshahriar/ayna.git"
   },
-  "homepage": "https://github.com/shahriar/ayna#readme",
+  "homepage": "https://github.com/devshahriar/ayna#readme",
   "bugs": {
-    "url": "https://github.com/shahriar/ayna/issues"
+    "url": "https://github.com/devshahriar/ayna/issues"
   },
   "bin": {
     "ayna": "./bin/ayna.mjs"
