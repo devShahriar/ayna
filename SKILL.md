@@ -24,8 +24,13 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs shot --json --url <url>
 ```
 
 Omit `--url` to use `ayna.config.json`. It prints JSON: screenshot paths per
-viewport, plus diagnostics a screenshot can't show — console errors, horizontal
-overflow, sub-12px text, blank renders.
+route and viewport, plus diagnostics a screenshot can't show — console errors,
+horizontal overflow, sub-12px text, blank renders.
+
+**A site is more than its landing page.** Add `--routes /,/pricing,/settings` (or
+set `target.routes` in the config) and every one gets captured. If the user asks
+about "the app" rather than one screen, shoot the routes that matter — each shot
+carries the `route` it came from.
 
 If the app isn't running, start its dev server first (background it), then shoot.
 

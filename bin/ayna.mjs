@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
-import { openBrowser, capture } from '../src/browser.mjs';
+import { openBrowser, capture, captureRoutes } from '../src/browser.mjs';
 import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
@@ -48,6 +48,7 @@ ${bold('OPTIONS')}
   -m, --model <name>     opus | sonnet | haiku  (default: config, opus)
       --url <url>        Point at a URL instead of the configured target
       --root <dir>       The UI directory to snapshot/restore and edit
+      --routes <list>    Comma-separated pages to capture, e.g. /,/pricing,/about
       --json             Machine-readable output (shot)
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
@@ -72,6 +73,7 @@ const { values, positionals } = parseArgs({
     open: { type: 'boolean' },
     json: { type: 'boolean' },
     root: { type: 'string' },
+    routes: { type: 'string' },
     score: { type: 'string' },
     note: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
@@ -116,6 +118,12 @@ async function main() {
   // Artifacts always land in the project being worked on.
   cfg.runsDir = path.join(PROJECT, '.ayna', 'runs');
   if (values.root) cfg.targetDir = path.resolve(PROJECT, values.root);
+  // --routes /,/pricing beats the config; default to the site root.
+  const routes = values.routes
+    ? values.routes.split(',').map((r) => r.trim()).filter(Boolean)
+    : cfg.target.routes?.length
+      ? cfg.target.routes
+      : ['/'];
   if (values.url) {
     cfg.target.url = values.url;
     cfg.target.startCommand = null;
@@ -139,7 +147,14 @@ async function main() {
 
     case 'shot': {
       const { browser, url, close, outDir } = await prepare(cfg, 'shot');
-      const cap = await capture({ browser, url, viewports: cfg.viewports, outDir, label: 'shot' });
+      const cap = await captureRoutes({
+        browser,
+        baseUrl: url,
+        routes,
+        viewports: cfg.viewports,
+        outDir,
+        label: 'shot',
+      });
       await close();
 
       // Remember this shot so `record` can pair it into the report later.
@@ -153,7 +168,10 @@ async function main() {
           JSON.stringify(
             {
               url,
+              routes: cap.routes,
               shots: cap.shots.map((s) => ({
+                route: s.route ?? '/',
+                url: s.url ?? url,
                 viewport: s.viewport,
                 width: s.width,
                 height: s.height,
@@ -176,7 +194,9 @@ async function main() {
         return;
       }
 
-      for (const s of cap.shots) ok(`${s.viewport} → ${path.relative(PROJECT, s.file)}`);
+      for (const s of cap.shots) {
+        ok(`${s.route ?? '/'} ${s.viewport} → ${path.relative(PROJECT, s.file)}`);
+      }
       if (cap.consoleErrors.length) warn(`console errors: ${cap.consoleErrors.length}`);
       return;
     }
@@ -353,9 +373,18 @@ async function main() {
       if (!claude.ok) throw new Error('the `claude` CLI was not found on PATH');
 
       const { browser, url, close, outDir } = await prepare(cfg, 'critique');
-      step('look', 'screenshotting the live page');
-      const cap = await capture({ browser, url, viewports: cfg.viewports, outDir, label: 'before' });
-      for (const s of cap.shots) ok(`${s.viewport} → ${path.relative(process.cwd(), s.file)}`);
+      step('look', `screenshotting ${routes.length} route(s)`);
+      const cap = await captureRoutes({
+        browser,
+        baseUrl: url,
+        routes,
+        viewports: cfg.viewports,
+        outDir,
+        label: 'before',
+      });
+      for (const s of cap.shots) {
+        ok(`${s.route ?? '/'} ${s.viewport} → ${path.relative(process.cwd(), s.file)}`);
+      }
 
       step('critique', 'asking the design critic what is wrong');
       const run = await runClaude({

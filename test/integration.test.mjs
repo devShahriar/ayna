@@ -10,7 +10,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { openBrowser, capture } from '../src/browser.mjs';
+import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser } from './helpers.mjs';
@@ -524,6 +524,63 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
           'about.html',
           'source ranked to the page the comment was made on',
         );
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('multi-route capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('routeSlug makes filesystem-safe, distinguishable names', () => {
+    assert.equal(routeSlug('/'), 'home');
+    assert.equal(routeSlug('/pricing'), 'pricing');
+    assert.equal(routeSlug('/docs/intro'), 'docs-intro');
+    assert.equal(routeSlug('/about.html?x=1'), 'about-html');
+  });
+
+  test('captures every configured route, tagged and separately filed', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      // Comfortably past the 20-char "blank page" threshold.
+      await writeFile(
+        path.join(site, 'index.html'),
+        '<html><body><h1>Home page with enough copy to not read as blank</h1></body></html>',
+      );
+      await writeFile(
+        path.join(site, 'pricing.html'),
+        '<html><body><h1>Pricing page with enough copy to not read as blank</h1></body></html>',
+      );
+
+      const server = await serveStatic(site, 4540);
+      try {
+        const cap = await captureRoutes({
+          browser,
+          baseUrl: server.url,
+          routes: ['/', '/pricing.html'],
+          viewports: [{ name: 'desktop', width: 900, height: 700 }],
+          outDir: dir,
+          label: 'shot',
+        });
+
+        assert.equal(cap.shots.length, 2, 'one shot per route');
+        assert.deepEqual(cap.shots.map((s) => s.route), ['/', '/pricing.html']);
+        for (const s of cap.shots) assert.ok(existsSync(s.file));
+        assert.notEqual(cap.shots[0].file, cap.shots[1].file, 'routes must not overwrite each other');
+        assert.equal(cap.blank, false);
       } finally {
         await server.close();
       }

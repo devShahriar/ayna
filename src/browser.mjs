@@ -105,13 +105,61 @@ export async function capture({ browser, url, viewports, outDir, label }) {
   };
 }
 
+/** "/" → home, "/pricing" → pricing, "/docs/intro" → docs-intro */
+export function routeSlug(route) {
+  const clean = String(route).split('?')[0].split('#')[0].replace(/^\/+|\/+$/g, '');
+  return clean ? clean.replace(/[^\w-]+/g, '-').toLowerCase() : 'home';
+}
+
+/**
+ * Capture several routes of the same site in one pass.
+ *
+ * A single screenshot of the landing page says nothing about the pricing table or
+ * the settings screen. Every shot carries the `route` it came from so the caller
+ * can tell them apart, and the result keeps the flat `shots` shape of `capture()`
+ * so single-route callers see no difference.
+ */
+export async function captureRoutes({ browser, baseUrl, routes = ['/'], viewports, outDir, label }) {
+  const shots = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  const pages = [];
+
+  for (const route of routes) {
+    const url = new URL(route, baseUrl).toString();
+    const cap = await capture({
+      browser,
+      url,
+      viewports,
+      outDir,
+      label: routes.length > 1 ? `${label}-${routeSlug(route)}` : label,
+    });
+
+    for (const shot of cap.shots) shots.push({ ...shot, route, url });
+    consoleErrors.push(...cap.consoleErrors.map((e) => `${route} ${e}`));
+    pageErrors.push(...cap.pageErrors.map((e) => `${route} ${e}`));
+    pages.push({ route, url, blank: cap.blank });
+  }
+
+  return {
+    label,
+    url: baseUrl,
+    routes,
+    pages,
+    shots,
+    consoleErrors,
+    pageErrors,
+    blank: pages.every((p) => p.blank),
+  };
+}
+
 /** Compact, model-readable summary of a capture. */
 export function summarize(cap) {
   const lines = [];
   for (const s of cap.shots) {
     const m = s.metrics ?? {};
     lines.push(
-      `- ${s.viewport} (${s.width}x${s.height}): ${s.file}` +
+      `- ${s.route ? `${s.route} ` : ''}${s.viewport} (${s.width}x${s.height}): ${s.file}` +
         (s.loadError ? ` — LOAD ERROR: ${s.loadError}` : '') +
         (m.horizontalOverflow ? ` — horizontal overflow (${m.scrollWidth}px > ${m.clientWidth}px)` : '') +
         (m.tinyTextNodes ? ` — ${m.tinyTextNodes} element(s) with font-size < 12px` : ''),

@@ -123,7 +123,8 @@ always headed). `--url` points at any dev server.
     "root": "src",                    // directory Ayna may edit and snapshot
     "url": "http://localhost:5173",   // your dev server
     "startCommand": "npm run dev",    // optional; Ayna will boot it
-    "port": 5173
+    "port": 5173,
+    "routes": ["/", "/pricing", "/settings"]   // every page worth reviewing
   },
   "viewports": [
     { "name": "desktop", "width": 1440, "height": 900 },

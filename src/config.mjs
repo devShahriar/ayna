@@ -11,6 +11,9 @@ export const DEFAULT_CONFIG = {
     // Optional command to boot that dev server (run from the repo root).
     startCommand: null,
     port: 4173,
+    // Pages to capture, relative to the target URL. Add every route worth
+    // reviewing — one shot of the landing page tells you nothing about /pricing.
+    routes: ['/'],
     // The brain may only edit files under these globs.
     editGlobs: ['demo/**/*.html', 'demo/**/*.css', 'demo/**/*.js'],
   },
