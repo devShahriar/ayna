@@ -30,6 +30,8 @@
     // 'comment' clicks to annotate, 'move' drags to reorder, 'browse' lets the
     // page behave normally. Persisted per-tab so walking A -> B -> C doesn't drop
     // you back into comment mode on every page and swallow your next link click.
+    marquee: null,
+    suppressClick: false,
     mode: (() => {
       try {
         return sessionStorage.getItem('ayna-mode') || 'comment';
@@ -75,6 +77,10 @@
     }
     .${NS}-tag b { font-weight: 700; }
     .${NS}-tag i { font-style: normal; opacity: .75; margin-left: 8px; }
+    .${NS}-marquee {
+      position: absolute; z-index: 2147483641; pointer-events: none;
+      border: 2px dashed #3b82f6; background: rgba(59,130,246,.10); border-radius: 3px;
+    }
     .${NS}-drop {
       position: absolute; z-index: 2147483642; pointer-events: none;
       background: #f59e0b; border-radius: 2px;
@@ -111,6 +117,8 @@
       word-break: break-all; max-height: 46px; overflow: auto;
     }
     .${NS}-hint { color: #6b7280; font-size: 11px; margin: 8px 0; }
+    .${NS}-attach { color: #3b82f6; text-decoration: underline; cursor: pointer; }
+    .${NS}-pop.${NS}-dragover { outline: 2px dashed #3b82f6; outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     .${NS}-thumbs img {
       width: 48px; height: 48px; object-fit: cover;
@@ -403,6 +411,12 @@
     'click',
     (e) => {
       if (!state.picking || isOurs(e.target)) return;
+      if (state.suppressClick) {
+        state.suppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
 
       /*
         Browse mode lets the page work as a page. Without it every link is dead
@@ -454,6 +468,112 @@
         state.climb = Math.max(0, state.climb - 1);
         place(resolveTarget());
       }
+    },
+    true,
+  );
+
+  /*
+    Marquee selection.
+
+    "Comment on this bit" is often about an area, not a single node — a cramped
+    header block, a row of cards, the gap between two sections. Dragging a box
+    captures that region as its own crop, plus every element substantially inside
+    it so Claude still gets selectors and source locations to edit.
+  */
+  let marqueeBox = null;
+
+  function ensureMarquee() {
+    if (marqueeBox) return marqueeBox;
+    marqueeBox = document.createElement('div');
+    marqueeBox.className = NS + '-marquee';
+    marqueeBox.setAttribute('data-ayna', '1');
+    document.documentElement.appendChild(marqueeBox);
+    return marqueeBox;
+  }
+
+  function marqueeRect(m) {
+    return {
+      x: Math.min(m.startX, m.curX),
+      y: Math.min(m.startY, m.curY),
+      width: Math.abs(m.curX - m.startX),
+      height: Math.abs(m.curY - m.startY),
+    };
+  }
+
+  /** Elements mostly inside the box — the ones the user plausibly meant. */
+  function elementsWithin(r) {
+    const hits = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (isOurs(el)) continue;
+      const b = rectOf(el);
+      if (!b.width || !b.height) continue;
+      const overlapW = Math.min(r.x + r.width, b.x + b.width) - Math.max(r.x, b.x);
+      const overlapH = Math.min(r.y + r.height, b.y + b.height) - Math.max(r.y, b.y);
+      if (overlapW <= 0 || overlapH <= 0) continue;
+      if ((overlapW * overlapH) / (b.width * b.height) < 0.75) continue;
+      hits.push(el);
+    }
+    // Drop elements whose ancestor is already in the set — keep the outermost.
+    const outermost = hits.filter((el) => !hits.some((o) => o !== el && o.contains(el)));
+    return outermost.slice(0, 8);
+  }
+
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      if (state.mode !== 'comment' || state.phase !== 'comment' || isOurs(e.target) || pop) return;
+      state.marquee = {
+        startX: e.pageX,
+        startY: e.pageY,
+        curX: e.pageX,
+        curY: e.pageY,
+        active: false,
+      };
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mousemove',
+    (e) => {
+      const m = state.marquee;
+      if (!m) return;
+      m.curX = e.pageX;
+      m.curY = e.pageY;
+      const r = marqueeRect(m);
+      // A few pixels of jitter is a click, not a drag.
+      if (!m.active && Math.max(r.width, r.height) < 8) return;
+      m.active = true;
+      hide();
+      const box = ensureMarquee();
+      box.style.display = 'block';
+      box.style.left = r.x + 'px';
+      box.style.top = r.y + 'px';
+      box.style.width = r.width + 'px';
+      box.style.height = r.height + 'px';
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mouseup',
+    (e) => {
+      const m = state.marquee;
+      state.marquee = null;
+      if (!m || !m.active) return;
+      if (marqueeBox) marqueeBox.style.display = 'none';
+
+      const r = marqueeRect(m);
+      if (r.width < 12 || r.height < 12) return;
+
+      // The click event that follows this mouseup would reopen a single-element
+      // popover over the top of the region one.
+      state.suppressClick = true;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const within = elementsWithin(r);
+      openPopover(within[0] || document.body, { rect: r, elements: within });
     },
     true,
   );
@@ -629,16 +749,27 @@
     return { x, y, width: right - x, height: bottom - y };
   }
 
-  function openPopover(el) {
+  function openPopover(el, region) {
     closePopover();
     state.picking = false;
     state.target = el;
-    place(el);
+    if (!region) place(el);
 
-    // A shift-click set takes precedence: one comment, several elements.
-    const targets = state.selection.length ? state.selection.map((s) => s.el) : [el];
+    /*
+      Three ways to aim a comment, in order of precedence:
+        region        — a box the user dragged; the rect is exactly what they framed
+        shift-click   — an explicit set of elements
+        single click  — one element
+    */
+    const targets = region
+      ? region.elements
+      : state.selection.length
+        ? state.selection.map((s) => s.el)
+        : [el];
     const described = targets.map(describeElement);
-    const r = unionRect(described.map((d) => d.rect));
+    const r = region
+      ? region.rect
+      : unionRect(described.map((d) => d.rect));
     const images = [];
 
     pop = document.createElement('div');
@@ -647,16 +778,20 @@
     pop.innerHTML =
       '<div class="' + NS + '-sel"></div>' +
       '<textarea placeholder="What should change about this?"></textarea>' +
-      '<div class="' + NS + '-hint">Paste an image to attach a reference · Esc to cancel</div>' +
+      '<div class="' + NS + '-hint">Paste, drop, or ' +
+      '<label class="' + NS + '-attach">choose an image<input type="file" accept="image/*" multiple hidden></label>' +
+      ' · Esc to cancel</div>' +
       '<div class="' + NS + '-thumbs"></div>' +
       '<div class="' + NS + '-row">' +
       '<button class="' + NS + '-cancel">Cancel</button>' +
       '<button class="' + NS + '-save">Add comment</button>' +
       '</div>';
 
-    const sel = described[0].selector;
-    pop.querySelector('.' + NS + '-sel').textContent =
-      described.length > 1
+    const sel = described.length ? described[0].selector : 'region';
+    pop.querySelector('.' + NS + '-sel').textContent = region
+      ? 'region ' + Math.round(r.width) + '×' + Math.round(r.height) +
+        (described.length ? ' · ' + described.map((d) => d.selector.split(' > ').pop()).join(', ') : '')
+      : described.length > 1
         ? described.length + ' elements: ' + described.map((d) => d.selector.split(' > ').pop()).join(', ')
         : sel;
 
@@ -669,22 +804,49 @@
     ta.focus();
 
     const thumbs = pop.querySelector('.' + NS + '-thumbs');
+
+    // Paste, drop and file-picker all funnel through here. A reference image is
+    // often the clearest way to say what you want, so make it hard to miss.
+    function attach(file) {
+      if (!file || file.type.indexOf('image/') !== 0) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        images.push(reader.result);
+        const img = document.createElement('img');
+        img.src = reader.result;
+        img.title = file.name || 'reference';
+        thumbs.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    }
+
     ta.addEventListener('paste', (ev) => {
-      const items = (ev.clipboardData && ev.clipboardData.items) || [];
-      for (const item of items) {
-        if (item.type.indexOf('image/') !== 0) continue;
-        const file = item.getAsFile();
-        if (!file) continue;
-        const reader = new FileReader();
-        reader.onload = () => {
-          images.push(reader.result);
-          const img = document.createElement('img');
-          img.src = reader.result;
-          thumbs.appendChild(img);
-        };
-        reader.readAsDataURL(file);
+      for (const item of (ev.clipboardData && ev.clipboardData.items) || []) {
+        if (item.type.indexOf('image/') === 0) attach(item.getAsFile());
       }
     });
+
+    pop.querySelector('.' + NS + '-attach input').addEventListener('change', (ev) => {
+      for (const f of ev.target.files || []) attach(f);
+    });
+
+    for (const evt of ['dragenter', 'dragover']) {
+      pop.addEventListener(evt, (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pop.classList.add(NS + '-dragover');
+      });
+    }
+    for (const evt of ['dragleave', 'drop']) {
+      pop.addEventListener(evt, (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pop.classList.remove(NS + '-dragover');
+        if (evt === 'drop') {
+          for (const f of (ev.dataTransfer && ev.dataTransfer.files) || []) attach(f);
+        }
+      });
+    }
 
     pop.querySelector('.' + NS + '-cancel').addEventListener('click', closePopover);
     pop.querySelector('.' + NS + '-save').addEventListener('click', async () => {
@@ -694,8 +856,10 @@
         return;
       }
 
-      const first = described[0];
+      const first = described[0] ?? { selector: 'body', tag: 'body', id: null, classes: [], text: '', outerHTML: '', styles: {} };
       const payload = {
+        kind: region ? 'region' : 'comment',
+        region: region ? { rect: r, elementCount: described.length } : null,
         comment: text,
         // Primary target stays flat for simple single-element comments.
         selector: first.selector,

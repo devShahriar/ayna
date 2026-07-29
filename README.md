@@ -39,9 +39,10 @@ Chrome opens with an overlay:
 | | |
 |---|---|
 | **Click** an element | leave a comment on it |
+| **Drag a box** | comment on a whole area — the crop is exactly what you framed |
 | **↑ / ↓** | walk up and down the DOM, like devtools — grab the card, not the `<span>` inside it |
 | **⇧ Shift-click** | select several elements for a single comment |
-| **Paste an image** | attach a visual reference to the comment |
+| **Paste, drop, or pick an image** | attach a visual reference to the comment |
 | **Move mode → drag** | reorder an element among its siblings; the page updates live |
 | **Browse mode** | links work normally, so you can review several pages in one session |
 

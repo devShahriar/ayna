@@ -137,7 +137,8 @@ Each comment gives you:
 
 | field | what it's for |
 |---|---|
-| `kind` | `comment` (a note) or `move` (they dragged something — see below) |
+| `kind` | `comment` (one element), `region` (a box they dragged), or `move` (a reorder) |
+| `region` | present for `kind: "region"` — the exact rect they framed. `regionScreenshot` is that area, and `elements[]` are the elements inside it. Treat the crop as the subject: the comment is about the whole area, not one node. |
 | `comment` | what they want changed |
 | `regionScreenshot` | **a crop of exactly what they selected** — Read it |
 | `attachments` | reference images they pasted — Read these too |

@@ -149,6 +149,8 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
       // performed in the page and wants reflected in the source.
       kind: payload.kind ?? 'comment',
       move: payload.move ?? null,
+      // Set when the user dragged a box instead of clicking one element.
+      region: payload.region ?? null,
       comment: payload.comment,
       selector: payload.selector,
       element: {

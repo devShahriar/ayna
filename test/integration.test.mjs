@@ -589,3 +589,116 @@ describe('multi-route capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
     }
   });
 });
+
+describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('dragging a box comments on an area, with an attached reference image', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const ref = path.join(dir, 'ref.png');
+      await writeFile(
+        ref,
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      );
+
+      const server = await serveStatic(site, 4550);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            const box = await page.locator('.list').boundingBox();
+            await page.mouse.move(box.x - 6, box.y - 6);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width + 6, box.y + box.height + 6, { steps: 12 });
+            await page.waitForTimeout(150);
+            await page.mouse.up();
+
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.setInputFiles('.ayna-ov-attach input', ref);
+            await page.waitForTimeout(300);
+            await page.fill('.ayna-ov-pop textarea', 'this block is cramped');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(700);
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.equal(manifest.comments.length, 1);
+        const c = manifest.comments[0];
+        assert.equal(c.kind, 'region', 'a dragged box is a region comment');
+        assert.ok(c.region.rect.width > 20 && c.region.rect.height > 20);
+        assert.ok(c.elements.length >= 1, 'elements inside the box are identified');
+        assert.equal(c.attachments.length, 1, 'the reference image came through');
+        assert.ok(existsSync(c.attachments[0]));
+        assert.ok(existsSync(c.regionScreenshot), 'the framed area was cropped');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a plain click still makes a single-element comment, not a region', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4551);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'tighten this');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(600);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.click('[data-act=approve]');
+          },
+        });
+        assert.equal(manifest.comments[0].kind, 'comment');
+        assert.equal(manifest.comments[0].region, null);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
