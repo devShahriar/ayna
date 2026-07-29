@@ -56,6 +56,16 @@ demo/               a deliberately mediocre landing page to improve
 `src/overlay.js` is injected into the page under review. It runs in the browser, so
 no Node APIs, and keep it dependency-free.
 
+## Regenerating the README demo
+
+```bash
+npm run demo:gif      # needs ffmpeg on PATH
+```
+
+It drives the real overlay against a throwaway copy of `demo/` and makes a genuine
+CSS edit partway through, so the reload in the recording shows something that
+actually happened. Don't hand-assemble a staged one.
+
 ## Conventions
 
 - Plain ESM `.mjs`, no TypeScript, no build step.

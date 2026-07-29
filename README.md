@@ -8,6 +8,11 @@ Claude the image, and loops critique → fix → re-shoot until it looks right.
 
 And when words aren't enough, you can **click the thing you mean** and comment on it.
 
+![Commenting on an element, Claude applying the change, and approving it in place](docs/demo.gif)
+
+*Click an element → say what's wrong → Claude edits → the page reloads with your
+comment re-anchored on the change → approve it. The window never closes on you.*
+
 ## Install
 
 ```bash

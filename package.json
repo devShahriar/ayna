@@ -30,7 +30,8 @@
     "test:watch": "node --test --watch test/",
     "shot": "node bin/ayna.mjs shot",
     "annotate": "node bin/ayna.mjs annotate",
-    "serve": "node bin/ayna.mjs serve"
+    "serve": "node bin/ayna.mjs serve",
+    "demo:gif": "node scripts/make-demo-gif.mjs"
   },
   "engines": {
     "node": ">=20"
