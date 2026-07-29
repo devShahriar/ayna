@@ -27,8 +27,16 @@
     climb: 0,
     // Shift-click builds a set so one comment can cover several elements.
     selection: [],
-    // 'comment' clicks to annotate; 'move' drags to reorder among siblings.
-    mode: 'comment',
+    // 'comment' clicks to annotate, 'move' drags to reorder, 'browse' lets the
+    // page behave normally. Persisted per-tab so walking A -> B -> C doesn't drop
+    // you back into comment mode on every page and swallow your next link click.
+    mode: (() => {
+      try {
+        return sessionStorage.getItem('ayna-mode') || 'comment';
+      } catch {
+        return 'comment';
+      }
+    })(),
     drag: null,
   };
 
@@ -140,6 +148,18 @@
   bar.setAttribute('data-ayna', '1');
   document.documentElement.appendChild(bar);
   setPhase('comment');
+
+  // A navigation rebuilds this overlay from scratch, but the comments already
+  // sent live in Node. Ask for the real total so the counter doesn't reset to 0
+  // and make the user think their earlier notes were lost.
+  if (window.__aynaCount) {
+    window.__aynaCount().then((n) => {
+      if (typeof n === 'number' && n > state.seq) {
+        state.seq = n;
+        refreshCount();
+      }
+    }).catch(() => {});
+  }
   }
 
   /*
@@ -154,20 +174,30 @@
     state.picking = phase === 'comment';
 
     if (phase === 'comment') {
-      const moving = state.mode === 'move';
+      // comment → move → browse → comment
+      const NEXT = { comment: 'move', move: 'browse', browse: 'comment' };
+      const HINT = {
+        comment: 'Click anything to comment',
+        move: 'Drag an element to reorder it',
+        browse: 'Browsing — click links freely, nothing is captured',
+      };
+      const NEXT_LABEL = { comment: 'Move mode', move: 'Browse mode', browse: 'Comment mode' };
+
       bar.innerHTML =
-        '<span>' +
-        (moving ? 'Drag an element to reorder it' : 'Click anything to comment') +
-        '</span>' +
-        '<button data-act="mode" class="' + NS + '-ghost">' +
-        (moving ? 'Comment mode' : 'Move mode') +
-        '</button>' +
+        '<span>' + HINT[state.mode] + '</span>' +
+        '<button data-act="mode" class="' + NS + '-ghost">' + NEXT_LABEL[state.mode] + '</button>' +
         '<span class="' + NS + '-count">' + countLabel() + '</span>' +
         '<button data-act="send"' + (state.seq ? '' : ' disabled') + '>Send to Claude</button>';
 
       bar.querySelector('[data-act=mode]').addEventListener('click', () => {
-        state.mode = moving ? 'comment' : 'move';
+        state.mode = NEXT[state.mode];
+        try {
+          sessionStorage.setItem('ayna-mode', state.mode);
+        } catch {
+          // Private mode or a blocked origin — the mode just won't persist.
+        }
         clearSelection();
+        hide();
         setPhase('comment');
       });
       bar.querySelector('[data-act=send]').addEventListener('click', () => {
@@ -354,7 +384,7 @@
   document.addEventListener(
     'mousemove',
     (e) => {
-      if (!state.picking) return;
+      if (!state.picking || state.mode === 'browse') return;
       if (isOurs(e.target)) {
         hide();
         return;
@@ -373,6 +403,18 @@
     'click',
     (e) => {
       if (!state.picking || isOurs(e.target)) return;
+
+      /*
+        Browse mode lets the page work as a page. Without it every link is dead
+        while the overlay is up, so a multi-page review is impossible — you could
+        only ever comment on the first screen.
+
+        Deliberately not ⌘/ctrl/middle-click: those open a new tab in every
+        browser, and the overlay is bound to this page, so you would land
+        somewhere ayna isn't watching.
+      */
+      if (state.mode === 'browse') return;
+
       e.preventDefault();
       e.stopPropagation();
       // In move mode the drag handlers own the mouse.

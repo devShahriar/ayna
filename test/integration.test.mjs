@@ -445,3 +445,90 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
     }
   });
 });
+
+describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('browse mode lets you navigate and comment on a second page', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        '<html><body><h1 class="home">Home page</h1><a class="nav" href="/about.html">About</a></body></html>',
+      );
+      await writeFile(
+        path.join(site, 'about.html'),
+        '<html><body><h1 class="about">About page</h1></body></html>',
+      );
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4531);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.home');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'home heading');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+
+            // comment -> move -> browse, then follow the link
+            await page.click('[data-act=mode]');
+            await page.click('[data-act=mode]');
+            await page.click('.nav');
+            await page.waitForLoadState('networkidle');
+            await page.waitForTimeout(400);
+
+            // The overlay is rebuilt, but the count and mode must survive.
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-count')?.textContent),
+              /1 comment/,
+              'earlier comments are not forgotten across navigation',
+            );
+
+            await page.click('[data-act=mode]'); // browse -> comment
+            await page.click('.about');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'about heading');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.equal(manifest.comments.length, 2, 'both pages captured');
+        assert.match(manifest.comments[0].url, /\/$/);
+        assert.match(manifest.comments[1].url, /about\.html$/);
+        assert.equal(
+          manifest.comments[1].elements[0].sourceCandidates[0].file,
+          'about.html',
+          'source ranked to the page the comment was made on',
+        );
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

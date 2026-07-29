@@ -15,8 +15,14 @@ import path from 'node:path';
  * dev server.
  */
 
-/** Best-effort map from a DOM node back to the source that produced it. */
-async function findInSource(projectDir, { id, classes, text }) {
+/**
+ * Best-effort map from a DOM node back to the source that produced it.
+ *
+ * `pageUrl` matters on multi-page sites: a grep for "about" hits the *link* to
+ * /about.html in index.html before the page itself, so candidates whose path
+ * resembles the page the comment was made on are ranked first.
+ */
+async function findInSource(projectDir, { id, classes, text }, pageUrl) {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const exec = promisify(execFile);
@@ -46,7 +52,30 @@ async function findInSource(projectDir, { id, classes, text }) {
     }
     if (hits.length >= 6) break;
   }
-  return hits;
+  return rankByPage(hits, pageUrl);
+}
+
+/** Files whose path echoes the current route are the likelier source. */
+function rankByPage(hits, pageUrl) {
+  if (!pageUrl || hits.length < 2) return hits;
+
+  let route;
+  try {
+    route = new URL(pageUrl).pathname;
+  } catch {
+    return hits;
+  }
+  // "/about.html" -> "about"; "/" or "/index.html" -> "index"
+  const stem = path.basename(route, path.extname(route)) || 'index';
+
+  const score = (hit) => {
+    const base = path.basename(hit.file, path.extname(hit.file));
+    if (base === stem) return 0;
+    if (hit.file.includes(`/${stem}`) || base.includes(stem)) return 1;
+    return 2;
+  };
+  // Stable sort keeps the original grep order within each tier.
+  return hits.map((h, i) => ({ h, i })).sort((a, b) => score(a.h) - score(b.h) || a.i - b.i).map((x) => x.h);
 }
 
 /**
@@ -109,7 +138,7 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
         outerHTML: el.outerHTML,
         styles: el.styles,
         rect: el.rect,
-        sourceCandidates: await findInSource(projectDir, el),
+        sourceCandidates: await findInSource(projectDir, el, payload.url),
       });
     }
     const source = perElement.flatMap((e) => e.sourceCandidates);
@@ -187,6 +216,10 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
     await writeStatus();
   });
 
+  // Comments survive navigation (they live here, not in the page), so a rebuilt
+  // overlay can ask for the real running total.
+  await page.exposeFunction('__aynaCount', async () => comments.length);
+
   // They're happy — this is the only thing that closes the window.
   await page.exposeFunction('__aynaApprove', async () => {
     phase = 'approved';
@@ -201,7 +234,15 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   // Lets tests and scripted flows drive the overlay without a human at the mouse.
   // Deliberately not awaited: a real user clicks while the watch loop below is
   // running, and awaiting here would stall that loop and deadlock the round-trip.
-  if (onReady) onReady(page).catch(() => {});
+  if (onReady) {
+    onReady(page).catch(async (err) => {
+      // Swallowing this would leave the watch loop below waiting for an approval
+      // that can never come — an infinite hang with no explanation. Close the page
+      // so the loop exits and the failure is visible.
+      process.stderr.write(`[ayna] scripted interaction failed: ${err.message}\n`);
+      await page.close().catch(() => {});
+    });
+  }
 
   // Stay open until the user approves or closes the tab themselves. While waiting,
   // watch for Claude's "applied" marker — that's the cue to show them the result.

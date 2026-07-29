@@ -43,6 +43,7 @@ Chrome opens with an overlay:
 | **⇧ Shift-click** | select several elements for a single comment |
 | **Paste an image** | attach a visual reference to the comment |
 | **Move mode → drag** | reorder an element among its siblings; the page updates live |
+| **Browse mode** | links work normally, so you can review several pages in one session |
 
 Press **Send to Claude**. For each comment Claude gets:
 

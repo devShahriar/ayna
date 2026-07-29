@@ -99,6 +99,12 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate
 **Run it in the background** — it stays open for the whole review, not just until
 they send. The window is theirs; you never close it.
 
+The overlay has three modes, cycled with one button: **comment** (click to
+annotate), **move** (drag to reorder), **browse** (links work normally). Browse
+mode is how they review more than one page — each comment records the `url` it was
+made on, and `sourceCandidates` are ranked toward that route. If their notes span
+several pages, check `comment.url` before deciding which file to edit.
+
 The round-trip:
 
 1. **They comment and press "Send to Claude".** The bar switches to "Claude is
