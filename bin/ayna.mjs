@@ -282,6 +282,12 @@ async function main() {
           console.log(JSON.stringify({ phase: s.phase, round: s.round, comments: s.comments }));
           return;
         }
+        // "Needs work" on any comment is also a call to action — without this the
+        // user would have to press Send again just to tell you they rejected one.
+        if (s.rejected > 0) {
+          console.log(JSON.stringify({ phase: s.phase, rejected: s.rejected, action: 'retry-rejected' }));
+          return;
+        }
         if (s.phase === 'approved' || s.phase === 'closed') {
           console.log(JSON.stringify({ phase: s.phase, done: true }));
           return;

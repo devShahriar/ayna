@@ -125,10 +125,21 @@ The round-trip:
    ```
    It reloads the page in place so they see the result immediately, and offers
    **Approve & close** / **Comment more**.
-4. **If they click "Comment more"**, phase goes back to `commenting` and a new
-   round of comments arrives — repeat from 1.
-5. **If they approve**, the background command exits and the window closes. Only
+4. **They judge each comment in place.** Every commented portion is re-highlighted
+   on the changed page with its own marker. Per comment they choose **Looks right**
+   (→ `resolved`) or **Needs work** (→ `rejected`).
+5. **`ayna wait` wakes you again when anything is rejected.** Re-read
+   `comments --json`, fix only the comments whose `status` is `rejected` or `open`
+   — **never touch a `resolved` one** — then run `applied` again. Rejected comments
+   return to `open` for re-judging.
+6. **If they click "Comment more"**, phase goes back to `commenting` and a new
+   round arrives — repeat from 1.
+7. **If they approve**, the background command exits and the window closes. Only
    their approval closes it.
+
+`ayna status` reports the tally: `open`, `resolved`, `rejected`. Resolved comments
+stay in the manifest permanently as the record of what changed this session — the
+user can click any green marker to re-read it.
 
 Do **not** kill the annotate process to "finish" a review, and don't close the
 browser yourself. Waiting is the correct behavior.
@@ -137,6 +148,7 @@ Each comment gives you:
 
 | field | what it's for |
 |---|---|
+| `status` | `open` (act on it), `rejected` (your last attempt missed — try differently), `resolved` (**done — do not touch it again**) |
 | `kind` | `comment` (one element), `region` (a box they dragged), or `move` (a reorder) |
 | `region` | present for `kind: "region"` — the exact rect they framed. `regionScreenshot` is that area, and `elements[]` are the elements inside it. Treat the crop as the subject: the comment is about the whole area, not one node. |
 | `comment` | what they want changed |

@@ -182,6 +182,14 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
       // Stable across deletions; `n` is just display order and gets renumbered.
       id: nextId++,
       n,
+      /*
+        open     — Claude has not addressed it yet
+        resolved — the user looked at the change and accepted it
+        rejected — the user looked and wants another attempt
+        Resolved comments stay in the manifest as a record of what changed.
+      */
+      status: 'open',
+      rounds: [],
       // 'comment' is a note about an element; 'move' is a reorder the user
       // performed in the page and wants reflected in the source.
       kind: payload.kind ?? 'comment',
@@ -236,7 +244,20 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   const writeStatus = () =>
     writeFile(
       statusFile,
-      JSON.stringify({ phase, round, comments: comments.length, approved: done, url }, null, 2),
+      JSON.stringify(
+        {
+          phase,
+          round,
+          comments: comments.length,
+          open: comments.filter((c) => c.status !== 'resolved').length,
+          resolved: comments.filter((c) => c.status === 'resolved').length,
+          rejected: comments.filter((c) => c.status === 'rejected').length,
+          approved: done,
+          url,
+        },
+        null,
+        2,
+      ),
     );
 
   const writeManifest = () =>
@@ -273,6 +294,34 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   // overlay can ask for the real running total.
   await page.exposeFunction('__aynaCount', async () => comments.length);
 
+  // The review overlay re-anchors these on the page after Claude's edits land.
+  await page.exposeFunction('__aynaList', async () =>
+    comments.map((c) => ({
+      id: c.id,
+      n: c.n,
+      comment: c.comment,
+      kind: c.kind,
+      selector: c.selector,
+      rect: c.rect,
+      status: c.status,
+      url: c.url,
+    })),
+  );
+
+  // Per-comment verdict. Approving keeps the comment as history; rejecting puts
+  // it back in front of Claude for another attempt.
+  await page.exposeFunction('__aynaResolve', async (id, status) => {
+    const c = comments.find((x) => x.id === id);
+    if (!c || !['resolved', 'rejected', 'open'].includes(status)) {
+      return { ok: false };
+    }
+    c.status = status;
+    c.rounds.push({ round, status });
+    await writeManifest();
+    await writeStatus();
+    return { ok: true, status, open: comments.filter((x) => x.status !== 'resolved').length };
+  });
+
   // They're happy — this is the only thing that closes the window.
   await page.exposeFunction('__aynaApprove', async () => {
     phase = 'approved';
@@ -302,6 +351,11 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   while (!done && !page.isClosed()) {
     if (phase === 'awaiting-claude' && existsSync(appliedFile)) {
       await rm(appliedFile, { force: true });
+      // Anything the user sent back for another attempt has now had one, so it
+      // returns to the pile to be judged again rather than staying "rejected".
+      for (const c of comments) {
+        if (c.status === 'rejected') c.status = 'open';
+      }
       try {
         await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
         await page.evaluate(() => window.__aynaReview && window.__aynaReview());

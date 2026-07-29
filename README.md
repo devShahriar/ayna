@@ -60,9 +60,16 @@ Press **Send to Claude**. For each comment Claude gets:
 So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
 as: this element, this crop, this file, this line, these styles.
 
-**Your window stays open.** Claude edits, the page reloads itself so you can see the
-result, and you get **Comment more** / **Approve & close**. Only your approval ends
-the session.
+**Your window stays open.** Claude edits, the page reloads itself, and **every
+portion you commented on is highlighted again in place** — so you judge each change
+where it happened.
+
+Each marker gets its own verdict: **Looks right** or **Needs work**. Rejecting one
+sends just that comment back for another attempt; the rest are left alone. Approved
+comments don't disappear — they stay as green markers you can click to re-read, so
+by the end of a session the page carries the record of everything that changed.
+
+Only **Approve & close** ends the session.
 
 ## The loop
 

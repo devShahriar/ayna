@@ -137,6 +137,37 @@
       box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
     .${NS}-pin:hover { background: #ef4444; color: #fff; }
+    .${NS}-rev {
+      position: absolute; z-index: 2147483638; pointer-events: none;
+      border: 2px solid #f59e0b; background: rgba(245,158,11,.10);
+      border-radius: 4px; transition: border-color .2s, background-color .2s;
+    }
+    .${NS}-rev[data-status=resolved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
+    .${NS}-rev[data-status=rejected] { border-color: #ef4444; background: rgba(239,68,68,.10); }
+    .${NS}-revpin {
+      position: absolute; z-index: 2147483644; min-width: 22px; height: 22px;
+      padding: 0 6px; border-radius: 999px; background: #f59e0b; color: #111;
+      font: 700 11px/22px -apple-system, system-ui, sans-serif; text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.28); cursor: pointer; user-select: none;
+      display: flex; align-items: center; gap: 4px; justify-content: center;
+    }
+    .${NS}-revpin[data-status=resolved] { background: #16a34a; color: #fff; opacity: .85; }
+    .${NS}-revpin[data-status=rejected] { background: #ef4444; color: #fff; }
+    .${NS}-card {
+      position: absolute; z-index: 2147483646; width: 300px;
+      background: #fff; color: #111; border-radius: 12px; padding: 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
+      font: 13px/1.55 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-card .${NS}-badge {
+      display: inline-block; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .08em; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+      background: #fef3c7; color: #92400e; margin-bottom: 8px;
+    }
+    .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
+    .${NS}-card[data-status=rejected] .${NS}-badge { background: #fee2e2; color: #991b1b; }
+    .${NS}-card p { margin: 0 0 10px; }
+    .${NS}-card .${NS}-when { color: #6b7280; font-size: 11px; margin-bottom: 10px; }
     .${NS}-pin i { font-style: normal; display: none; }
     .${NS}-pin:hover b { display: none; }
     .${NS}-pin:hover i { display: inline; }
@@ -182,8 +213,10 @@
   */
   function setPhase(phase) {
     if (!bar) return;
+    const leavingReview = state.phase === 'review' && phase !== 'review';
     state.phase = phase;
     state.picking = phase === 'comment';
+    if (leavingReview) clearReview();
 
     if (phase === 'comment') {
       // comment → move → browse → comment
@@ -229,10 +262,17 @@
 
     // review
     bar.innerHTML =
-      '<span>Changes are live. Look them over.</span>' +
+      '<span>Changes are live — click a marker to judge it</span>' +
+      '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
       '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
       '<button data-act="approve">Approve &amp; close</button>';
+
+    // Re-anchor every comment on the changed page so each one can be judged
+    // where it actually happened, not from memory.
+    renderReview().then(updateReviewBar);
+
     bar.querySelector('[data-act=more]').addEventListener('click', () => {
+      clearReview();
       state.seq = 0;
       setPhase('comment');
       window.__aynaMore();
@@ -489,6 +529,7 @@
     (e) => {
       if (e.key === 'Escape') {
         closePopover();
+        closeCard();
         clearSelection();
         return;
       }
@@ -930,7 +971,140 @@
     });
   }
 
+  /*
+    Review overlay.
+
+    After Claude's edits land, each comment is re-anchored on the *changed* page —
+    by selector where the element still exists, by its recorded rect otherwise — so
+    you can see exactly which portion was touched and judge it in place. Approving
+    doesn't delete the comment: it stays as a green marker you can click to read,
+    which is the record of what changed across the session.
+  */
+  const reviewNodes = [];
+  let card = null;
+
+  function clearReview() {
+    for (const n of reviewNodes) n.remove();
+    reviewNodes.length = 0;
+    closeCard();
+  }
+
+  function closeCard() {
+    if (card) {
+      card.remove();
+      card = null;
+    }
+  }
+
+  function anchorFor(c) {
+    if (c.selector) {
+      try {
+        const el = document.querySelector(c.selector);
+        if (el) return rectOf(el);
+      } catch {
+        // Selector may not survive a structural rewrite; fall back to the rect.
+      }
+    }
+    return c.rect;
+  }
+
+  async function renderReview() {
+    clearReview();
+    if (!window.__aynaList) return;
+    const comments = await window.__aynaList().catch(() => []);
+    // Only anchor comments made on this page.
+    const here = comments.filter((c) => !c.url || c.url.split('#')[0] === location.href.split('#')[0]);
+
+    for (const c of here) {
+      const r = anchorFor(c);
+      if (!r || !r.width) continue;
+
+      const box = document.createElement('div');
+      box.className = NS + '-rev';
+      box.setAttribute('data-ayna', '1');
+      box.dataset.status = c.status;
+      box.style.left = r.x + 'px';
+      box.style.top = r.y + 'px';
+      box.style.width = r.width + 'px';
+      box.style.height = r.height + 'px';
+      document.documentElement.appendChild(box);
+      reviewNodes.push(box);
+
+      const pin = document.createElement('div');
+      pin.className = NS + '-revpin';
+      pin.setAttribute('data-ayna', '1');
+      pin.dataset.status = c.status;
+      pin.textContent = c.status === 'resolved' ? '✓ ' + c.n : String(c.n);
+      pin.title = c.comment;
+      pin.style.left = r.x + 'px';
+      pin.style.top = Math.max(0, r.y - 26) + 'px';
+      document.documentElement.appendChild(pin);
+      reviewNodes.push(pin);
+
+      pin.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openCard(c, r, box, pin);
+      });
+    }
+  }
+
+  function openCard(c, r, box, pin) {
+    closeCard();
+    card = document.createElement('div');
+    card.className = NS + '-card';
+    card.setAttribute('data-ayna', '1');
+    card.dataset.status = c.status;
+
+    const done = c.status === 'resolved';
+    card.innerHTML =
+      '<div class="' + NS + '-badge"></div>' +
+      '<p class="' + NS + '-text"></p>' +
+      '<div class="' + NS + '-when"></div>' +
+      '<div class="' + NS + '-row">' +
+      (done
+        ? '<button class="' + NS + '-cancel" data-act="reopen">Reopen</button>'
+        : '<button class="' + NS + '-cancel" data-act="reject">Needs work</button>' +
+          '<button class="' + NS + '-save" data-act="resolve">Looks right</button>') +
+      '</div>';
+
+    card.querySelector('.' + NS + '-badge').textContent =
+      c.status === 'resolved' ? 'resolved' : c.status === 'rejected' ? 'needs work' : 'comment ' + c.n;
+    card.querySelector('.' + NS + '-text').textContent = c.comment;
+    card.querySelector('.' + NS + '-when').textContent =
+      c.kind === 'move' ? 'a reorder you made' : c.kind === 'region' ? 'a region you framed' : c.selector || '';
+
+    const docEl = document.documentElement;
+    card.style.top = Math.max(8, r.y + r.height + 10) + 'px';
+    card.style.left = Math.min(Math.max(r.x, 8), Math.max(8, docEl.clientWidth - 316)) + 'px';
+    docEl.appendChild(card);
+
+    const set = async (status) => {
+      const res = await window.__aynaResolve(c.id, status);
+      if (!res || !res.ok) return;
+      c.status = status;
+      box.dataset.status = status;
+      pin.dataset.status = status;
+      pin.textContent = status === 'resolved' ? '✓ ' + c.n : String(c.n);
+      closeCard();
+      updateReviewBar();
+    };
+
+    card.querySelector('[data-act=resolve]')?.addEventListener('click', () => set('resolved'));
+    card.querySelector('[data-act=reject]')?.addEventListener('click', () => set('rejected'));
+    card.querySelector('[data-act=reopen]')?.addEventListener('click', () => set('open'));
+  }
+
+  async function updateReviewBar() {
+    if (!bar || state.phase !== 'review' || !window.__aynaList) return;
+    const comments = await window.__aynaList().catch(() => []);
+    const resolved = comments.filter((c) => c.status === 'resolved').length;
+    const label = bar.querySelector('.' + NS + '-progress');
+    if (label) label.textContent = resolved + ' of ' + comments.length + ' resolved';
+  }
+
   function cleanup() {
+    clearReview();
     if (hl) hl.remove();
     if (bar) bar.remove();
     for (const p of state.pins) p.remove();

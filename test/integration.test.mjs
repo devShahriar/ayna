@@ -814,3 +814,108 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
     }
   });
 });
+
+describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('each comment is re-anchored after the edits and judged in place', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4570);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            const add = async (sel, txt) => {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop textarea');
+              await page.fill('.ayna-ov-pop textarea', txt);
+              await page.click('.ayna-ov-save');
+              await page.waitForTimeout(450);
+            };
+            await add('.title', 'headline too big');
+            await add('.lede', 'body copy cramped');
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.waitForTimeout(500);
+
+            assert.equal(
+              await page.evaluate(() => document.querySelectorAll('.ayna-ov-rev').length),
+              2,
+              'both commented portions are highlighted on the changed page',
+            );
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent),
+              /0 of 2 resolved/,
+            );
+
+            // Approve the first, send the second back.
+            await page.click('.ayna-ov-revpin >> nth=0');
+            await page.waitForSelector('.ayna-ov-card');
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-card .ayna-ov-text').textContent),
+              /headline too big/,
+              'the card shows the original comment',
+            );
+            await page.click('[data-act=resolve]');
+            await page.waitForTimeout(350);
+
+            await page.click('.ayna-ov-revpin >> nth=1');
+            await page.waitForSelector('.ayna-ov-card');
+            await page.click('[data-act=reject]');
+            await page.waitForTimeout(350);
+
+            assert.deepEqual(
+              await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
+              ['resolved', 'rejected'],
+            );
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent),
+              /1 of 2 resolved/,
+            );
+
+            // A resolved comment stays readable — the record of what changed.
+            await page.click('.ayna-ov-revpin >> nth=0');
+            await page.waitForSelector('.ayna-ov-card');
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
+              /resolved/,
+            );
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.deepEqual(
+          manifest.comments.map((c) => c.status),
+          ['resolved', 'rejected'],
+          'verdicts persist into the manifest',
+        );
+        const status = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8'));
+        assert.equal(status.resolved, 1);
+        assert.equal(status.rejected, 1);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
