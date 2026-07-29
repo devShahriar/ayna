@@ -26,8 +26,8 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/",
-    "test:watch": "node --test --watch test/",
+    "test": "node --test test/*.test.mjs",
+    "test:watch": "node --test --watch test/*.test.mjs",
     "shot": "node bin/ayna.mjs shot",
     "annotate": "node bin/ayna.mjs annotate",
     "serve": "node bin/ayna.mjs serve",
