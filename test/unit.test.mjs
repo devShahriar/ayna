@@ -198,6 +198,40 @@ describe('static server', () => {
     }
   });
 
+  test('serves index.html for a client-side route so a review reload works', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await fixtureSite(dir);
+      const server = await serveStatic(dir, 4405);
+      try {
+        const res = await fetch(new URL('/d/d-835f8b1a49a73b39', server.url));
+        assert.equal(res.status, 200, 'SPA deep route falls back to the shell');
+        assert.match(await res.text(), /A headline that is long enough/);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a missing asset still 404s loudly rather than returning HTML', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await fixtureSite(dir);
+      const server = await serveStatic(dir, 4406);
+      try {
+        for (const missing of ['/app.js', '/logo.png', '/styles/main.css']) {
+          assert.equal((await fetch(new URL(missing, server.url))).status, 404, missing);
+        }
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   test('falls forward to a free port when the preferred one is taken', async () => {
     const { dir, dispose } = await tempDir();
     try {

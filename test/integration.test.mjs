@@ -1014,3 +1014,95 @@ describe('approve-all', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => 
     }
   });
 });
+
+describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('client-side navigation keeps the overlay and records the SPA route', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="font-family:system-ui;padding:30px">
+           <button id="go">Open dashboard</button>
+           <div id="view"><h1 class="home">Home view of the application</h1></div>
+           <script>
+             document.getElementById('go').addEventListener('click', () => {
+               history.pushState({}, '', '/d/abc123');
+               document.getElementById('view').innerHTML =
+                 '<h1 class="dash">Dashboard rendered client side</h1>' +
+                 '<p class="panel">A panel that needs restyling here</p>';
+             });
+           </script>
+         </body></html>`,
+      );
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4600);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            // Browse mode, then navigate using the app's own control.
+            await page.click('[data-act=mode]');
+            await page.click('[data-act=mode]');
+            await page.click('#go');
+            await page.waitForTimeout(350);
+
+            assert.equal(await page.evaluate(() => location.pathname), '/d/abc123');
+            assert.ok(
+              await page.evaluate(() => !!document.querySelector('.ayna-ov-bar')),
+              'overlay survives client-side navigation',
+            );
+
+            await page.click('[data-act=mode]'); // back to comment
+            await page.click('.panel');
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.fill('.ayna-ov-pop textarea', 'more padding here');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 20000,
+            });
+            await page.waitForTimeout(400);
+
+            // The reload must land back on the SPA route, not a 404 or the root.
+            assert.equal(
+              await page.evaluate(() => location.pathname),
+              '/d/abc123',
+              'review reload stays on the page under review',
+            );
+            assert.match(
+              await page.evaluate(() => document.body.innerText),
+              /Home view of the application/,
+              'the app shell actually booted rather than 404ing',
+            );
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.match(manifest.comments[0].url, /\/d\/abc123$/, 'comment carries the SPA route');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

@@ -116,10 +116,17 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate
 they send. The window is theirs; you never close it.
 
 The overlay has three modes, cycled with one button: **comment** (click to
-annotate), **move** (drag to reorder), **browse** (links work normally). Browse
-mode is how they review more than one page — each comment records the `url` it was
-made on, and `sourceCandidates` are ranked toward that route. If their notes span
-several pages, check `comment.url` before deciding which file to edit.
+annotate), **move** (drag to reorder), **browse** (the app behaves normally).
+
+**Browse mode means they can reach any page themselves** — clicking through the
+app's own UI, following links, or typing a URL. Client-side routing works too: the
+overlay survives pushState navigation and the running comment count comes with it.
+So if you can't work out the right URL, opening the app's entry point is fine —
+they'll navigate to what they mean.
+
+Each comment records the `url` it was made on, and `sourceCandidates` are ranked
+toward that route. **If their notes span several pages, check `comment.url` before
+deciding which file to edit.**
 
 The round-trip:
 

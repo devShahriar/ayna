@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const MIME = {
@@ -46,8 +47,22 @@ export async function serveStatic(dir, preferredPort = 4173) {
         s = await stat(filePath).catch(() => null);
       }
       if (!s) {
-        res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
-        return;
+        /*
+          SPA history fallback. A client-side route like /d/abc123 has no file
+          behind it, but the app renders it fine once index.html boots. Without
+          this, reloading the page after an edit — which is exactly what a review
+          does — lands on a 404 instead of the view being reviewed.
+
+          Only for extensionless paths, so a genuinely missing asset still 404s
+          loudly rather than silently returning HTML.
+        */
+        if (!path.extname(filePath) && existsSync(path.join(root, 'index.html'))) {
+          filePath = path.join(root, 'index.html');
+          s = await stat(filePath);
+        } else {
+          res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+          return;
+        }
       }
 
       res.writeHead(200, {
