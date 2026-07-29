@@ -1,0 +1,55 @@
+{
+  "name": "ayna",
+  "version": "0.3.0",
+  "description": "A Claude Code plugin that lets Claude see the UI it builds. Screenshots the running page in real Chrome, and lets you click, comment on, and rearrange elements so Claude edits exactly what you meant.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Shahriar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shahriar/ayna.git"
+  },
+  "homepage": "https://github.com/shahriar/ayna#readme",
+  "bugs": {
+    "url": "https://github.com/shahriar/ayna/issues"
+  },
+  "bin": {
+    "ayna": "./bin/ayna.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "commands",
+    "SKILL.md",
+    ".claude-plugin",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/",
+    "test:watch": "node --test --watch test/",
+    "shot": "node bin/ayna.mjs shot",
+    "annotate": "node bin/ayna.mjs annotate",
+    "serve": "node bin/ayna.mjs serve"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "ui",
+    "design",
+    "screenshot",
+    "visual-review",
+    "playwright",
+    "frontend",
+    "design-review",
+    "annotation",
+    "ai"
+  ],
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

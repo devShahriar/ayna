@@ -1,0 +1,304 @@
+/*
+  These drive a real Chrome. They are the tests that actually protect the product:
+  the capture diagnostics and the annotate round-trip are where the bugs have been.
+
+  Set AYNA_SKIP_BROWSER=1 to skip them (e.g. on a machine with no Chrome).
+*/
+import { test, describe, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { writeFile, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+import { openBrowser, capture } from '../src/browser.mjs';
+import { serveStatic } from '../src/server.mjs';
+import { runAnnotate } from '../src/annotate.mjs';
+import { tempDir, fixtureSite, hasBrowser } from './helpers.mjs';
+
+describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('captures a screenshot per viewport with metrics', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const server = await serveStatic(site, 4500);
+      try {
+        const cap = await capture({
+          browser,
+          url: server.url,
+          viewports: [
+            { name: 'desktop', width: 1200, height: 800 },
+            { name: 'mobile', width: 390, height: 844 },
+          ],
+          outDir: dir,
+          label: 'shot',
+        });
+        assert.equal(cap.shots.length, 2);
+        for (const s of cap.shots) {
+          assert.ok(existsSync(s.file), `${s.viewport} png written`);
+          assert.equal(s.loadError, null);
+          assert.equal(s.transportError, false);
+          assert.ok(s.metrics.textLength > 20);
+        }
+        assert.equal(cap.blank, false);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('flags an unreachable server as transport, not as a UI defect', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const cap = await capture({
+        browser,
+        url: 'http://127.0.0.1:59997/',
+        viewports: [{ name: 'desktop', width: 800, height: 600 }],
+        outDir: dir,
+        label: 'dead',
+      });
+      const shot = cap.shots[0];
+      assert.equal(shot.transportError, true, 'must be classed as transport');
+      assert.ok(shot.loadError, 'load error recorded');
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('detects horizontal overflow and sub-12px text', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site, { overflow: true, tinyText: true });
+      const server = await serveStatic(site, 4501);
+      try {
+        const cap = await capture({
+          browser,
+          url: server.url,
+          viewports: [{ name: 'mobile', width: 390, height: 844 }],
+          outDir: dir,
+          label: 'shot',
+        });
+        assert.equal(cap.shots[0].metrics.horizontalOverflow, true);
+        assert.ok(cap.shots[0].metrics.tinyTextNodes >= 1);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('reports a blank page as blank', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site, { blank: true });
+      const server = await serveStatic(site, 4502);
+      try {
+        const cap = await capture({
+          browser,
+          url: server.url,
+          viewports: [{ name: 'desktop', width: 800, height: 600 }],
+          outDir: dir,
+          label: 'shot',
+        });
+        assert.equal(cap.blank, true);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a missing favicon is not counted as a console error', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      // Drop the inline favicon so the browser really requests /favicon.ico.
+      const html = await readFile(path.join(site, 'index.html'), 'utf8');
+      await writeFile(path.join(site, 'index.html'), html.replace('<link rel="icon" href="data:,">', ''));
+      const server = await serveStatic(site, 4503);
+      try {
+        const cap = await capture({
+          browser,
+          url: server.url,
+          viewports: [{ name: 'desktop', width: 800, height: 600 }],
+          outDir: dir,
+          label: 'shot',
+        });
+        assert.deepEqual(cap.consoleErrors, [], 'favicon 404 must not register');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('captures selector, crop, styles and source location for a comment', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4510);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'too big');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(700);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(400);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(
+              () => document.querySelector('[data-act=approve]') !== null,
+              { timeout: 15000 },
+            );
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.equal(manifest.comments.length, 1);
+        const c = manifest.comments[0];
+        assert.equal(c.comment, 'too big');
+        assert.match(c.selector, /\.title/);
+        assert.ok(existsSync(c.regionScreenshot), 'region crop written');
+        assert.ok(Object.keys(c.styles).length > 5, 'computed styles captured');
+        assert.ok(
+          c.sourceCandidates.some((s) => s.file === 'index.html'),
+          'maps back to the source file',
+        );
+        assert.equal(manifest.approved, true, 'approval recorded');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('the window stays open until the user approves', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4511);
+      const phases = [];
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            const phase = async () =>
+              JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
+
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'x');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(700);
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(400);
+            phases.push(await phase());
+            assert.equal(page.isClosed(), false, 'window must stay open after send');
+
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            phases.push(await phase());
+            assert.equal(page.isClosed(), false, 'window must stay open during review');
+
+            await page.click('[data-act=approve]');
+          },
+        });
+        assert.deepEqual(phases, ['awaiting-claude', 'reviewing']);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a stale applied marker does not skip the waiting phase', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(out, { recursive: true });
+      // Left behind by a previous session.
+      await writeFile(path.join(out, 'applied'), 'stale');
+
+      const server = await serveStatic(site, 4512);
+      let phaseAfterSend = null;
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'x');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(700);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(700);
+            phaseAfterSend = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.click('[data-act=approve]');
+          },
+        });
+        assert.equal(phaseAfterSend, 'awaiting-claude', 'must wait for a fresh marker');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

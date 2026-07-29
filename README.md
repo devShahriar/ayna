@@ -1,0 +1,151 @@
+# ayna
+
+*ayna — mirror.* A Claude Code plugin that lets Claude **see** the UI it just built.
+
+Reading CSS tells you what was *intended*. A screenshot tells you what the user
+*gets*. Ayna closes that gap: it renders the running page in real Chrome, hands
+Claude the image, and loops critique → fix → re-shoot until it looks right.
+
+And when words aren't enough, you can **click the thing you mean** and comment on it.
+
+## Install
+
+```bash
+cd ayna && npm install
+claude --plugin-dir /path/to/ayna          # try it in one session
+```
+
+Requires Node 20+, Google Chrome, and Claude Code. `playwright-core` drives your
+installed Chrome — no browser download, no API key.
+
+You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
+
+| command | what it does |
+|---|---|
+| `/ayna-look` | screenshot + critique, **changes nothing** |
+| `/ayna` | shoot → critique → fix → verify, on repeat |
+| `/ayna-review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
+
+Asking in words works too — *"screenshot the page"*, *"how does this look?"*
+
+## Point at what you mean
+
+```bash
+node bin/ayna.mjs annotate
+```
+
+Chrome opens with an overlay. Hover highlights elements, click one to comment,
+paste an image into the box to attach a reference. Press **Send to Claude**.
+
+For each comment Claude gets:
+
+- **a crop of exactly the element you clicked** — not the whole page
+- your comment, and any reference image you pasted
+- the precise selector (`#hero > div.container > h1`)
+- **`file:line` candidates in your source** — found by grepping the element's id,
+  classes, and text back through the project
+- the element's computed styles and rendered `outerHTML`
+
+So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
+as: this element, this crop, this file, this line, these styles.
+
+## The loop
+
+```
+look ──► critique ──► improve ──► recheck ──► verify ──┐
+  ▲                                                     │
+  └─────────────────────────────────────────────────────┘
+```
+
+1. **look** — loads the page at every configured viewport, screenshots full-page,
+   and records what a screenshot can't show: console errors, horizontal overflow,
+   sub-12px text, blank renders.
+2. **critique** — scores the page 0–10 and ranks issues, each with a concrete fix,
+   grounded in the screenshot rather than in what the source implies.
+3. **improve** — works the issue list top-down. Visual pass only; the copy stays.
+4. **recheck** — re-renders and re-screenshots.
+5. **verify** — compares both sets skeptically: did it actually get better, what
+   regressed?
+
+Snapshots are taken before every edit, so any round can be rolled back.
+
+## Two ways to run it
+
+|  | in-session (default) | standalone |
+|---|---|---|
+| brain | the Claude session you're in | spawned `claude -p` subprocesses |
+| cost | near-free — context is already warm | ~$1.50–3.30 per iteration |
+| use for | interactive work | CI, unattended runs |
+| entry | the `ayna` skill / `/ayna` | `node bin/ayna.mjs loop -n 3` |
+
+The in-session path is why the plugin form matters: Claude reads the PNG with its
+own Read tool and edits with its own Edit tool, so there are no extra model calls
+and no re-reading your source three times per round.
+
+## CLI
+
+```bash
+node bin/ayna.mjs shot --json          # screenshot; prints paths + diagnostics
+node bin/ayna.mjs annotate             # click-and-comment overlay
+node bin/ayna.mjs comments --json      # what was marked up
+node bin/ayna.mjs snapshot --root src  # back up before editing
+node bin/ayna.mjs restore --root src   # undo a bad round
+node bin/ayna.mjs record --score 7 --note "fixed FAQ alignment"
+node bin/ayna.mjs report --open        # before/after HTML report
+node bin/ayna.mjs loop -n 3            # unattended (costs money)
+node bin/ayna.mjs critique             # tell me what's wrong, change nothing
+```
+
+`--headed` shows the Chrome window (headless by default, except `annotate` which is
+always headed). `--url` points at any dev server.
+
+## Config
+
+`ayna.config.json` in *your* project (falls back to the plugin's defaults):
+
+```jsonc
+{
+  "target": {
+    "root": "src",                    // directory Ayna may edit and snapshot
+    "url": "http://localhost:5173",   // your dev server
+    "startCommand": "npm run dev",    // optional; Ayna will boot it
+    "port": 5173
+  },
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 900 },
+    { "name": "mobile",  "width": 390,  "height": 844 }
+  ],
+  "loop": { "iterations": 3, "targetScore": 8.5, "verify": true, "autoRevert": true },
+  "goal": "..."
+}
+```
+
+`goal` is the highest-leverage setting — the critic scores against it, so *"a dense
+operator console, information-first"* produces a very different loop than the
+default landing-page goal.
+
+## Safety
+
+- Every round is snapshotted first; `restore` puts it back. No git required.
+- Rollback fires only on evidence about the *page* — blank render, new console
+  errors, verifier-confirmed regressions.
+- **A dead server is not a UI regression.** If the shot is a Chrome error page,
+  Ayna restarts the server and re-shoots rather than reverting work it never saw.
+- `after` screenshots are kept even for reverted rounds, so you can check the
+  rollback was right.
+- It edits only what `target.root` points at. Keep that aimed somewhere you're happy
+  to have rewritten.
+
+## Layout
+
+```
+SKILL.md            the in-session loop — the plugin's actual behavior
+commands/           /ayna, /ayna-look, /ayna-review
+bin/ayna.mjs        CLI
+src/annotate.mjs    click-to-comment capture, crops, source mapping
+src/overlay.js      the in-page annotation UI (runs in the browser)
+src/browser.mjs     Chrome control, screenshots, diagnostics
+src/loop.mjs        standalone orchestration
+src/report.mjs      HTML report
+demo/               a deliberately mediocre landing page to improve
+```

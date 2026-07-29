@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # ubuntu-latest ships Google Chrome; ayna drives it directly rather than
+      # downloading a browser, so just confirm it is there.
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - run: npm test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check every source file
+        run: |
+          for f in bin/*.mjs src/*.mjs src/*.js test/*.mjs; do
+            node --check "$f" || exit 1
+          done
+
+      - name: Validate the Claude Code plugin manifest
+        run: |
+          node -e "
+            const m = require('./.claude-plugin/plugin.json');
+            for (const k of ['name','version','description']) {
+              if (!m[k]) { console.error('plugin.json missing ' + k); process.exit(1); }
+            }
+            console.log('plugin.json ok:', m.name, m.version);
+          "
+
+      - name: Commands must have parseable frontmatter
+        run: |
+          node -e "
+            const fs = require('fs');
+            let bad = 0;
+            for (const f of fs.readdirSync('commands')) {
+              const src = fs.readFileSync('commands/' + f, 'utf8');
+              const m = src.match(/^---\n([\s\S]*?)\n---/);
+              if (!m) { console.error(f + ': no frontmatter'); bad++; continue; }
+              if (!/^description:\s*\S/m.test(m[1])) { console.error(f + ': no description'); bad++; }
+            }
+            process.exit(bad ? 1 : 0);
+          "

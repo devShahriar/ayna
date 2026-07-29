@@ -1,0 +1,9 @@
+{
+  "name": "ayna",
+  "version": "0.2.0",
+  "description": "Look at the UI you just built. Screenshots the running page in real Chrome, hands you the image, and loops critique → fix → re-shoot until it looks right.",
+  "author": {
+    "name": "Shahriar"
+  },
+  "keywords": ["ui", "design", "screenshot", "chrome", "visual-review", "frontend"]
+}

@@ -1,0 +1,35 @@
+{
+  "target": {
+    "name": "demo",
+    "root": "demo",
+    "url": null,
+    "startCommand": null,
+    "port": 4173,
+    "editGlobs": [
+      "demo/**/*.html",
+      "demo/**/*.css",
+      "demo/**/*.js"
+    ]
+  },
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "loop": {
+    "iterations": 3,
+    "model": "opus",
+    "headless": false,
+    "targetScore": 8.5,
+    "verify": true,
+    "autoRevert": true
+  },
+  "goal": "A modern, polished product landing page: confident typography, deliberate spacing rhythm, a coherent color system, clear visual hierarchy, and a layout that holds up on both desktop and mobile."
+}
