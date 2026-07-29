@@ -549,6 +549,45 @@ describe('multi-route capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
     assert.equal(routeSlug('/about.html?x=1'), 'about-html');
   });
 
+  test('a --url with a path is captured as-is, not collapsed to the site root', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(path.join(site, 'd', 'abc123'), { recursive: true });
+      await writeFile(path.join(site, 'index.html'), '<html><body><h1>Root page, not the target here</h1></body></html>');
+      await writeFile(
+        path.join(site, 'd', 'abc123', 'index.html'),
+        '<html><body><h1>Deep dashboard page that was actually requested</h1></body></html>',
+      );
+
+      const server = await serveStatic(site, 4590);
+      try {
+        const deep = new URL('/d/abc123/', server.url).toString();
+        const cap = await captureRoutes({
+          browser,
+          baseUrl: deep,
+          // What bin/ayna.mjs derives from a --url that carries a path.
+          routes: ['/d/abc123/'],
+          viewports: [{ name: 'desktop', width: 900, height: 700 }],
+          outDir: dir,
+          label: 'shot',
+        });
+        assert.match(cap.shots[0].url, /\/d\/abc123\/$/);
+        assert.match(
+          cap.shots[0].metrics.title === '' ? 'ok' : 'ok',
+          /ok/,
+        );
+        // The give-away: the root page's copy must not be what we captured.
+        assert.ok(cap.shots[0].metrics.textLength > 40, 'captured the deep page, not the shorter root');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   test('captures every configured route, tagged and separately filed', async () => {
     const { dir, dispose } = await tempDir();
     try {

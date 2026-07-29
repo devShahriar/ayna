@@ -119,12 +119,27 @@ async function main() {
   // Artifacts always land in the project being worked on.
   cfg.runsDir = path.join(PROJECT, '.ayna', 'runs');
   if (values.root) cfg.targetDir = path.resolve(PROJECT, values.root);
-  // --routes /,/pricing beats the config; default to the site root.
-  const routes = values.routes
-    ? values.routes.split(',').map((r) => r.trim()).filter(Boolean)
-    : cfg.target.routes?.length
-      ? cfg.target.routes
-      : ['/'];
+  /*
+    Which pages to capture.
+
+    --routes wins. Otherwise, if --url points at a specific page, that page IS the
+    target: resolving a default route of '/' against it would quietly discard the
+    path and screenshot the site root instead — you would get a pristine shot of
+    the wrong page with nothing indicating it.
+  */
+  const routes = (() => {
+    if (values.routes) return values.routes.split(',').map((r) => r.trim()).filter(Boolean);
+    if (values.url) {
+      try {
+        const u = new URL(values.url);
+        const deep = u.pathname + u.search + u.hash;
+        if (deep && deep !== '/') return [deep];
+      } catch {
+        // Not a parseable URL — fall through to the config.
+      }
+    }
+    return cfg.target.routes?.length ? cfg.target.routes : ['/'];
+  })();
   if (values.url) {
     cfg.target.url = values.url;
     cfg.target.startCommand = null;

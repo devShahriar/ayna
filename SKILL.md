@@ -34,6 +34,17 @@ carries the `route` it came from.
 
 If the app isn't running, start its dev server first (background it), then shoot.
 
+**Open the page the work is actually about — not the site root.**
+
+- If the user gave a URL, use it **verbatim**, including path, query and hash:
+  `--url http://localhost:3031/d/d-835f8b1a49a73b39`. A deep link is the target.
+- If they didn't, work it out from what you just changed: a route file, a
+  component's usage, the router config. Editing `routes/dashboard/[id]` and then
+  screenshotting `/` tells you nothing about your change.
+- If the page needs state to reach (a specific record, a logged-in view), ask for
+  the URL rather than guessing an id.
+- `--routes /a,/b` captures several pages in one go.
+
 ### 2. Look
 
 **Read every screenshot it printed.** This is the step that matters — do not skip

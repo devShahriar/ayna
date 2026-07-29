@@ -125,7 +125,14 @@ node bin/ayna.mjs critique             # tell me what's wrong, change nothing
 ```
 
 `--headed` shows the Chrome window (headless by default, except `annotate` which is
-always headed). `--url` points at any dev server.
+always headed).
+
+`--url` takes any page, deep links included — path, query and hash are honoured:
+
+```bash
+node bin/ayna.mjs annotate --url http://localhost:3031/d/d-835f8b1a49a73b39
+node bin/ayna.mjs shot --url http://localhost:3000/settings/billing
+```
 
 ## Config
 

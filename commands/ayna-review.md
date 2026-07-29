@@ -8,8 +8,10 @@ Open the annotation overlay so I can point at what I mean: **$ARGUMENTS**
 **The window is mine. Don't close it — only my approval does that.**
 
 1. Start the dev server if it isn't up, then run **in the background**:
-   `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate` (add `--url` if I gave one).
-   It stays open for the whole review.
+   `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate --url <the page>`.
+   Open the page the work is about — if I gave a URL use it verbatim, path and
+   all; otherwise infer it from what you're changing. Don't default to the site
+   root. It stays open for the whole review.
 
 2. Wait for me to mark things up and press **Send to Claude**. Poll with
    `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs status` until the phase is
