@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { startTarget } from './target.mjs';
-import { openBrowser, capture } from './browser.mjs';
+import { openBrowser, captureRoutes } from './browser.mjs';
 import { runClaude, ensureClaudeAvailable } from './brain.mjs';
 import { snapshot, restore, changedFiles } from './snapshot.mjs';
 import { CRITIQUE_SCHEMA, VERIFY_SCHEMA, critiquePrompt, improvePrompt, verifyPrompt } from './prompts.mjs';
@@ -58,14 +58,17 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
         // 1. Look at the page as it stands.
         step('look', 'rendering and screenshotting the live page');
         await target.ensureUp();
-        const before = await capture({
+        const before = await captureRoutes({
           browser,
-          url: target.url,
+          baseUrl: target.url,
+          routes: cfg.target.routes?.length ? cfg.target.routes : ['/'],
           viewports: cfg.viewports,
           outDir: iterDir,
           label: 'before',
         });
-        for (const s of before.shots) ok(`${s.viewport} → ${path.relative(cfg.rootDir, s.file)}`);
+        for (const s of before.shots) {
+          ok(`${s.route ?? '/'} ${s.viewport} → ${path.relative(cfg.rootDir, s.file)}`);
+        }
         if (before.blank) warn('page renders almost no text — check the target');
 
         // 2. Critique what the screenshots show.
@@ -131,9 +134,10 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
         // 4. Look again.
         step('recheck', 're-rendering after the edits');
         await target.ensureUp();
-        let after = await capture({
+        let after = await captureRoutes({
           browser,
-          url: target.url,
+          baseUrl: target.url,
+          routes: cfg.target.routes?.length ? cfg.target.routes : ['/'],
           viewports: cfg.viewports,
           outDir: iterDir,
           label: 'after',
@@ -144,9 +148,10 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
         if (after.shots.some((s) => s.transportError)) {
           warn('could not reach the page — restarting the server and retrying');
           await target.ensureUp();
-          after = await capture({
+          after = await captureRoutes({
             browser,
-            url: target.url,
+            baseUrl: target.url,
+            routes: cfg.target.routes?.length ? cfg.target.routes : ['/'],
             viewports: cfg.viewports,
             outDir: iterDir,
             label: 'after',

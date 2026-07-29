@@ -11,12 +11,14 @@ const SEVERITY_COLOR = { critical: '#ff6b6b', major: '#ffa94d', minor: '#74c0fc'
 
 function shotPair(iter, runDir) {
   const rel = (f) => path.relative(runDir, f);
-  const viewports = iter.before.shots.map((s) => s.viewport);
+  // Key on route + viewport. Keying on viewport alone pairs /pricing's "desktop"
+  // with the home page's "desktop" the moment a run covers more than one route.
+  const keyOf = (s) => `${s.route ?? '/'}|${s.viewport}`;
 
-  return viewports
-    .map((vp) => {
-      const b = iter.before.shots.find((s) => s.viewport === vp);
-      const a = iter.after?.shots.find((s) => s.viewport === vp);
+  return iter.before.shots
+    .map((b) => {
+      const a = iter.after?.shots.find((s) => keyOf(s) === keyOf(b));
+      const vp = b.route && b.route !== '/' ? `${b.route} · ${b.viewport}` : b.viewport;
       return `
       <div class="pair">
         <div class="pair-label">${esc(vp)}</div>

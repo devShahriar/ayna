@@ -21,36 +21,48 @@ import { banner, step, ok, info, warn, fail, dim, bold, green, yellow, red, open
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 const HELP = `
-${bold('ayna')} — a self-improving UI agent
+${bold('ayna')} — let Claude see the UI it builds
 
-  It opens your UI in Chrome, screenshots what is actually rendered, hands the
-  image to Claude Code as a design critic, applies the fixes, and looks again.
+  Screenshots the running page in real Chrome, and lets you click, comment on and
+  rearrange elements so Claude edits exactly what you meant.
 
 ${bold('USAGE')}
   ayna <command> [options]
 
-${bold('COMMANDS')}
-  ${bold('in-session')} (you are the brain — cheap, used by the ayna skill)
+${bold('REVIEW')} — you point, Claude fixes
+  annotate    Open the page so you can click, comment, attach images, reorder
+  comments    What was marked up (--json for the full payload)
+  status      Phase of the open review: commenting / awaiting-claude / reviewing
+  wait        Block until the user sends a round, then exit (run in background)
+  applied     Tell the open window the edits are in, so it reloads for approval
+
+${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
+  serve       Serve the target UI and stay up (ctrl-c to stop)
+
+${bold('SAFETY')}
   snapshot    Back up the UI directory before you edit it
   restore     Put it back if your edits made things worse
-  record      Log a round (--score, --note) for the report
+
+${bold('REPORT')}
+  record      Log a round (--score, --note)
   report      Build the before/after HTML report
 
-  ${bold('standalone')} (spawns its own Claude sessions — costs real money)
-  loop        Run the full look → critique → improve → verify cycle unattended
+${bold('UNATTENDED')} — spawns its own Claude sessions, costs real money
+  loop        The full look → critique → improve → verify cycle
   critique    Screenshot and critique once, without editing anything
 
-  serve       Serve the target UI and stay up (ctrl-c to stop)
-  init        Write ayna.config.json with the defaults
+${bold('SETUP')}
+  init        Write ayna.config.json into the current project
 
 ${bold('OPTIONS')}
   -n, --iterations <n>   How many improvement rounds (default: config, 3)
   -m, --model <name>     opus | sonnet | haiku  (default: config, opus)
-      --url <url>        Point at a URL instead of the configured target
-      --root <dir>       The UI directory to snapshot/restore and edit
-      --routes <list>    Comma-separated pages to capture, e.g. /,/pricing,/about
-      --json             Machine-readable output (shot)
+      --url <url>        The page to open — path, query and hash are honoured
+      --routes <list>    Several pages at once, e.g. /,/pricing,/about
+      --root <dir>       The UI directory to snapshot/restore
+      --file <path>      A specific comments.json (comments)
+      --json             Machine-readable output
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
       --headed           Show the Chrome window (default: headless)
@@ -58,9 +70,10 @@ ${bold('OPTIONS')}
   -h, --help             This
 
 ${bold('EXAMPLES')}
-  ayna shot --json --url http://localhost:5173    Shoot it, then Read the PNGs
-  ayna snapshot --root src && ayna restore --root src
-  ayna loop -n 3 --open                           Unattended, several dollars
+  ayna annotate --url http://localhost:3000/d/abc123   Review a specific page
+  ayna shot --json --routes /,/pricing                 Shoot several pages
+  ayna snapshot --root src && ayna restore --root src  Undo a bad round
+  ayna loop -n 3 --open                                Unattended, several dollars
 `;
 
 const { values, positionals } = parseArgs({
@@ -75,6 +88,7 @@ const { values, positionals } = parseArgs({
     json: { type: 'boolean' },
     root: { type: 'string' },
     routes: { type: 'string' },
+    file: { type: 'string' },
     score: { type: 'string' },
     note: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
@@ -147,8 +161,15 @@ async function main() {
 
   switch (command) {
     case 'init': {
-      const file = await writeConfig(ROOT);
-      ok(`wrote ${path.relative(process.cwd(), file)}`);
+      // PROJECT, not ROOT: `ayna init` is how you configure *your* project. Writing
+      // to ROOT put the file in the plugin's own directory, clobbering its config
+      // while leaving the project exactly as unconfigured as before.
+      if (hasLocalConfig) {
+        warn(`${path.relative(PROJECT, localConfig)} already exists — leaving it alone`);
+        return;
+      }
+      const file = await writeConfig(PROJECT);
+      ok(`wrote ${path.relative(PROJECT, file)} — set target.url or target.root, then run \`ayna shot\``);
       return;
     }
 
@@ -353,7 +374,8 @@ async function main() {
 
     case 'comments': {
       const session = await readSession();
-      let file = values.root;
+      // --root means "UI directory" everywhere else; don't overload it here.
+      let file = values.file;
       if (!file && session) {
         file = session.file;
         if (!session.live && !values.json) {
