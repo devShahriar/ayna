@@ -96,10 +96,30 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
       attachments.push(file);
     }
 
-    const source = await findInSource(projectDir, payload);
+    // One comment can cover several elements (shift-click); map each of them.
+    const described = payload.elements?.length ? payload.elements : [payload];
+    const perElement = [];
+    for (const el of described) {
+      perElement.push({
+        selector: el.selector ?? payload.selector,
+        tag: el.tag,
+        id: el.id,
+        classes: el.classes,
+        text: el.text,
+        outerHTML: el.outerHTML,
+        styles: el.styles,
+        rect: el.rect,
+        sourceCandidates: await findInSource(projectDir, el),
+      });
+    }
+    const source = perElement.flatMap((e) => e.sourceCandidates);
 
     const record = {
       n,
+      // 'comment' is a note about an element; 'move' is a reorder the user
+      // performed in the page and wants reflected in the source.
+      kind: payload.kind ?? 'comment',
+      move: payload.move ?? null,
       comment: payload.comment,
       selector: payload.selector,
       element: {
@@ -109,6 +129,7 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
         text: payload.text,
         outerHTML: payload.outerHTML,
       },
+      elements: perElement,
       styles: payload.styles,
       rect: payload.rect,
       url: payload.url,

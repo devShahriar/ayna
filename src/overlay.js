@@ -14,12 +14,29 @@
   window.__aynaLoaded = true;
 
   const NS = 'ayna-ov';
-  const state = { picking: true, target: null, pins: [], seq: 0, phase: 'comment' };
+  const state = {
+    picking: true,
+    target: null,
+    pins: [],
+    seq: 0,
+    phase: 'comment',
+    // What the mouse is over, and how many levels up from it we've walked.
+    // Clicking often lands on a text node's span when you meant the card around
+    // it, so ↑/↓ walk the tree the way devtools does.
+    hoverBase: null,
+    climb: 0,
+    // Shift-click builds a set so one comment can cover several elements.
+    selection: [],
+    // 'comment' clicks to annotate; 'move' drags to reorder among siblings.
+    mode: 'comment',
+    drag: null,
+  };
 
   // addInitScript runs at document-start, before <html> exists — build the UI only
   // once there is a document to attach it to.
   let hl = null;
   let bar = null;
+  let tag = null;
 
   function start() {
   const css = document.createElement('style');
@@ -42,6 +59,24 @@
       padding: 6px 14px; cursor: pointer; background: #3b82f6; color: #fff;
     }
     .${NS}-count { opacity: .7; }
+    .${NS}-tag {
+      position: absolute; z-index: 2147483641; pointer-events: none;
+      background: #3b82f6; color: #fff; border-radius: 4px; padding: 2px 7px;
+      font: 500 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.2);
+    }
+    .${NS}-tag b { font-weight: 700; }
+    .${NS}-tag i { font-style: normal; opacity: .75; margin-left: 8px; }
+    .${NS}-drop {
+      position: absolute; z-index: 2147483642; pointer-events: none;
+      background: #f59e0b; border-radius: 2px;
+      box-shadow: 0 0 0 2px rgba(245,158,11,.25);
+    }
+    .${NS}-picked {
+      position: absolute; pointer-events: none; z-index: 2147483639;
+      border: 2px dashed #f59e0b; background: rgba(245,158,11,.10); border-radius: 3px;
+    }
+    .${NS}-bar button:disabled { opacity: .4; cursor: not-allowed; }
     .${NS}-bar button.${NS}-ghost {
       background: transparent; color: #cdd3e0; border: 1px solid #3a4150;
     }
@@ -94,6 +129,12 @@
   hl.style.display = 'none';
   document.documentElement.appendChild(hl);
 
+  tag = document.createElement('div');
+  tag.className = NS + '-tag';
+  tag.setAttribute('data-ayna', '1');
+  tag.style.display = 'none';
+  document.documentElement.appendChild(tag);
+
   bar = document.createElement('div');
   bar.className = NS + '-bar';
   bar.setAttribute('data-ayna', '1');
@@ -113,10 +154,22 @@
     state.picking = phase === 'comment';
 
     if (phase === 'comment') {
+      const moving = state.mode === 'move';
       bar.innerHTML =
-        '<span>Click anything to comment</span>' +
+        '<span>' +
+        (moving ? 'Drag an element to reorder it' : 'Click anything to comment') +
+        '</span>' +
+        '<button data-act="mode" class="' + NS + '-ghost">' +
+        (moving ? 'Comment mode' : 'Move mode') +
+        '</button>' +
         '<span class="' + NS + '-count">' + countLabel() + '</span>' +
-        '<button data-act="send">Send to Claude</button>';
+        '<button data-act="send"' + (state.seq ? '' : ' disabled') + '>Send to Claude</button>';
+
+      bar.querySelector('[data-act=mode]').addEventListener('click', () => {
+        state.mode = moving ? 'comment' : 'move';
+        clearSelection();
+        setPhase('comment');
+      });
       bar.querySelector('[data-act=send]').addEventListener('click', () => {
         if (!state.seq) return;
         setPhase('waiting');
@@ -146,6 +199,14 @@
       cleanup();
       window.__aynaApprove();
     });
+  }
+
+  function refreshCount() {
+    if (!bar) return;
+    const counter = bar.querySelector('.' + NS + '-count');
+    if (counter) counter.textContent = countLabel();
+    const send = bar.querySelector('[data-act=send]');
+    if (send) send.disabled = state.seq === 0;
   }
 
   function countLabel() {
@@ -181,6 +242,72 @@
     hl.style.top = r.y + 'px';
     hl.style.width = r.width + 'px';
     hl.style.height = r.height + 'px';
+    showTag(el, r);
+  }
+
+  function hide() {
+    if (hl) hl.style.display = 'none';
+    if (tag) tag.style.display = 'none';
+  }
+
+  /** Short devtools-style descriptor, so you can see what you're about to pick. */
+  function describe(el) {
+    let s = el.tagName.toLowerCase();
+    if (el.id) return s + '#' + el.id;
+    const cls = [...el.classList].filter((c) => c.indexOf(NS) !== 0)[0];
+    return cls ? s + '.' + cls : s;
+  }
+
+  /*
+    Like describe(), but for prose aimed at Claude. Sibling elements usually share
+    a class ("div.plan before div.plan" tells nobody anything), so lead with the
+    element's own text — that is what actually identifies it in the source.
+  */
+  function label(el) {
+    const base = describe(el);
+    const text = (el.innerText || '').trim().split('\n')[0].slice(0, 28);
+    return text ? base + ' "' + text + '"' : base;
+  }
+
+  function showTag(el, r) {
+    if (!tag) return;
+    const canClimb = el.parentElement && el.parentElement !== document.documentElement;
+    tag.innerHTML =
+      '<b></b>' + (canClimb || state.climb ? '<i>↑ ↓ resize · ⇧click adds</i>' : '');
+    tag.querySelector('b').textContent = describe(el);
+    tag.style.display = 'block';
+    // Sit above the box unless we're at the top of the page.
+    const above = r.y > 24;
+    tag.style.left = r.x + 'px';
+    tag.style.top = (above ? r.y - 22 : r.y + r.height + 4) + 'px';
+  }
+
+  /** The element the mouse is on, walked up `climb` levels. */
+  function resolveTarget() {
+    let el = state.hoverBase;
+    for (let i = 0; i < state.climb && el && el.parentElement; i++) {
+      if (el.parentElement === document.body || el.parentElement === document.documentElement) break;
+      el = el.parentElement;
+    }
+    return el;
+  }
+
+  function markPicked(el) {
+    const r = rectOf(el);
+    const box = document.createElement('div');
+    box.className = NS + '-picked';
+    box.setAttribute('data-ayna', '1');
+    box.style.left = r.x + 'px';
+    box.style.top = r.y + 'px';
+    box.style.width = r.width + 'px';
+    box.style.height = r.height + 'px';
+    document.documentElement.appendChild(box);
+    return box;
+  }
+
+  function clearSelection() {
+    for (const s of state.selection) s.box.remove();
+    state.selection = [];
   }
 
   // Precise enough to find the node again, readable enough to grep for.
@@ -229,10 +356,15 @@
     (e) => {
       if (!state.picking) return;
       if (isOurs(e.target)) {
-        hl.style.display = 'none';
+        hide();
         return;
       }
-      place(e.target);
+      // A new element under the cursor resets how far we had walked up.
+      if (e.target !== state.hoverBase) {
+        state.hoverBase = e.target;
+        state.climb = 0;
+      }
+      place(resolveTarget());
     },
     true,
   );
@@ -243,7 +375,17 @@
       if (!state.picking || isOurs(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
-      openPopover(e.target);
+      // In move mode the drag handlers own the mouse.
+      if (state.mode === 'move') return;
+      const el = resolveTarget() || e.target;
+
+      // Shift-click accumulates. A plain click finishes the set — and includes the
+      // element you just clicked, which is what "click the third card" should mean.
+      const held = state.selection.some((s) => s.el === el);
+      if (!held) state.selection.push({ el, box: markPicked(el) });
+      if (e.shiftKey) return;
+
+      openPopover(el);
     },
     true,
   );
@@ -251,7 +393,163 @@
   document.addEventListener(
     'keydown',
     (e) => {
-      if (e.key === 'Escape') closePopover();
+      if (e.key === 'Escape') {
+        closePopover();
+        clearSelection();
+        return;
+      }
+      if (!state.picking || !state.hoverBase) return;
+
+      // Walk up/down the tree without moving the mouse.
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const before = resolveTarget();
+        state.climb += 1;
+        if (resolveTarget() === before) state.climb -= 1; // already at the top
+        place(resolveTarget());
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        state.climb = Math.max(0, state.climb - 1);
+        place(resolveTarget());
+      }
+    },
+    true,
+  );
+
+  /*
+    Drag-to-reorder.
+
+    Deliberately limited to reordering among siblings. Freeform "drop it anywhere"
+    dragging produces absolute positioning that maps back to unmaintainable CSS —
+    a reorder maps to an actual source change (move this block before that one),
+    which is a thing Claude can apply cleanly.
+  */
+  let dropLine = null;
+
+  function ensureDropLine() {
+    if (dropLine) return dropLine;
+    dropLine = document.createElement('div');
+    dropLine.className = NS + '-drop';
+    dropLine.setAttribute('data-ayna', '1');
+    document.documentElement.appendChild(dropLine);
+    return dropLine;
+  }
+
+  function siblingUnder(x, y, parent, exclude) {
+    const under = document.elementFromPoint(x, y);
+    if (!under || isOurs(under)) return null;
+    let node = under;
+    while (node && node.parentElement !== parent) node = node.parentElement;
+    return node && node !== exclude ? node : null;
+  }
+
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      if (state.mode !== 'move' || state.phase !== 'comment' || isOurs(e.target)) return;
+      const el = resolveTarget() || e.target;
+      const parent = el.parentElement;
+      if (!parent || parent === document.body || parent.children.length < 2) return;
+
+      e.preventDefault();
+      state.drag = {
+        el,
+        parent,
+        fromIndex: [...parent.children].indexOf(el),
+        ref: null,
+        placeBefore: true,
+      };
+      el.style.opacity = '0.4';
+      hide();
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mousemove',
+    (e) => {
+      const d = state.drag;
+      if (!d) return;
+      const sib = siblingUnder(e.clientX, e.clientY, d.parent, d.el);
+      const line = ensureDropLine();
+      if (!sib) {
+        line.style.display = 'none';
+        d.ref = null;
+        return;
+      }
+      const r = sib.getBoundingClientRect();
+      // Horizontal rows get a vertical caret, stacked blocks get a horizontal one.
+      const horizontal = r.height > 0 && r.width / r.height < 3;
+      d.placeBefore = horizontal
+        ? e.clientX < r.left + r.width / 2
+        : e.clientY < r.top + r.height / 2;
+      d.ref = sib;
+
+      line.style.display = 'block';
+      if (horizontal) {
+        line.style.left = (d.placeBefore ? r.left : r.right) + window.scrollX - 1.5 + 'px';
+        line.style.top = r.top + window.scrollY + 'px';
+        line.style.width = '3px';
+        line.style.height = r.height + 'px';
+      } else {
+        line.style.left = r.left + window.scrollX + 'px';
+        line.style.top = (d.placeBefore ? r.top : r.bottom) + window.scrollY - 1.5 + 'px';
+        line.style.width = r.width + 'px';
+        line.style.height = '3px';
+      }
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mouseup',
+    async (e) => {
+      const d = state.drag;
+      if (!d) return;
+      state.drag = null;
+      d.el.style.opacity = '';
+      if (dropLine) dropLine.style.display = 'none';
+      if (!d.ref) return;
+
+      const beforeDesc = label(d.ref);
+      const movedDesc = label(d.el);
+      const anchor = d.placeBefore ? d.ref : d.ref.nextSibling;
+
+      // Apply it live so the user sees the new order straight away.
+      d.parent.insertBefore(d.el, anchor);
+      const toIndex = [...d.parent.children].indexOf(d.el);
+      if (toIndex === d.fromIndex) return;
+
+      const n = ++state.seq;
+      refreshCount();
+
+      await window.__aynaSubmit({
+        kind: 'move',
+        comment:
+          'Reorder: move ' + movedDesc + ' ' + (d.placeBefore ? 'before ' : 'after ') + beforeDesc +
+          ' (position ' + (d.fromIndex + 1) + ' → ' + (toIndex + 1) + ' among its siblings).',
+        selector: selectorFor(d.el),
+        tag: d.el.tagName.toLowerCase(),
+        id: d.el.id || null,
+        classes: [...d.el.classList].filter((c) => c.indexOf(NS) !== 0),
+        text: (d.el.innerText || '').trim().slice(0, 400),
+        outerHTML: d.el.outerHTML.slice(0, 1500),
+        elements: [describeElement(d.el)],
+        move: {
+          parentSelector: selectorFor(d.parent),
+          movedSelector: selectorFor(d.el),
+          referenceSelector: selectorFor(d.ref),
+          placeBefore: d.placeBefore,
+          fromIndex: d.fromIndex,
+          toIndex,
+          siblingOrder: [...d.parent.children].map((c) => label(c)),
+        },
+        rect: rectOf(d.el),
+        styles: styleDigest(d.el),
+        images: [],
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        url: location.href,
+      });
     },
     true,
   );
@@ -267,13 +565,38 @@
     state.target = null;
   }
 
+  /** Everything Node needs to find this element again and edit its source. */
+  function describeElement(el) {
+    return {
+      selector: selectorFor(el),
+      tag: el.tagName.toLowerCase(),
+      id: el.id || null,
+      classes: [...el.classList].filter((c) => c.indexOf(NS) !== 0),
+      text: (el.innerText || '').trim().slice(0, 400),
+      outerHTML: el.outerHTML.slice(0, 1500),
+      rect: rectOf(el),
+      styles: styleDigest(el),
+    };
+  }
+
+  function unionRect(rects) {
+    const x = Math.min(...rects.map((r) => r.x));
+    const y = Math.min(...rects.map((r) => r.y));
+    const right = Math.max(...rects.map((r) => r.x + r.width));
+    const bottom = Math.max(...rects.map((r) => r.y + r.height));
+    return { x, y, width: right - x, height: bottom - y };
+  }
+
   function openPopover(el) {
     closePopover();
     state.picking = false;
     state.target = el;
     place(el);
 
-    const r = rectOf(el);
+    // A shift-click set takes precedence: one comment, several elements.
+    const targets = state.selection.length ? state.selection.map((s) => s.el) : [el];
+    const described = targets.map(describeElement);
+    const r = unionRect(described.map((d) => d.rect));
     const images = [];
 
     pop = document.createElement('div');
@@ -289,8 +612,11 @@
       '<button class="' + NS + '-save">Add comment</button>' +
       '</div>';
 
-    const sel = selectorFor(el);
-    pop.querySelector('.' + NS + '-sel').textContent = sel;
+    const sel = described[0].selector;
+    pop.querySelector('.' + NS + '-sel').textContent =
+      described.length > 1
+        ? described.length + ' elements: ' + described.map((d) => d.selector.split(' > ').pop()).join(', ')
+        : sel;
 
     const docEl = document.documentElement;
     pop.style.top = Math.max(8, Math.min(r.y + r.height + 8, docEl.scrollHeight - 260)) + 'px';
@@ -326,21 +652,26 @@
         return;
       }
 
+      const first = described[0];
       const payload = {
         comment: text,
-        selector: sel,
-        tag: el.tagName.toLowerCase(),
-        id: el.id || null,
-        classes: [...el.classList].filter((c) => c.indexOf(NS) !== 0),
-        text: (el.innerText || '').trim().slice(0, 400),
-        outerHTML: el.outerHTML.slice(0, 1500),
+        // Primary target stays flat for simple single-element comments.
+        selector: first.selector,
+        tag: first.tag,
+        id: first.id,
+        classes: first.classes,
+        text: first.text,
+        outerHTML: first.outerHTML,
+        // Every element this comment covers (one, unless shift-click was used).
+        elements: described,
         rect: r,
-        styles: styleDigest(el),
+        styles: first.styles,
         images,
         viewport: { width: window.innerWidth, height: window.innerHeight },
         url: location.href,
       };
 
+      clearSelection();
       closePopover();
 
       const n = ++state.seq;
@@ -352,8 +683,7 @@
       pin.style.top = r.y + 'px';
       document.documentElement.appendChild(pin);
       state.pins.push(pin);
-      const counter = bar && bar.querySelector('.' + NS + '-count');
-      if (counter) counter.textContent = countLabel();
+      refreshCount();
 
       await window.__aynaSubmit(payload);
     });

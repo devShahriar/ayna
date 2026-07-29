@@ -34,20 +34,33 @@ Asking in words works too — *"screenshot the page"*, *"how does this look?"*
 node bin/ayna.mjs annotate
 ```
 
-Chrome opens with an overlay. Hover highlights elements, click one to comment,
-paste an image into the box to attach a reference. Press **Send to Claude**.
+Chrome opens with an overlay:
 
-For each comment Claude gets:
+| | |
+|---|---|
+| **Click** an element | leave a comment on it |
+| **↑ / ↓** | walk up and down the DOM, like devtools — grab the card, not the `<span>` inside it |
+| **⇧ Shift-click** | select several elements for a single comment |
+| **Paste an image** | attach a visual reference to the comment |
+| **Move mode → drag** | reorder an element among its siblings; the page updates live |
 
-- **a crop of exactly the element you clicked** — not the whole page
+Press **Send to Claude**. For each comment Claude gets:
+
+- **a crop of exactly what you selected** — not the whole page
 - your comment, and any reference image you pasted
-- the precise selector (`#hero > div.container > h1`)
+- the precise selector (`#hero > div.container > h1`), for every element in the set
 - **`file:line` candidates in your source** — found by grepping the element's id,
   classes, and text back through the project
-- the element's computed styles and rendered `outerHTML`
+- computed styles and rendered `outerHTML`
+- for a drag: the final sibling order you want, so it gets reproduced in the source
+  rather than faked with CSS
 
 So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
 as: this element, this crop, this file, this line, these styles.
+
+**Your window stays open.** Claude edits, the page reloads itself so you can see the
+result, and you get **Comment more** / **Approve & close**. Only your approval ends
+the session.
 
 ## The loop
 

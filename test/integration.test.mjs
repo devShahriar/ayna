@@ -302,3 +302,146 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
     }
   });
 });
+
+describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  /** Boots a page with the overlay injected and the Node bridge stubbed out. */
+  async function overlayPage(site, port) {
+    const server = await serveStatic(site, port);
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const page = await ctx.newPage();
+    const submissions = [];
+    await page.exposeFunction('__aynaSubmit', async (p) => {
+      submissions.push(p);
+      return { ok: true };
+    });
+    for (const fn of ['__aynaDone', '__aynaMore', '__aynaApprove']) {
+      await page.exposeFunction(fn, async () => ({ ok: true }));
+    }
+    const overlay = await readFile(new URL('../src/overlay.js', import.meta.url), 'utf8');
+    await page.addInitScript(overlay);
+    await page.goto(server.url, { waitUntil: 'networkidle' });
+    return { page, submissions, cleanup: async () => { await ctx.close(); await server.close(); } };
+  }
+
+  test('arrow-up walks from a nested child to its container', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const { page, cleanup } = await overlayPage(site, 4520);
+      try {
+        await page.hover('.list li:nth-of-type(2)');
+        await page.waitForTimeout(150);
+        const before = await page.evaluate(() => document.querySelector('.ayna-ov-tag b')?.textContent);
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(120);
+        const after = await page.evaluate(() => document.querySelector('.ayna-ov-tag b')?.textContent);
+        assert.equal(before, 'li');
+        assert.equal(after, 'ul.list', 'ArrowUp selects the parent');
+      } finally {
+        await cleanup();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('shift-click gathers several elements into one comment', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const { page, submissions, cleanup } = await overlayPage(site, 4521);
+      try {
+        await page.click('.list li:nth-of-type(1)', { modifiers: ['Shift'] });
+        await page.click('.list li:nth-of-type(2)', { modifiers: ['Shift'] });
+        await page.click('.list li:nth-of-type(3)');
+        await page.waitForSelector('.ayna-ov-pop textarea');
+        await page.fill('.ayna-ov-pop textarea', 'align these');
+        await page.click('.ayna-ov-save');
+        await page.waitForTimeout(400);
+
+        assert.equal(submissions.length, 1);
+        assert.equal(submissions[0].elements.length, 3, 'all three carried in one comment');
+      } finally {
+        await cleanup();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('dragging reorders siblings and records a structured move', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const { page, submissions, cleanup } = await overlayPage(site, 4522);
+      try {
+        await page.click('[data-act=mode]');
+        await page.locator('.list').scrollIntoViewIfNeeded();
+
+        const order = () => page.evaluate(() => [...document.querySelectorAll('.list li')].map((li) => li.textContent));
+        assert.deepEqual(await order(), ['one', 'two', 'three']);
+
+        const src = await page.locator('.list li:nth-of-type(3)').boundingBox();
+        const dst = await page.locator('.list li:nth-of-type(1)').boundingBox();
+        await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(dst.x + 4, dst.y + 2, { steps: 10 });
+        await page.waitForTimeout(150);
+        await page.mouse.up();
+        await page.waitForTimeout(400);
+
+        assert.deepEqual(await order(), ['three', 'one', 'two'], 'DOM reordered live');
+        const move = submissions.at(-1);
+        assert.equal(move.kind, 'move');
+        assert.equal(move.move.fromIndex, 2);
+        assert.equal(move.move.toIndex, 0);
+        assert.match(move.comment, /three/, 'description identifies the element by its text');
+      } finally {
+        await cleanup();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('send is disabled until something has been captured', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const { page, cleanup } = await overlayPage(site, 4523);
+      try {
+        assert.equal(
+          await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
+          true,
+          'nothing to send yet',
+        );
+        await page.click('.title');
+        await page.waitForSelector('.ayna-ov-pop textarea');
+        await page.fill('.ayna-ov-pop textarea', 'x');
+        await page.click('.ayna-ov-save');
+        await page.waitForTimeout(400);
+        assert.equal(
+          await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
+          false,
+          'enabled once a comment exists',
+        );
+      } finally {
+        await cleanup();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

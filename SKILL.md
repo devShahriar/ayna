@@ -126,13 +126,32 @@ Each comment gives you:
 
 | field | what it's for |
 |---|---|
+| `kind` | `comment` (a note) or `move` (they dragged something — see below) |
 | `comment` | what they want changed |
-| `regionScreenshot` | **a crop of exactly the element they clicked** — Read it |
+| `regionScreenshot` | **a crop of exactly what they selected** — Read it |
 | `attachments` | reference images they pasted — Read these too |
 | `selector` | the precise DOM path, e.g. `#hero > div.container > h1` |
+| `elements[]` | **every element this comment covers.** Shift-click means one comment can target several — each entry has its own `selector`, `styles` and `sourceCandidates`. Apply the change to all of them. |
 | `sourceCandidates` | `file:line` matches — start editing here |
-| `styles` | the element's computed styles, so you can see what you're overriding |
+| `styles` | computed styles, so you can see what you're overriding |
 | `element.outerHTML` | the markup as it actually rendered |
+
+### Reorder comments (`kind: "move"`)
+
+The user can switch the overlay to **Move mode** and drag an element among its
+siblings. That arrives as a comment with `kind: "move"` and a `move` object:
+
+| field | meaning |
+|---|---|
+| `movedSelector` | what they dragged |
+| `referenceSelector` + `placeBefore` | where they dropped it |
+| `fromIndex` → `toIndex` | its position among siblings, before and after |
+| `siblingOrder` | the **final** order they want, labelled by text — the clearest signal |
+
+They have already reordered it in the browser, so the page in front of them is the
+target state. Reproduce that order **in the source** by moving the corresponding
+block — do not fake it with CSS `order` or absolute positioning unless the layout
+genuinely calls for it. `siblingOrder` is the thing to match.
 
 **Read `regionScreenshot` for every comment before editing.** The crop is the point
 — it's the difference between "the button looks off" and seeing the exact button.
