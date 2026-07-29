@@ -134,8 +134,12 @@
       position: absolute; z-index: 2147483645; width: 24px; height: 24px;
       border-radius: 999px 999px 999px 2px; background: #f59e0b; color: #111;
       font: 700 12px/24px -apple-system, system-ui, sans-serif; text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+      box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
+    .${NS}-pin:hover { background: #ef4444; color: #fff; }
+    .${NS}-pin i { font-style: normal; display: none; }
+    .${NS}-pin:hover b { display: none; }
+    .${NS}-pin:hover i { display: inline; }
   `;
   document.documentElement.appendChild(css);
 
@@ -245,6 +249,40 @@
     if (counter) counter.textContent = countLabel();
     const send = bar.querySelector('[data-act=send]');
     if (send) send.disabled = state.seq === 0;
+  }
+
+  function makePin(n, r) {
+    const pin = document.createElement('div');
+    pin.className = NS + '-pin';
+    pin.setAttribute('data-ayna', '1');
+    pin.innerHTML = '<b></b><i>×</i>';
+    pin.querySelector('b').textContent = String(n);
+    pin.title = 'Click to remove this comment';
+    pin.style.left = r.x + 'px';
+    pin.style.top = r.y + 'px';
+    document.documentElement.appendChild(pin);
+    state.pins.push(pin);
+    return pin;
+  }
+
+  /* A mistaken pin should be one click to undo, not a reason to restart. */
+  function bindPinRemoval(pin, id) {
+    if (!id) return;
+    pin.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const res = await window.__aynaRemove(id);
+      if (!res || !res.ok) return;
+      pin.remove();
+      state.pins = state.pins.filter((p) => p !== pin);
+      state.seq = res.count;
+      // Renumber what's left so the pins match the list Claude receives.
+      state.pins.forEach((p, i) => {
+        const label = p.querySelector('b');
+        if (label) label.textContent = String(i + 1);
+      });
+      refreshCount();
+    });
   }
 
   function countLabel() {
@@ -683,9 +721,11 @@
       if (toIndex === d.fromIndex) return;
 
       const n = ++state.seq;
+      // A reorder deserves a marker too, and the same one-click undo.
+      const pin = makePin(n, rectOf(d.el));
       refreshCount();
 
-      await window.__aynaSubmit({
+      const res = await window.__aynaSubmit({
         kind: 'move',
         comment:
           'Reorder: move ' + movedDesc + ' ' + (d.placeBefore ? 'before ' : 'after ') + beforeDesc +
@@ -712,6 +752,7 @@
         viewport: { width: window.innerWidth, height: window.innerHeight },
         url: location.href,
       });
+      bindPinRemoval(pin, res && res.id);
     },
     true,
   );
@@ -881,17 +922,11 @@
       closePopover();
 
       const n = ++state.seq;
-      const pin = document.createElement('div');
-      pin.className = NS + '-pin';
-      pin.setAttribute('data-ayna', '1');
-      pin.textContent = String(n);
-      pin.style.left = r.x + 'px';
-      pin.style.top = r.y + 'px';
-      document.documentElement.appendChild(pin);
-      state.pins.push(pin);
+      const pin = makePin(n, r);
       refreshCount();
 
-      await window.__aynaSubmit(payload);
+      const res = await window.__aynaSubmit(payload);
+      bindPinRemoval(pin, res && res.id);
     });
   }
 

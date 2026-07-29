@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
+import { startTarget } from '../src/target.mjs';
 import { openBrowser, capture, captureRoutes } from '../src/browser.mjs';
 import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
@@ -205,9 +206,7 @@ async function main() {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const outDir = path.join(PROJECT, '.ayna', 'comments', stamp);
 
-      const server = cfg.target.url
-        ? { url: cfg.target.url, close: async () => {} }
-        : await serveStatic(cfg.targetDir, cfg.target.port);
+      const server = await startTarget(cfg);
       // Always headed — the whole point is that a human clicks things.
       const browser = await openBrowser({ headless: false });
 
@@ -485,9 +484,10 @@ async function prepare(cfg, kind) {
   const outDir = path.join(cfg.runsDir, `${kind}-${stamp}`);
   await mkdir(outDir, { recursive: true });
 
-  const server = cfg.target.url
-    ? { url: cfg.target.url, close: async () => {} }
-    : await serveStatic(cfg.targetDir, cfg.target.port);
+  // Shared with `loop`, so a configured startCommand boots the dev server here
+  // too. Previously only `loop` honored it and everything else silently served
+  // target.root as static files instead.
+  const server = await startTarget(cfg);
   const browser = await openBrowser({ headless: headlessMode(cfg) });
 
   return {

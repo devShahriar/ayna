@@ -702,3 +702,115 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
     }
   });
 });
+
+describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('clicking a pin removes that comment and renumbers the rest', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4560);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            const add = async (sel, text) => {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop textarea');
+              await page.fill('.ayna-ov-pop textarea', text);
+              await page.click('.ayna-ov-save');
+              await page.waitForTimeout(500);
+            };
+            await add('.title', 'first');
+            await add('.lede', 'second');
+            await add('.list li:nth-of-type(1)', 'third');
+            assert.equal(await page.evaluate(() => document.querySelectorAll('.ayna-ov-pin').length), 3);
+
+            // Remove the middle one.
+            await page.click('.ayna-ov-pin >> nth=1');
+            await page.waitForTimeout(500);
+            assert.equal(await page.evaluate(() => document.querySelectorAll('.ayna-ov-pin').length), 2);
+            assert.deepEqual(
+              await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-pin b')].map((b) => b.textContent)),
+              ['1', '2'],
+              'remaining pins are renumbered contiguously',
+            );
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-count').textContent),
+              /2 comments/,
+            );
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.click('[data-act=approve]');
+          },
+        });
+
+        assert.equal(manifest.comments.length, 2, 'the removed comment never reaches Claude');
+        assert.deepEqual(manifest.comments.map((c) => c.comment), ['first', 'third']);
+        assert.deepEqual(manifest.comments.map((c) => c.n), [1, 2], 'renumbered server-side too');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('removing every comment disables send again', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4561);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'only one');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+            assert.equal(await page.evaluate(() => document.querySelector('[data-act=send]').disabled), false);
+
+            await page.click('.ayna-ov-pin');
+            await page.waitForTimeout(500);
+            assert.equal(
+              await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
+              true,
+              'nothing left to send',
+            );
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

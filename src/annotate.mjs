@@ -126,6 +126,7 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   const page = await context.newPage();
 
   const comments = [];
+  let nextId = 1;
   let done = false;
 
   await page.exposeFunction('__aynaSubmit', async (payload) => {
@@ -178,6 +179,8 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
     const source = perElement.flatMap((e) => e.sourceCandidates);
 
     const record = {
+      // Stable across deletions; `n` is just display order and gets renumbered.
+      id: nextId++,
       n,
       // 'comment' is a note about an element; 'move' is a reorder the user
       // performed in the page and wants reflected in the source.
@@ -204,7 +207,21 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
     };
     comments.push(record);
     await writeFile(path.join(dir, 'comment.json'), JSON.stringify(record, null, 2));
-    return { ok: true, n };
+    return { ok: true, n, id: record.id };
+  });
+
+  // Undo a comment the user changed their mind about. Without this the only way
+  // out of a mistaken pin is to close the window and start the review over.
+  await page.exposeFunction('__aynaRemove', async (id) => {
+    const idx = comments.findIndex((c) => c.id === id);
+    if (idx === -1) return { ok: false, count: comments.length };
+    comments.splice(idx, 1);
+    // Keep display numbering contiguous after a removal.
+    comments.forEach((c, i) => {
+      c.n = i + 1;
+    });
+    await writeStatus();
+    return { ok: true, count: comments.length };
   });
 
   // Phase is the contract between the browser, Node, and Claude:
