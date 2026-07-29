@@ -226,7 +226,9 @@ async function main() {
       await mkdir(SESSION_DIR, { recursive: true });
       await writeFile(
         path.join(SESSION_DIR, 'last-comments.json'),
-        JSON.stringify({ file: path.join(outDir, 'comments.json') }),
+        // The pid lets later commands tell a live window from a dead one. Resuming
+        // a conversation does not resurrect the browser the old session owned.
+        JSON.stringify({ file: path.join(outDir, 'comments.json'), pid: process.pid }),
       );
 
       const manifest = await runAnnotate({
@@ -258,10 +260,14 @@ async function main() {
     case 'applied': {
       // Tell the still-open annotate window that the edits are in. It reloads the
       // page and switches to the approve/comment-more bar. We never close it.
-      const pointer = path.join(SESSION_DIR, 'last-comments.json');
-      if (!existsSync(pointer)) throw new Error('no annotate session — run `ayna annotate` first');
-      const dir = path.dirname(JSON.parse(await readFile(pointer, 'utf8')).file);
-      await writeFile(path.join(dir, 'applied'), String(Date.now()));
+      const session = await readSession();
+      if (!session) throw new Error('no annotate session — run `ayna annotate` first');
+      if (!session.live) {
+        throw new Error(
+          'the annotate window is gone — nothing will read this. Start a new review with `ayna annotate`.',
+        );
+      }
+      await writeFile(path.join(session.dir, 'applied'), String(Date.now()));
       ok('told the open window to refresh — waiting for the user to approve');
       return;
     }
@@ -270,9 +276,14 @@ async function main() {
       // Blocks until the user sends a round (or closes the window), then exits.
       // Run this in the background so you are woken the moment they hit Send —
       // polling `status` by hand means the user sits there waiting on you.
-      const pointer = path.join(SESSION_DIR, 'last-comments.json');
-      if (!existsSync(pointer)) throw new Error('no annotate session — run `ayna annotate` first');
-      const statusFile = path.join(path.dirname(JSON.parse(await readFile(pointer, 'utf8')).file), 'status.json');
+      const session = await readSession();
+      if (!session) throw new Error('no annotate session — run `ayna annotate` first');
+      if (!session.live) {
+        // Never block on a window that no longer exists.
+        console.log(JSON.stringify({ phase: 'stale', done: true }));
+        return;
+      }
+      const statusFile = path.join(session.dir, 'status.json');
 
       for (;;) {
         const s = existsSync(statusFile)
@@ -292,18 +303,33 @@ async function main() {
           console.log(JSON.stringify({ phase: s.phase, done: true }));
           return;
         }
+        // The user may just close the terminal or kill the window mid-review.
+        const still = await readSession();
+        if (!still || !still.live) {
+          console.log(JSON.stringify({ phase: 'stale', done: true }));
+          return;
+        }
         await new Promise((r) => setTimeout(r, 500));
       }
     }
 
     case 'status': {
-      const pointer = path.join(SESSION_DIR, 'last-comments.json');
-      if (!existsSync(pointer)) {
+      const session = await readSession();
+      if (!session) {
         console.log(JSON.stringify({ phase: 'none' }));
         return;
       }
-      const dir = path.dirname(JSON.parse(await readFile(pointer, 'utf8')).file);
-      const statusFile = path.join(dir, 'status.json');
+      if (!session.live) {
+        console.log(
+          JSON.stringify({
+            phase: 'stale',
+            hint: 'the window that owned this review is gone (the session that opened it ended). Start a new one with `ayna annotate`.',
+            lastComments: session.file,
+          }),
+        );
+        return;
+      }
+      const statusFile = path.join(session.dir, 'status.json');
       console.log(
         existsSync(statusFile) ? await readFile(statusFile, 'utf8') : JSON.stringify({ phase: 'none' }),
       );
@@ -311,9 +337,14 @@ async function main() {
     }
 
     case 'comments': {
-      const pointer = path.join(SESSION_DIR, 'last-comments.json');
+      const session = await readSession();
       let file = values.root;
-      if (!file && existsSync(pointer)) file = JSON.parse(await readFile(pointer, 'utf8')).file;
+      if (!file && session) {
+        file = session.file;
+        if (!session.live && !values.json) {
+          warn('this is from a finished review — the window that owned it is closed');
+        }
+      }
       if (!file || !existsSync(file)) {
         warn('no comments yet — run `ayna annotate` first');
         return;
@@ -476,6 +507,32 @@ async function main() {
       console.log(HELP);
       process.exitCode = 1;
   }
+}
+
+/**
+ * The annotate session this project last opened, and whether it is still running.
+ *
+ * A resumed conversation inherits the pointer file but not the process: the browser
+ * died with the session that opened it. Without this check `status` reports a phase
+ * nobody is in, `applied` writes a marker nothing will read, and `wait` polls a
+ * frozen file forever.
+ */
+async function readSession() {
+  const pointer = path.join(SESSION_DIR, 'last-comments.json');
+  if (!existsSync(pointer)) return null;
+  const info = JSON.parse(await readFile(pointer, 'utf8').catch(() => '{}'));
+  if (!info.file) return null;
+
+  let live = false;
+  if (info.pid) {
+    try {
+      process.kill(info.pid, 0); // signal 0 = liveness probe, sends nothing
+      live = true;
+    } catch {
+      live = false;
+    }
+  }
+  return { ...info, dir: path.dirname(info.file), live };
 }
 
 /** `--headed` beats `--headless` beats the config default. */

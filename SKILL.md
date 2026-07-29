@@ -145,6 +145,12 @@ user can click any green marker to re-read it.
 Do **not** kill the annotate process to "finish" a review, and don't close the
 browser yourself. Waiting is the correct behavior.
 
+**A resumed conversation does not inherit the window.** The browser died with the
+session that opened it, so `status` reports `phase: "stale"` and `wait` returns
+immediately rather than blocking on a review nobody is in. When you see `stale`,
+say so and start a fresh `annotate` — don't try to resume the old one. Previous
+comments are still on disk (`comments --json`) if you need to read what was asked.
+
 Each comment gives you:
 
 | field | what it's for |
