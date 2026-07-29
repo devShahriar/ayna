@@ -94,7 +94,24 @@ async function main() {
 
   // A config in the user's project wins over the plugin's own defaults.
   const localConfig = path.join(PROJECT, 'ayna.config.json');
-  const cfg = await loadConfig(existsSync(localConfig) ? PROJECT : ROOT);
+  const hasLocalConfig = existsSync(localConfig);
+  const cfg = await loadConfig(hasLocalConfig ? PROJECT : ROOT);
+
+  /*
+    Without this guard, running ayna from a project that has no ayna.config.json
+    falls back to the plugin's own defaults — which point at the bundled demo. You
+    would get pristine screenshots of a landing page you have never seen, with no
+    hint that it isn't your app. Fail loudly instead.
+  */
+  const NEEDS_TARGET = new Set(['shot', 'critique', 'annotate', 'loop', 'serve']);
+  if (NEEDS_TARGET.has(command) && !hasLocalConfig && !values.url && PROJECT !== ROOT) {
+    throw new Error(
+      `no target for ${path.basename(PROJECT)}/ — ayna does not know what to look at.\n` +
+        '  Point it at a running app:  ayna ' + command + ' --url http://localhost:3000\n' +
+        '  Or create ayna.config.json here:  ayna init\n' +
+        '  (without one, ayna would have shown you its own bundled demo)',
+    );
+  }
 
   // Artifacts always land in the project being worked on.
   cfg.runsDir = path.join(PROJECT, '.ayna', 'runs');
