@@ -7,6 +7,7 @@ import { loadConfig, DEFAULT_CONFIG } from '../src/config.mjs';
 import { snapshot, restore, changedFiles } from '../src/snapshot.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { writeReport } from '../src/report.mjs';
+import { scanInJs } from '../src/annotate.mjs';
 import { tempDir, fixtureSite } from './helpers.mjs';
 
 describe('config', () => {
@@ -262,6 +263,52 @@ describe('report', () => {
       const html = await readFile(file, 'utf8');
       assert.doesNotMatch(html, /<script>alert/);
       assert.match(html, /&lt;script&gt;/);
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('portable source scan (used where grep is unavailable, e.g. Windows)', () => {
+  test('finds the needle with file:line:preview, like grep -rn', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(path.join(dir, 'src'), { recursive: true });
+      await writeFile(path.join(dir, 'src', 'page.html'), 'line one\n<h1 class="hero-title">Hi</h1>\nline three\n');
+      const out = await scanInJs(dir, 'hero-title');
+      assert.equal(out.length, 1);
+      const [file, line, ...rest] = out[0].split(':');
+      assert.match(file, /page\.html$/);
+      assert.equal(line, '2', 'reports the correct 1-based line number');
+      assert.match(rest.join(':'), /hero-title/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('skips node_modules and binary-ish files', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(path.join(dir, 'node_modules', 'pkg'), { recursive: true });
+      await mkdir(path.join(dir, 'app'), { recursive: true });
+      await writeFile(path.join(dir, 'node_modules', 'pkg', 'index.js'), 'const needle_x = 1;');
+      await writeFile(path.join(dir, 'app', 'logo.png'), 'needle_x binary');
+      await writeFile(path.join(dir, 'app', 'real.css'), '.needle_x { color: red }');
+      const out = await scanInJs(dir, 'needle_x');
+      assert.equal(out.length, 1, 'only the real source file');
+      assert.match(out[0], /real\.css/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('returns nothing rather than throwing when there is no match', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await fixtureSite(dir);
+      assert.deepEqual(await scanInJs(dir, 'definitely-not-present-anywhere'), []);
     } finally {
       await dispose();
     }

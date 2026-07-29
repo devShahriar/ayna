@@ -14,8 +14,14 @@ export const DEFAULT_CONFIG = {
     // Pages to capture, relative to the target URL. Add every route worth
     // reviewing — one shot of the landing page tells you nothing about /pricing.
     routes: ['/'],
-    // The brain may only edit files under these globs.
-    editGlobs: ['demo/**/*.html', 'demo/**/*.css', 'demo/**/*.js'],
+    /*
+      There is deliberately no `editGlobs` here. It used to exist and was never
+      enforced, which is worse than not having it: a setting that looks like a
+      sandbox but isn't. The real boundary is `root` — it's what gets snapshotted,
+      what `restore` rolls back, and what the skill tells Claude it may touch.
+      That is a convention plus an undo, not a security guarantee. Point `root`
+      somewhere you are happy to have rewritten.
+    */
   },
   viewports: [
     { name: 'desktop', width: 1440, height: 900 },

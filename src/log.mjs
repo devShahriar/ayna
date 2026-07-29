@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code) => (s) => (useColor ? `[${code}m${s}[0m` : String(s));
 
@@ -25,4 +26,17 @@ export function banner(text) {
 /** Human-readable duration. */
 export function ms(n) {
   return n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(1)}s`;
+}
+
+/** Open a file in the OS default application. macOS/Windows/Linux. */
+export function openInDesktop(file) {
+  const cmd =
+    process.platform === 'darwin' ? ['open', [file]]
+      : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', file]]
+        : ['xdg-open', [file]];
+  try {
+    spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref();
+  } catch {
+    // No desktop session (CI, SSH) — the path is already printed for the user.
+  }
 }

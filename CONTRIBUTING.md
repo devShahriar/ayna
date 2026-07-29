@@ -78,6 +78,11 @@ Each of these is a bug that already happened once:
 - **The annotate window belongs to the user.** Only their approval closes it. Don't
   close the browser or kill the process to "finish" a review.
 - **Artifacts go in the user's project**, not the plugin directory.
+- **Don't add config that isn't enforced.** `editGlobs` used to sit in the default
+  config looking like a sandbox while nothing read it. A setting that implies a
+  guarantee it doesn't provide is worse than no setting.
+- **No unconditional shell-outs.** `grep` and `open` don't exist everywhere;
+  see `scanInJs` and `openInDesktop` for the fallbacks.
 
 ## Reporting bugs
 

@@ -8,7 +8,7 @@ import { runClaude, ensureClaudeAvailable } from './brain.mjs';
 import { snapshot, restore, changedFiles } from './snapshot.mjs';
 import { CRITIQUE_SCHEMA, VERIFY_SCHEMA, critiquePrompt, improvePrompt, verifyPrompt } from './prompts.mjs';
 import { writeReport } from './report.mjs';
-import { banner, step, ok, warn, fail, info, dim, bold, green, yellow, red, ms } from './log.mjs';
+import { banner, step, ok, warn, fail, info, dim, bold, green, yellow, red, ms, openInDesktop } from './log.mjs';
 
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
 const EDIT_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'MultiEdit'];
@@ -326,7 +326,7 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
   if (totalCost) info(`cost: $${totalCost.toFixed(4)}`);
   ok(`report: ${reportPath}`);
   if (open) {
-    spawn('open', [reportPath], { stdio: 'ignore', detached: true }).unref();
+    openInDesktop(reportPath);
   }
   console.log(dim(`\n  open it with:  open ${path.relative(process.cwd(), reportPath)}\n`));
 

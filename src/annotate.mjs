@@ -36,6 +36,7 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
 
   const hits = [];
   for (const needle of needles) {
+    let lines = [];
     try {
       const { stdout } = await exec(
         'grep',
@@ -43,16 +44,49 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
          '--exclude-dir=.git', '--exclude-dir=.ayna', '-F', needle, projectDir],
         { maxBuffer: 1024 * 1024 },
       );
-      for (const line of stdout.split('\n').slice(0, 4)) {
-        const m = line.match(/^(.+?):(\d+):(.*)$/);
-        if (m) hits.push({ needle, file: path.relative(projectDir, m[1]), line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
-      }
-    } catch {
-      // grep exits 1 when nothing matches — that is not an error here.
+      lines = stdout.split('\n');
+    } catch (err) {
+      // grep exits 1 when nothing matches — not an error. But ENOENT means there
+      // is no grep at all (Windows), and silently returning no source locations
+      // would quietly gut the feature, so fall back to scanning in JS.
+      if (err.code === 'ENOENT') lines = await scanInJs(projectDir, needle);
+    }
+
+    for (const line of lines.slice(0, 4)) {
+      const m = line.match(/^(.+?):(\d+):(.*)$/);
+      if (m) hits.push({ needle, file: path.relative(projectDir, m[1]), line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
     }
     if (hits.length >= 6) break;
   }
   return rankByPage(hits, pageUrl);
+}
+
+const SKIP_DIRS = new Set(['node_modules', '.git', '.ayna', 'dist', 'build', '.next', 'coverage']);
+const TEXT_EXT = new Set([
+  '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx', '.mjs', '.cjs',
+  '.ts', '.tsx', '.vue', '.svelte', '.astro', '.php', '.erb', '.hbs', '.ejs', '.md', '.json',
+]);
+
+/** Portable stand-in for `grep -rn`, used where grep isn't available. Exported for tests. */
+export async function scanInJs(dir, needle, out = [], budget = { files: 4000 }) {
+  const { readdir, readFile } = await import('node:fs/promises');
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (out.length >= 8 || budget.files <= 0) break;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      await scanInJs(full, needle, out, budget);
+      continue;
+    }
+    if (!TEXT_EXT.has(path.extname(entry.name).toLowerCase())) continue;
+    budget.files -= 1;
+    const text = await readFile(full, 'utf8').catch(() => null);
+    if (!text || !text.includes(needle)) continue;
+    text.split('\n').forEach((line, i) => {
+      if (out.length < 8 && line.includes(needle)) out.push(`${full}:${i + 1}:${line}`);
+    });
+  }
+  return out;
 }
 
 /** Files whose path echoes the current route are the likelier source. */

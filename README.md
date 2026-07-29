@@ -149,8 +149,9 @@ default landing-page goal.
   Ayna restarts the server and re-shoots rather than reverting work it never saw.
 - `after` screenshots are kept even for reverted rounds, so you can check the
   rollback was right.
-- It edits only what `target.root` points at. Keep that aimed somewhere you're happy
-  to have rewritten.
+- It edits what `target.root` points at. That boundary is a convention the skill
+  follows plus a snapshot you can roll back — **not a sandbox**. Point it somewhere
+  you're happy to have rewritten.
 
 ## Layout
 

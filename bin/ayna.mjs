@@ -15,7 +15,7 @@ import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
 import { runAnnotate, loadComments } from '../src/annotate.mjs';
 import { writeReport } from '../src/report.mjs';
-import { banner, step, ok, info, warn, fail, dim, bold, green, yellow, red } from '../src/log.mjs';
+import { banner, step, ok, info, warn, fail, dim, bold, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -437,7 +437,7 @@ async function main() {
           totalCost: 0,
         });
         ok(`report: ${path.relative(PROJECT, file)}`);
-        if (values.open) spawn('open', [file], { stdio: 'ignore', detached: true }).unref();
+        if (values.open) openInDesktop(file);
         return;
       }
 
@@ -451,7 +451,7 @@ async function main() {
       await access(file).catch(() => {
         throw new Error(`no report in ${latest}`);
       });
-      spawn('open', [file], { stdio: 'ignore', detached: true }).unref();
+      openInDesktop(file);
       ok(`opened ${path.relative(process.cwd(), file)}`);
       return;
     }
