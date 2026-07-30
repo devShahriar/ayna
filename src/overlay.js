@@ -159,7 +159,8 @@
       border: 2px solid #f59e0b; background: rgba(245,158,11,.10);
       border-radius: 4px; transition: border-color .2s, background-color .2s;
     }
-    .${NS}-rev[data-status=resolved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
+    .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
+    .${NS}-rev[data-status=in_progress] { border-color: #38bdf8; background: rgba(56,189,248,.08); }
     .${NS}-rev[data-status=rejected] { border-color: #ef4444; background: rgba(239,68,68,.10); }
     .${NS}-revbar {
       position: absolute; z-index: 2147483644; display: flex; align-items: center; gap: 4px;
@@ -211,6 +212,7 @@
       width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #f59e0b;
     }
     .${NS}-task[data-status=approved] .${NS}-dot { background: #16a34a; }
+    .${NS}-task[data-status=in_progress] .${NS}-dot { background: #38bdf8; }
     .${NS}-task[data-status=rejected] .${NS}-dot { background: #ef4444; }
     .${NS}-task[data-status=approved] .${NS}-task-text { color: #6f7889; text-decoration: line-through; }
     .${NS}-task-text { flex: 1; min-width: 0; }
@@ -1400,7 +1402,13 @@
         pin.dataset.status = c.status;
         box.dataset.status = c.status;
         pin.textContent =
-          c.status === 'approved' ? '✓ ' + c.n : c.status === 'rejected' ? '↺ ' + c.n : String(c.n);
+          c.status === 'approved'
+            ? '✓ ' + c.n
+            : c.status === 'rejected'
+              ? '↺ ' + c.n
+              : c.status === 'in_progress'
+                ? '⋯ ' + c.n // Claude has picked this one up
+                : String(c.n);
         // Once judged, collapse to the badge — it stays as the record.
         ok.style.display = c.status === 'open' ? '' : 'none';
         no.style.display = c.status === 'open' ? '' : 'none';
@@ -1456,7 +1464,13 @@
       '</div>';
 
     card.querySelector('.' + NS + '-badge').textContent =
-      c.status === 'approved' ? 'approved' : c.status === 'rejected' ? 'needs work' : 'comment ' + c.n;
+      c.status === 'approved'
+        ? 'approved'
+        : c.status === 'rejected'
+          ? 'needs work'
+          : c.status === 'in_progress'
+            ? 'Claude is on this'
+            : 'comment ' + c.n;
     card.querySelector('.' + NS + '-text').textContent = c.comment;
     card.querySelector('.' + NS + '-when').textContent =
       c.kind === 'move' ? 'a reorder you made' : c.kind === 'region' ? 'a region you framed' : c.selector || '';

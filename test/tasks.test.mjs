@@ -171,3 +171,68 @@ describe('importing work captured before the store existed', () => {
     }
   });
 });
+
+describe('watching the store', () => {
+  test('announces what is already owed, then each change, with no window involved', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { watchTasks } = await import('../src/watch.mjs');
+      const store = await openStore(dir);
+      // Work that existed before anything was watching.
+      const old = await store.create({ comment: 'from a session that ended', url: 'http://x/a' });
+
+      const events = [];
+      const controller = new AbortController();
+      const { stop } = await watchTasks({
+        projectDir: dir,
+        signal: controller.signal,
+        intervalMs: 200,
+        onEvent: (e) => events.push(e),
+      });
+
+      const settle = () => new Promise((r) => setTimeout(r, 700));
+      const fresh = await store.create({ comment: 'raised with nothing open', url: 'http://x/b' });
+      await settle();
+      await store.update(fresh.id, { status: 'rejected' });
+      await settle();
+      stop();
+      controller.abort();
+
+      assert.equal(events[0].event, 'ready');
+      assert.equal(events[0].pending, 1, 'says up front what is already waiting');
+      assert.equal(events[0].tasks[0].id, old.id);
+
+      const kinds = events.slice(1).map((e) => `${e.status}:${e.action}`);
+      assert.ok(kinds.includes('open:act-on-it'), `a new task is announced (${kinds.join(', ')})`);
+      assert.ok(kinds.includes('rejected:try-again'), 'so is a rejection');
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a status is announced once, not on every sweep', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { watchTasks } = await import('../src/watch.mjs');
+      const store = await openStore(dir);
+      const events = [];
+      const controller = new AbortController();
+      const { stop } = await watchTasks({
+        projectDir: dir,
+        signal: controller.signal,
+        intervalMs: 150,
+        onEvent: (e) => events.push(e),
+      });
+
+      await store.create({ comment: 'one task', url: 'http://x/' });
+      await new Promise((r) => setTimeout(r, 900)); // several sweeps
+      stop();
+      controller.abort();
+
+      const announcements = events.filter((e) => e.event === 'task');
+      assert.equal(announcements.length, 1, `announced ${announcements.length} times, expected once`);
+    } finally {
+      await dispose();
+    }
+  });
+});

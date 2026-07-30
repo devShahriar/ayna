@@ -308,3 +308,29 @@ layout faults — rather than only what is.
 
 When the user asks for a flow to be tested, write it into `ayna-flows/` so it
 becomes a permanent check rather than a one-off run.
+
+## Work that outlives the window
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs watch
+```
+
+Run this under a monitor **at the start of any session touching a project with
+ayna in it**. It watches the task store rather than a window, so a task raised in
+a session that has since ended is still announced to this one. Its first line says
+what is already owed:
+
+```json
+{"event":"ready","pending":2,"tasks":[…]}
+{"event":"task","id":"task-0004","status":"open","action":"act-on-it"}
+{"event":"task","id":"task-0002","status":"rejected","action":"try-again"}
+```
+
+**Claim a task before working on it** so the user can see which one you are on —
+their marker turns blue and reads "Claude is on this":
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs task task-0004 --status in_progress
+```
+
+Leave the verdict to them. Move a task to `approved` only when they say so.

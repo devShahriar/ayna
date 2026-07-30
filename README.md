@@ -93,6 +93,18 @@ the end of a session the page carries the record of everything that changed.
 
 Only **Approve & close** ends the session.
 
+## Work that outlives the window
+
+```bash
+node bin/ayna.mjs watch    # announces tasks as they appear, forever
+node bin/ayna.mjs tasks    # everything raised here and where it stands
+```
+
+Comments are **tasks on disk**, not state in a browser window. Close the window,
+end the session, reboot — a task you never approved is still waiting, and the next
+session is told about it before you have to ask. `watch` reports what is already
+owed the moment it starts.
+
 ## Automated QA
 
 Flows are a test suite, versioned with the code:

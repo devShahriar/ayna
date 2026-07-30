@@ -55,7 +55,19 @@ const CHECKS = `(() => {
     return false;
   };
 
-  const all = [...document.querySelectorAll('body *')].filter((el) => !ours(el) && seen(el));
+  /*
+    Walk into shadow roots. querySelectorAll stops at the boundary, so a page built
+    from web components looked completely clean — a 9px label and a 20px button
+    inside a shadow root were simply not there as far as this was concerned.
+  */
+  const collect = (root, out) => {
+    for (const el of root.querySelectorAll('*')) {
+      out.push(el);
+      if (el.shadowRoot) collect(el.shadowRoot, out);
+    }
+    return out;
+  };
+  const all = collect(document.body, []).filter((el) => !ours(el) && seen(el));
   const interactive = all.filter((el) =>
     /^(button|a|input|select|textarea)$/.test(el.tagName.toLowerCase()) || el.getAttribute('role') === 'button',
   );
@@ -67,7 +79,16 @@ const CHECKS = `(() => {
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     if (cx < 0 || cy < 0 || cx > vw || cy > vh) continue; // off screen is check 2's job
-    const hit = document.elementFromPoint(cx, cy);
+    /*
+      elementFromPoint reports the host, not what is actually on top inside it, so
+      a control covered by a sibling within the same component read as fine.
+    */
+    let hit = document.elementFromPoint(cx, cy);
+    while (hit && hit.shadowRoot) {
+      const deeper = hit.shadowRoot.elementFromPoint(cx, cy);
+      if (!deeper || deeper === hit) break;
+      hit = deeper;
+    }
     if (!hit || hit === el || el.contains(hit) || hit.contains(el) || ours(hit) || devTool(hit)) continue;
     covered.push({ element: describe(el), label: label(el), coveredBy: describe(hit), rect: box(el) });
   }

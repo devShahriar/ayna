@@ -19,6 +19,7 @@ import { runFlow, summarizeFlow } from '../src/flow.mjs';
 import { openStore, importLegacy, isPending } from '../src/tasks.mjs';
 import { auditPage, summarizeAudit } from '../src/audit.mjs';
 import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';
+import { watchTasks } from '../src/watch.mjs';
 import { writeReport } from '../src/report.mjs';
 import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
@@ -35,6 +36,8 @@ ${bold('USAGE')}
 
 ${bold('TASKS')}
   tasks       Every comment ever made here and where it stands
+  task        Show one, or move it: ayna task task-0003 --status in_progress
+  watch       Announce work as it appears; outlives any window (run under a monitor)
 
 ${bold('REVIEW')} — you point, Claude fixes
   annotate    Open the page so you can click, comment, attach images, reorder
@@ -109,6 +112,7 @@ const { values, positionals } = parseArgs({
     dir: { type: 'string' },
     baseline: { type: 'string' },
     keep: { type: 'string' },
+    status: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -369,6 +373,44 @@ async function main() {
 
       // A QA run has to be usable as a gate.
       if (suite.failed) process.exitCode = 1;
+      return;
+    }
+
+    case 'watch': {
+      // Delivery that outlives any window: the store is the queue.
+      const store = await openStore(PROJECT);
+      await importLegacy(PROJECT, store);
+      const controller = new AbortController();
+      const { stop } = await watchTasks({
+        projectDir: PROJECT,
+        signal: controller.signal,
+        onEvent: (e) => console.log(JSON.stringify(e)),
+      });
+      for (const sig of ['SIGINT', 'SIGTERM']) {
+        process.on(sig, () => {
+          stop();
+          controller.abort();
+          process.exit(0);
+        });
+      }
+      await new Promise(() => {}); // watch until killed
+      return;
+    }
+
+    case 'task': {
+      const id = positionals[1];
+      if (!id) throw new Error('which task? ayna task task-0003 --status in_progress');
+      const store = await openStore(PROJECT);
+      const wanted = values.status;
+      if (!wanted) {
+        const t = await store.get(id);
+        if (!t) throw new Error(`no such task: ${id}`);
+        console.log(JSON.stringify(t, null, 2));
+        return;
+      }
+      const updated = await store.update(id, { status: wanted }, values.note);
+      if (!updated) throw new Error(`no such task: ${id}`);
+      ok(`${id} → ${wanted}`);
       return;
     }
 
