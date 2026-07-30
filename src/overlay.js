@@ -102,7 +102,7 @@
     }
     @keyframes ${NS}-rot { to { transform: rotate(360deg); } }
     .${NS}-pop {
-      position: absolute; z-index: 2147483646; width: 320px;
+      position: fixed; z-index: 2147483646; width: 320px;
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
       box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
       font: 13px/1.5 -apple-system, system-ui, sans-serif;
@@ -167,7 +167,7 @@
     .${NS}-ok:hover { background: #15803d; }
     .${NS}-no:hover { background: #ef4444; color: #fff; }
     .${NS}-card {
-      position: absolute; z-index: 2147483646; width: 300px;
+      position: fixed; z-index: 2147483646; width: 300px;
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
       box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
       font: 13px/1.55 -apple-system, system-ui, sans-serif;
@@ -909,6 +909,33 @@
 
   let pop = null;
 
+  /*
+    Anchor a floating panel to an element without letting it fall off screen.
+
+    Page coordinates plus position:absolute put the box wherever the element was,
+    which on a centred full-viewport layout can be half outside the window — you
+    end up reading a comment box that is clipped at the edge. Measure in viewport
+    space, flip above the target when there is no room below, and clamp.
+  */
+  function placeFloating(el, r) {
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const box = el.getBoundingClientRect();
+    const w = box.width || 320;
+    const h = box.height || 240;
+
+    const x = r.x - window.scrollX;
+    const y = r.y - window.scrollY;
+
+    let top = y + r.height + 10;
+    if (top + h > vh - 8) top = y - h - 10; // no room below — flip above
+    if (top < 8) top = Math.max(8, vh - h - 8); // nor above — pin inside
+
+    el.style.position = 'fixed';
+    el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
+    el.style.top = top + 'px';
+  }
+
   function closePopover() {
     if (pop) {
       pop.remove();
@@ -986,10 +1013,8 @@
         ? described.length + ' elements: ' + described.map((d) => d.selector.split(' > ').pop()).join(', ')
         : sel;
 
-    const docEl = document.documentElement;
-    pop.style.top = Math.max(8, Math.min(r.y + r.height + 8, docEl.scrollHeight - 260)) + 'px';
-    pop.style.left = Math.min(Math.max(r.x, 8), Math.max(8, docEl.clientWidth - 336)) + 'px';
-    docEl.appendChild(pop);
+    document.documentElement.appendChild(pop);
+    placeFloating(pop, r);
 
     const ta = pop.querySelector('textarea');
     ta.focus();
@@ -1039,7 +1064,12 @@
       });
     }
 
-    pop.querySelector('.' + NS + '-cancel').addEventListener('click', closePopover);
+    pop.querySelector('.' + NS + '-cancel').addEventListener('click', () => {
+      // Leaving the selection behind made every cancelled click accumulate, so
+      // three separate attempts became one comment covering three elements.
+      clearSelection();
+      closePopover();
+    });
     pop.querySelector('.' + NS + '-save').addEventListener('click', async () => {
       const text = ta.value.trim();
       if (!text && !images.length) {
@@ -1230,10 +1260,8 @@
     card.querySelector('.' + NS + '-when').textContent =
       c.kind === 'move' ? 'a reorder you made' : c.kind === 'region' ? 'a region you framed' : c.selector || '';
 
-    const docEl = document.documentElement;
-    card.style.top = Math.max(8, r.y + r.height + 10) + 'px';
-    card.style.left = Math.min(Math.max(r.x, 8), Math.max(8, docEl.clientWidth - 316)) + 'px';
-    docEl.appendChild(card);
+    document.documentElement.appendChild(card);
+    placeFloating(card, r);
 
     const set = async (status) => {
       const res = await window.__aynaResolve(c.id, status);

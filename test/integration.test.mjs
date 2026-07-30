@@ -1344,3 +1344,117 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
     }
   });
 });
+
+describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('cancelling does not leave the element in the next comment', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4640);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            // Open on one element, change your mind, then comment on another.
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.click('.ayna-ov-cancel');
+            await page.waitForTimeout(250);
+            assert.equal(
+              await page.evaluate(() => document.querySelectorAll('.ayna-ov-picked').length),
+              0,
+              'cancelling clears the selection marker',
+            );
+
+            await page.click('.lede');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            assert.doesNotMatch(
+              await page.evaluate(() => document.querySelector('.ayna-ov-sel').textContent),
+              /elements:/,
+              'the second comment covers one element, not two',
+            );
+            await page.fill('.ayna-ov-pop textarea', 'just this one');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await page.close();
+          },
+        });
+        assert.equal(manifest.comments.length, 1);
+        assert.equal(manifest.comments[0].elements.length, 1, 'exactly the element that was clicked');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('the comment box stays fully on screen for an element near the edge', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      // A centred, full-viewport card — the layout that pushed the box off screen.
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#222">
+           <div style="width:340px;padding:24px;background:#fff">
+             <h1 class="card-title">Sign in</h1>
+             <p class="near-bottom" style="margin-top:220px">Something near the bottom edge</p>
+           </div>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4641);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 900, height: 600 },
+          onReady: async (page) => {
+            for (const sel of ['.card-title', '.near-bottom']) {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop');
+              const fits = await page.evaluate(() => {
+                const b = document.querySelector('.ayna-ov-pop').getBoundingClientRect();
+                return (
+                  b.left >= 0 &&
+                  b.top >= 0 &&
+                  b.right <= document.documentElement.clientWidth + 1 &&
+                  b.bottom <= document.documentElement.clientHeight + 1
+                );
+              });
+              assert.ok(fits, `comment box fully visible for ${sel}`);
+              await page.click('.ayna-ov-cancel');
+              await page.waitForTimeout(200);
+            }
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
