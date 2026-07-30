@@ -1,0 +1,10 @@
+{
+  "name": "Pricing plans are reachable",
+  "start": "/",
+  "assert": { "noLayoutFaults": ["covered"] },
+  "steps": [
+    { "do": "scroll", "to": "#pricing" },
+    { "do": "click", "on": ".plan-featured .plan-cta" },
+    { "do": "expect", "selector": ".plan-featured" }
+  ]
+}

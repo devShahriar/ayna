@@ -18,6 +18,7 @@ import { runAnnotate, loadComments } from '../src/annotate.mjs';
 import { runFlow, summarizeFlow } from '../src/flow.mjs';
 import { openStore, importLegacy, isPending } from '../src/tasks.mjs';
 import { auditPage, summarizeAudit } from '../src/audit.mjs';
+import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';
 import { writeReport } from '../src/report.mjs';
 import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
@@ -46,6 +47,7 @@ ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
   audit       Find layout faults the page can prove: covered, cut off, overlapping
+  qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
   serve       Serve the target UI and stay up (ctrl-c to stop)
 
 ${bold('SAFETY')}
@@ -73,6 +75,8 @@ ${bold('OPTIONS')}
       --json             Machine-readable output
       --events           Stream one JSON line per round/rejection/close (annotate)
       --flow <file>      Flow definition to run (flow)
+      --dir <dir>        Where the flows live (qa, default ayna-flows/)
+      --baseline <file>  Previous qa.json to compare against (qa)
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
       --headed           Show the Chrome window (default: headless)
@@ -101,6 +105,8 @@ const { values, positionals } = parseArgs({
     routes: { type: 'string' },
     events: { type: 'boolean' },
     flow: { type: 'string' },
+    dir: { type: 'string' },
+    baseline: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -301,6 +307,66 @@ async function main() {
       }
       console.log('');
       ok(`${stats.pending} pending · ${stats.approved} approved · ${stats.total} total`);
+      return;
+    }
+
+    case 'qa': {
+      const flowsDir = path.resolve(PROJECT, values.dir ?? cfg.qa?.dir ?? 'ayna-flows');
+      const flows = await loadFlows(flowsDir);
+      if (!flows.length) {
+        throw new Error(
+          `no flows in ${path.relative(PROJECT, flowsDir)}/ — put one .json per journey there, or pass --dir`,
+        );
+      }
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const outDir = path.join(PROJECT, '.ayna', 'qa', stamp);
+      const server = await startTarget(cfg);
+      const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
+      const context = profileDir
+        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        : null;
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+
+      const suite = await runSuite({
+        browser,
+        context,
+        baseUrl: server.url,
+        flows,
+        outDir,
+        viewports: cfg.viewports,
+      });
+
+      if (context) await context.close().catch(() => {});
+      else await browser.close().catch(() => {});
+      await server.close().catch(() => {});
+
+      const baselineFile = values.baseline
+        ? path.resolve(PROJECT, values.baseline)
+        : path.join(PROJECT, '.ayna', 'qa', 'baseline.json');
+      const changes = await compareWithBaseline(suite, baselineFile);
+
+      if (values.json) {
+        console.log(JSON.stringify({ ...suite, changes }, null, 2));
+      } else {
+        banner(`ayna qa · ${flows.length} flow(s)`);
+        for (const r of suite.results) {
+          const mark = r.passed ? green('  pass') : red('  FAIL');
+          console.log(`${mark}  ${bold(r.name)}  ${dim(`${r.steps ?? 0} steps · ${Math.round((r.durationMs ?? 0) / 100) / 10}s`)}`);
+          for (const f of r.failures) console.log(`        ${yellow(f.rule)} — ${f.detail}`);
+        }
+        if (changes?.length) {
+          console.log('');
+          info('since the baseline:');
+          for (const c of changes) console.log(`    ${c.name}: ${c.change}${c.detail ? ` (${c.detail})` : ''}`);
+        }
+        console.log('');
+        (suite.failed ? fail : ok)(`${suite.passed}/${suite.total} flows passed`);
+        info(`${path.relative(PROJECT, outDir)}/qa-report.html`);
+      }
+
+      // A QA run has to be usable as a gate.
+      if (suite.failed) process.exitCode = 1;
       return;
     }
 

@@ -92,6 +92,20 @@ the end of a session the page carries the record of everything that changed.
 
 Only **Approve & close** ends the session.
 
+## Automated QA
+
+Flows are a test suite, versioned with the code:
+
+```bash
+node bin/ayna.mjs qa          # runs every flow in ayna-flows/, exit 1 on failure
+```
+
+Each flow asserts what must hold — no console errors, a settle-time budget, and
+**no layout faults**. That last one matters: every flow ends in a layout audit, so
+a journey whose steps still pass but which now hides a control behind a panel
+fails the run. It also diffs against the last baseline and reports what *changed*:
+broke, fixed, slower, or new faults.
+
 ## The loop
 
 ```

@@ -1,0 +1,10 @@
+{
+  "name": "Landing page reads correctly",
+  "start": "/",
+  "assert": { "noConsoleErrors": true, "maxSettleMs": 4000, "noLayoutFaults": ["covered", "offscreen"] },
+  "steps": [
+    { "do": "expect", "text": "Meridian" },
+    { "do": "scroll", "to": "#pricing" },
+    { "do": "expect", "text": "Most popular" }
+  ]
+}

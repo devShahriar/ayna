@@ -274,3 +274,32 @@ Judge it as a flow: does every action acknowledge itself, can they get back from
 each step, is the primary action obvious at each point, what happens on the error
 path, is the whole thing reachable from the keyboard. **Never put a real password
 in a flow** — use the saved profile, and test the failure path with a wrong one.
+
+## Automated QA
+
+Flows kept in `ayna-flows/*.json` are a test suite. Run them all:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs qa --json
+```
+
+Each flow declares what must hold:
+
+```json
+"assert": {
+  "noConsoleErrors": true,
+  "maxSettleMs": 4000,
+  "noLayoutFaults": ["covered", "offscreen"]
+}
+```
+
+`noLayoutFaults` is the one that earns its keep: every flow ends with a layout
+audit where it left the app, so a journey whose steps all pass but which now hides
+a control behind a panel **fails**. That is how UI actually rots.
+
+Exits non-zero when anything fails, so it works as a CI gate, and compares against
+`.ayna/qa/baseline.json` to report what *changed* — broke, fixed, slower, or new
+layout faults — rather than only what is.
+
+When the user asks for a flow to be tested, write it into `ayna-flows/` so it
+becomes a permanent check rather than a one-off run.
