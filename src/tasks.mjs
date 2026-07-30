@@ -210,14 +210,33 @@ export async function importLegacy(projectDir, store) {
     no way to get rid of it. What has been imported is a fact about the past, so
     it is recorded separately and survives deletion.
   */
-  const ledgerFile = path.join(store.dir, '.imported.json');
+  /*
+    Outside the task directory on purpose. Keeping it inside meant clearing tasks
+    also cleared the record of what had been adopted, so deleted comments came
+    straight back on the next read — the ledger has to outlive the thing it
+    protects.
+  */
+  const ledgerFile = path.join(projectDir, '.ayna', 'imported.json');
+  const legacyLedger = path.join(store.dir, '.imported.json');
   let seen;
   try {
     seen = new Set(JSON.parse(await readFile(ledgerFile, 'utf8')));
   } catch {
-    // No ledger yet — fall back to whatever is already in the store, so an
-    // upgrade from before the ledger existed doesn't duplicate everything.
-    seen = new Set((await store.list()).map((t) => t.legacyKey).filter(Boolean));
+    try {
+      // Carry over a ledger written by the previous location.
+      seen = new Set(JSON.parse(await readFile(legacyLedger, 'utf8')));
+    } catch {
+      seen = null;
+    }
+  }
+  if (!seen) {
+    try {
+      // No ledger anywhere — fall back to what is already in the store, so an
+      // upgrade from before any ledger existed doesn't duplicate everything.
+      seen = new Set((await store.list()).map((t) => t.legacyKey).filter(Boolean));
+    } catch {
+      seen = new Set();
+    }
   }
 
   let imported = 0;

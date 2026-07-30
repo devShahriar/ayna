@@ -213,7 +213,14 @@ const SEVERITY = [
   ['tinyText', 'minor', 'text below 12px'],
 ];
 
-export async function auditPage({ browser, context, url, viewports, outDir }) {
+/**
+ * `steps` are performed before anything is measured.
+ *
+ * An audit of the page as it loads only ever sees the state it opens in. Anything
+ * you have to click into — a Live view, an expanded panel, a menu — was never
+ * looked at, and that is often exactly where things collide.
+ */
+export async function auditPage({ browser, context, url, viewports, outDir, steps = [] }) {
   await mkdir(outDir, { recursive: true });
   const findings = [];
 
@@ -227,11 +234,24 @@ export async function auditPage({ browser, context, url, viewports, outDir }) {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});
     await page.waitForTimeout(700);
 
+    const reached = [];
+    for (const step of steps) {
+      try {
+        const { perform } = await import('./flow.mjs');
+        reached.push(await perform(page, step, url));
+        await page.waitForTimeout(step.settle ?? 800);
+      } catch (err) {
+        reached.push({ failed: step, error: err.message.split('\n')[0] });
+        break; // measuring a state we failed to reach would be a lie
+      }
+    }
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+
     const result = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message }));
     const shot = path.join(outDir, `audit-${vp.name}.png`);
     await page.screenshot({ path: shot }).catch(() => {});
 
-    findings.push({ ...result, viewport: vp.name, size: `${vp.width}x${vp.height}`, screenshot: shot });
+    findings.push({ ...result, viewport: vp.name, size: `${vp.width}x${vp.height}`, screenshot: shot, reached });
     if (!context) await ctx.close().catch(() => {});
   }
 

@@ -51,6 +51,7 @@ ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
   audit       Find layout faults the page can prove: covered, cut off, overlapping
+              (--flow steps.json to audit a state you have to click into)
   qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
   clean       Drop old runs (--keep N, default 3); tasks and login are kept
   serve       Serve the target UI and stay up (ctrl-c to stop)
@@ -497,7 +498,11 @@ async function main() {
       const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
 
       const target = new URL(routes[0] ?? '/', server.url).toString();
-      const report = await auditPage({ browser, context, url: target, viewports: cfg.viewports, outDir });
+      // --flow reaches a state first, so what you have to click into gets audited too.
+      const steps = values.flow
+        ? (JSON.parse(await readFile(path.resolve(PROJECT, values.flow), 'utf8')).steps ?? [])
+        : [];
+      const report = await auditPage({ browser, context, url: target, viewports: cfg.viewports, outDir, steps });
 
       if (context) await context.close().catch(() => {});
       else await browser.close().catch(() => {});

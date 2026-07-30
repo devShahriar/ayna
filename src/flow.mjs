@@ -87,7 +87,7 @@ const SNAPSHOT = `(() => {
 })()`;
 
 /** One action. Returns a note for the record, or throws to fail the step. */
-async function perform(page, step, baseUrl) {
+export async function perform(page, step, baseUrl) {
   switch (step.do) {
     case 'goto': {
       const url = new URL(step.url, baseUrl).toString();
