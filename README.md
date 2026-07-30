@@ -49,6 +49,7 @@ Chrome opens with an overlay:
 | **⇧ Shift-click** | select several elements for a single comment |
 | **Paste, drop, or pick an image** | attach a visual reference to the comment |
 | **Move mode → drag** | reorder an element among its siblings; the page updates live |
+| **Tasks** | every unresolved comment across the whole project, grouped by page — click one to jump to it, approve or reject it from the list |
 | **Browse mode** | the app works normally — click through its own UI, follow links, or type a URL — so you can review any page in one session |
 | **Use any form** | fields and submit buttons work in comment mode; alt-click one to comment on it instead |
 

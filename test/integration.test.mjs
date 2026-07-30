@@ -2049,3 +2049,91 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
     }
   });
 });
+
+describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('shows work from every page, this one first, and approves from the list', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { openStore } = await import('../src/tasks.mjs');
+      const { mkdir } = await import('node:fs/promises');
+      const site = path.join(dir, 'site');
+      await mkdir(path.join(site, 'other'), { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        '<html><body style="padding:40px"><h1 class="home">Home heading</h1></body></html>',
+      );
+      await writeFile(
+        path.join(site, 'other', 'index.html'),
+        '<html><body style="padding:40px"><h1 class="other">Other heading</h1></body></html>',
+      );
+
+      const server = await serveStatic(site, 4810);
+      const store = await openStore(dir);
+      // Work raised on a page we are not standing on.
+      await store.create({
+        comment: 'fix the other page heading',
+        url: new URL('/other/', server.url).toString(),
+        selector: '.other',
+        kind: 'comment',
+      });
+
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: dir,
+          store,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            await page.click('.home');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'home heading too big');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(600);
+
+            assert.match(
+              await page.evaluate(() => document.querySelector('[data-act=tasks]').textContent),
+              /Tasks · 2/,
+              'the bar counts pending work without the panel being open',
+            );
+
+            await page.click('[data-act=tasks]');
+            await page.waitForSelector('.ayna-ov-panel');
+
+            const groups = await page.evaluate(() =>
+              [...document.querySelectorAll('.ayna-ov-group')].map((g) => g.textContent.trim()),
+            );
+            assert.equal(groups.length, 2, 'grouped by the page each was raised on');
+            assert.match(groups[0], /this page/, 'what you can act on now comes first');
+            assert.equal(
+              await page.evaluate(() => document.querySelectorAll('.ayna-ov-task').length),
+              2,
+              'work from another route is visible here',
+            );
+
+            await page.click('.ayna-ov-task .ayna-ov-task-acts button[data-act=ok]');
+            await page.waitForTimeout(700);
+            await page.close();
+          },
+        });
+
+        const statuses = Object.fromEntries((await store.list()).map((t) => [t.comment, t.status]));
+        assert.equal(statuses['home heading too big'], 'approved', 'approving from the list writes through');
+        assert.equal(statuses['fix the other page heading'], 'open', 'and touches nothing else');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

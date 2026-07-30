@@ -182,6 +182,52 @@
     .${NS}-no { background: #2b313d; color: #e5e7eb; }
     .${NS}-ok:hover { background: #15803d; }
     .${NS}-no:hover { background: #ef4444; color: #fff; }
+    .${NS}-panel {
+      position: fixed; z-index: 2147483646; right: 16px; top: 16px; width: 330px;
+      max-width: calc(100vw - 32px);
+      background: #111418; color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.45); display: flex; flex-direction: column;
+      font: 13px/1.5 -apple-system, system-ui, sans-serif; overflow: hidden;
+    }
+    .${NS}-panel-head {
+      display: flex; align-items: center; gap: 8px; padding: 12px 14px; flex: none;
+      border-bottom: 1px solid #2a3140; font-weight: 600;
+    }
+    .${NS}-panel-head button {
+      margin-left: auto; background: transparent; border: 0; color: #8b93a7;
+      font: inherit; cursor: pointer; padding: 2px 6px;
+    }
+    .${NS}-panel-list { overflow: auto; min-height: 0; }
+    .${NS}-group {
+      padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: #6f7889;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .${NS}-task {
+      padding: 9px 14px; border-top: 1px solid #1d2330; cursor: pointer;
+      display: flex; gap: 9px; align-items: flex-start;
+    }
+    .${NS}-task:hover { background: #171b22; }
+    .${NS}-dot {
+      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #f59e0b;
+    }
+    .${NS}-task[data-status=approved] .${NS}-dot { background: #16a34a; }
+    .${NS}-task[data-status=rejected] .${NS}-dot { background: #ef4444; }
+    .${NS}-task[data-status=approved] .${NS}-task-text { color: #6f7889; text-decoration: line-through; }
+    .${NS}-task-text { flex: 1; min-width: 0; }
+    .${NS}-task-meta { font-size: 11px; color: #6f7889; margin-top: 2px; }
+    .${NS}-task-acts { display: flex; gap: 4px; flex: none; }
+    .${NS}-task-acts button {
+      border: 0; border-radius: 6px; padding: 2px 7px; font: 600 11px/1.6 inherit; cursor: pointer;
+      background: #232a36; color: #cdd3e0;
+    }
+    .${NS}-task-acts button:hover { background: #16a34a; color: #fff; }
+    .${NS}-task-acts button.${NS}-no:hover { background: #ef4444; }
+    .${NS}-empty { padding: 18px 14px; color: #6f7889; }
+    .${NS}-flash { animation: ${NS}-flash 1.1s ease-out 2; }
+    @keyframes ${NS}-flash {
+      0%, 100% { box-shadow: none; }
+      40% { box-shadow: 0 0 0 3px #f59e0b, 0 0 22px rgba(245,158,11,.6); }
+    }
     .${NS}-card {
       position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
@@ -292,6 +338,7 @@
       bar.innerHTML =
         '<span>' + HINT[state.mode] + '</span>' +
         '<button data-act="mode" class="' + NS + '-ghost">' + NEXT_LABEL[state.mode] + '</button>' +
+        '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
         '<span class="' + NS + '-count">' + countLabel() + '</span>' +
         '<button data-act="send"' + (state.seq ? '' : ' disabled') + '>Send to Claude</button>';
 
@@ -306,6 +353,8 @@
         hide();
         setPhase('comment');
       });
+      bar.querySelector('[data-act=tasks]').addEventListener('click', togglePanel);
+      refreshTaskCount();
       bar.querySelector('[data-act=send]').addEventListener('click', () => {
         if (!state.seq) return;
         setPhase('waiting');
@@ -339,6 +388,7 @@
     bar.innerHTML =
       '<span>Changes are live — judge each one</span>' +
       '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
+      '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
       '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
       '<button data-act="approve-all" class="' + NS + '-ghost" ' +
       'title="Marks every pending change approved">Approve all</button>' +
@@ -348,6 +398,8 @@
     // where it actually happened, not from memory.
     renderReview().then(updateReviewBar);
 
+    bar.querySelector('[data-act=tasks]').addEventListener('click', togglePanel);
+    refreshTaskCount();
     bar.querySelector('[data-act=more]').addEventListener('click', () => {
       clearReview();
       state.seq = 0;
@@ -398,6 +450,7 @@
       pin.remove();
       state.pins = state.pins.filter((p) => p !== pin);
       state.seq = res.count;
+      refreshTaskCount();
       // Renumber what's left so the pins match the list Claude receives.
       state.pins.forEach((p, i) => {
         const label = p.querySelector('b');
@@ -974,6 +1027,7 @@
         url: location.href,
       });
       bindPinRemoval(pin, res && res.id);
+      refreshTaskCount();
     },
     true,
   );
@@ -1041,6 +1095,10 @@
       hide(); // the hover highlight is stale the moment anything moves
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
+      if (panel) {
+        panel.style.maxHeight =
+          Math.max(200, document.documentElement.clientHeight - barSafeZone() - 32) + 'px';
+      }
       // Review markers are anchored to live elements, so re-derive them.
       if (state.phase === 'review') renderReview().then(updateReviewBar);
     });
@@ -1247,6 +1305,7 @@
 
       const res = await window.__aynaSubmit(payload);
       bindPinRemoval(pin, res && res.id);
+      refreshTaskCount(); // the list gained one; say so without opening it
     });
   }
 
@@ -1427,7 +1486,150 @@
     if (label) label.textContent = resolved + ' of ' + comments.length + ' resolved';
   }
 
+  /*
+    The task list.
+
+    Markers only exist on the page you are standing on, so work raised on another
+    route was invisible — you had to remember it was there. This lists everything
+    still owed across the project, says which page each belongs to, and takes you
+    there.
+  */
+  let panel = null;
+
+  function closePanel() {
+    if (panel) {
+      panel.remove();
+      panel = null;
+    }
+  }
+
+  const samePage = (url) => (url ?? '').split('#')[0] === location.href.split('#')[0];
+
+  async function togglePanel() {
+    if (panel) {
+      closePanel();
+      return;
+    }
+    if (!window.__aynaList) return;
+    const tasks = await window.__aynaList().catch(() => []);
+
+    panel = document.createElement('div');
+    panel.className = NS + '-panel';
+    panel.setAttribute('data-ayna', '1');
+    panel.style.maxHeight = Math.max(200, document.documentElement.clientHeight - barSafeZone() - 32) + 'px';
+
+    const pending = tasks.filter((t) => t.status !== 'approved').length;
+    panel.innerHTML =
+      '<div class="' + NS + '-panel-head">Tasks · ' + pending + ' pending' +
+      '<button data-act="close-panel" title="Close">×</button></div>' +
+      '<div class="' + NS + '-panel-list"></div>';
+    document.documentElement.appendChild(panel);
+    panel.querySelector('[data-act=close-panel]').addEventListener('click', closePanel);
+
+    const list = panel.querySelector('.' + NS + '-panel-list');
+    if (!tasks.length) {
+      list.innerHTML = '<div class="' + NS + '-empty">Nothing raised yet.</div>';
+      return;
+    }
+
+    // This page first — that is what you can act on without going anywhere.
+    const groups = new Map();
+    for (const t of tasks) {
+      const key = (t.url ?? '').split('#')[0] || '(unknown)';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+    const keys = [...groups.keys()].sort((a, b) => (samePage(b) ? 1 : 0) - (samePage(a) ? 1 : 0));
+
+    for (const key of keys) {
+      const head = document.createElement('div');
+      head.className = NS + '-group';
+      let label;
+      try {
+        label = new URL(key).pathname || '/';
+      } catch {
+        label = key;
+      }
+      head.textContent = samePage(key) ? label + '  · this page' : label;
+      list.appendChild(head);
+
+      for (const t of groups.get(key)) {
+        const row = document.createElement('div');
+        row.className = NS + '-task';
+        row.dataset.status = t.status;
+        row.innerHTML =
+          '<span class="' + NS + '-dot"></span>' +
+          '<span class="' + NS + '-task-text"><span class="' + NS + '-t"></span>' +
+          '<div class="' + NS + '-task-meta"></div></span>' +
+          (t.status === 'approved'
+            ? ''
+            : '<span class="' + NS + '-task-acts">' +
+              '<button data-act="ok" title="Looks right">✓</button>' +
+              '<button data-act="no" class="' + NS + '-no" title="Needs work">↺</button></span>');
+        row.querySelector('.' + NS + '-t').textContent = t.comment || '(no text)';
+        row.querySelector('.' + NS + '-task-meta').textContent =
+          t.status + (t.kind && t.kind !== 'comment' ? ' · ' + t.kind : '');
+        list.appendChild(row);
+
+        row.addEventListener('click', () => {
+          if (!samePage(t.url)) {
+            // Go to where it was raised; the overlay comes back with it.
+            location.href = t.url;
+            return;
+          }
+          closePanel();
+          revealOnPage(t);
+        });
+
+        row.querySelector('[data-act=ok]')?.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          await window.__aynaResolve(t.id, 'approved');
+          closePanel();
+          togglePanel();
+          if (state.phase === 'review') renderReview().then(updateReviewBar);
+          refreshTaskCount();
+        });
+        row.querySelector('[data-act=no]')?.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          await window.__aynaResolve(t.id, 'rejected');
+          closePanel();
+          togglePanel();
+          if (state.phase === 'review') renderReview().then(updateReviewBar);
+          refreshTaskCount();
+        });
+      }
+    }
+  }
+
+  /** Scroll to a task's element and make it obvious which one it is. */
+  function revealOnPage(t) {
+    let el = null;
+    try {
+      el = t.selector ? document.querySelector(t.selector) : null;
+    } catch {
+      el = null;
+    }
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.classList.add(NS + '-flash');
+      setTimeout(() => el.classList.remove(NS + '-flash'), 2400);
+      return;
+    }
+    // The element may be gone after an edit; fall back to where it was.
+    if (t.rect) window.scrollTo({ top: Math.max(0, t.rect.y - 120), behavior: 'smooth' });
+  }
+
+  async function refreshTaskCount() {
+    if (!bar || !window.__aynaList) return;
+    const el = bar.querySelector('[data-act=tasks]');
+    if (!el) return;
+    const tasks = await window.__aynaList().catch(() => []);
+    const pending = tasks.filter((t) => t.status !== 'approved').length;
+    el.textContent = 'Tasks' + (pending ? ' · ' + pending : '');
+  }
+
   function cleanup() {
+    closePanel();
     clearReview();
     if (hl) hl.remove();
     if (bar) bar.remove();

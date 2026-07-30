@@ -158,6 +158,11 @@ deciding which file to edit.**
 4. Go back to waiting for the next event. The window stays open; only the user
    closes it. **Never kill the annotate process to "finish" a review.**
 
+The overlay's **Tasks** button lists everything still owed across the project,
+grouped by the page it was raised on, with the current page first. The user can
+jump to a task on another route or judge it from the list — so work raised
+somewhere they are not standing is not invisible.
+
 `ayna status` reports the tally: `open`, `resolved`, `rejected`. Resolved comments
 stay in the manifest as the record of what changed — the user can click any green
 marker to re-read it. **Close** ends a review without judging anything; whatever
