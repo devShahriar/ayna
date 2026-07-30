@@ -16,8 +16,10 @@ import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
 import { runAnnotate, loadComments } from '../src/annotate.mjs';
 import { runFlow, summarizeFlow } from '../src/flow.mjs';
+import { openStore, importLegacy, isPending } from '../src/tasks.mjs';
+import { auditPage, summarizeAudit } from '../src/audit.mjs';
 import { writeReport } from '../src/report.mjs';
-import { banner, step, ok, info, warn, fail, dim, bold, green, yellow, red, openInDesktop } from '../src/log.mjs';
+import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -30,6 +32,9 @@ ${bold('ayna')} — let Claude see the UI it builds
 ${bold('USAGE')}
   ayna <command> [options]
 
+${bold('TASKS')}
+  tasks       Every comment ever made here and where it stands
+
 ${bold('REVIEW')} — you point, Claude fixes
   annotate    Open the page so you can click, comment, attach images, reorder
   comments    What was marked up (--json for the full payload)
@@ -40,6 +45,7 @@ ${bold('REVIEW')} — you point, Claude fixes
 ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
+  audit       Find layout faults the page can prove: covered, cut off, overlapping
   serve       Serve the target UI and stay up (ctrl-c to stop)
 
 ${bold('SAFETY')}
@@ -244,6 +250,95 @@ async function main() {
         ok(`${s.route ?? '/'} ${s.viewport} → ${path.relative(PROJECT, s.file)}`);
       }
       if (cap.consoleErrors.length) warn(`console errors: ${cap.consoleErrors.length}`);
+      return;
+    }
+
+    case 'tasks': {
+      const store = await openStore(PROJECT);
+      // Adopt anything captured before the store existed, so no work is stranded.
+      const adopted = await importLegacy(PROJECT, store);
+      const all = await store.list();
+      const stats = await store.stats();
+
+      if (values.json) {
+        console.log(
+          JSON.stringify(
+            {
+              ...stats,
+              imported: adopted.imported,
+              tasks: all.map((t) => ({
+                id: t.id,
+                status: t.status,
+                kind: t.kind,
+                comment: t.comment,
+                url: t.url,
+                selector: t.selector,
+                regionScreenshot: t.regionScreenshot,
+                attachments: t.attachments,
+                sourceCandidates: (t.sourceCandidates ?? []).slice(0, 3),
+                updatedAt: t.updatedAt,
+              })),
+              hint: 'Act on anything not approved. Read regionScreenshot and attachments first.',
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      banner(`ayna tasks · ${path.basename(PROJECT)}`);
+      if (adopted.imported) info(`adopted ${adopted.imported} comment(s) from earlier sessions`);
+      if (!all.length) {
+        info('no tasks yet');
+        return;
+      }
+      const COLOUR = { open: yellow, in_progress: cyan, applied: cyan, approved: green, rejected: red };
+      for (const t of all) {
+        const paint = COLOUR[t.status] ?? dim;
+        console.log(`  ${paint(t.status.padEnd(12))} ${bold(t.id)}  ${(t.comment ?? '').slice(0, 60)}`);
+        console.log(`               ${dim(t.url ?? '')}`);
+      }
+      console.log('');
+      ok(`${stats.pending} pending · ${stats.approved} approved · ${stats.total} total`);
+      return;
+    }
+
+    case 'audit': {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const outDir = path.join(PROJECT, '.ayna', 'audits', stamp);
+      const server = await startTarget(cfg);
+      const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
+      const context = profileDir
+        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        : null;
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+
+      const target = new URL(routes[0] ?? '/', server.url).toString();
+      const report = await auditPage({ browser, context, url: target, viewports: cfg.viewports, outDir });
+
+      if (context) await context.close().catch(() => {});
+      else await browser.close().catch(() => {});
+      await server.close().catch(() => {});
+
+      if (values.json) {
+        console.log(
+          JSON.stringify(
+            { ...report, hint: 'Fix critical first, then re-run audit. Clean means no critical or major faults remain.' },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      banner(`ayna audit · ${target}`);
+      console.log(summarizeAudit(report));
+      console.log('');
+      (report.clean ? ok : fail)(
+        report.clean
+          ? 'no layout faults'
+          : `${report.counts.covered} covered · ${report.counts.offscreen} cut off · ${report.counts.overlaps} overlapping · ${report.counts.clipped} clipped`,
+      );
       return;
     }
 
