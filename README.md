@@ -93,6 +93,17 @@ the end of a session the page carries the record of everything that changed.
 
 Only **Approve & close** ends the session.
 
+## Auditing the window you're in
+
+```bash
+node bin/ayna.mjs audit
+```
+
+If a review window is open, this measures **that window, in its current state** —
+it doesn't close it and it doesn't reload. Get the app into the state you care
+about (a live view, an expanded panel, a menu open) and audit exactly that. Faults
+that only exist after you click into something are invisible to a page at rest.
+
 ## When Claude finds something itself
 
 Claude can audit your UI and spot faults you never mentioned. It does **not** edit

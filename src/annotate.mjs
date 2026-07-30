@@ -334,6 +334,8 @@ export async function runAnnotate({
   const statusFile = path.join(outDir, 'status.json');
   const appliedFile = path.join(outDir, 'applied');
   const commentsFile = path.join(outDir, 'comments.json');
+  const auditRequest = path.join(outDir, 'audit-request');
+  const auditResult = path.join(outDir, 'audit-live.json');
 
   const writeStatus = () =>
     writeFile(
@@ -575,6 +577,31 @@ export async function runAnnotate({
   // Stay open until the user approves or closes the tab themselves. While waiting,
   // watch for Claude's "applied" marker — that's the cue to show them the result.
   while (!done && !page.isClosed()) {
+    /*
+      Audit the window the user is actually looking at.
+
+      Chrome allows one process per profile, so a separate audit run meant closing
+      their review first — and it could only ever measure the state the page loads
+      in, not the one they had clicked into. Measuring in place solves both: it is
+      the same window, in its current state, whatever they navigated to.
+    */
+    if (existsSync(auditRequest)) {
+      await rm(auditRequest, { force: true });
+      try {
+        const { CHECKS, scoreFindings } = await import('./audit.mjs');
+        const raw = await page.evaluate(CHECKS);
+        const shot = path.join(outDir, 'audit-live.png');
+        await page.screenshot({ path: shot }).catch(() => {});
+        const report = scoreFindings(page.url(), [
+          { ...raw, viewport: 'live', size: `${raw.viewport.width}x${raw.viewport.height}`, screenshot: shot },
+        ]);
+        await writeFile(auditResult, JSON.stringify(report, null, 2));
+        onEvent({ event: 'audit', url: page.url(), counts: report.counts, clean: report.clean, file: auditResult });
+      } catch (err) {
+        await writeFile(auditResult, JSON.stringify({ error: err.message.split('\n')[0] }));
+      }
+    }
+
     if (phase === 'awaiting-claude' && existsSync(appliedFile)) {
       await rm(appliedFile, { force: true });
       // Anything the user sent back for another attempt has now had one, so it

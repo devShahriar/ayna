@@ -11,7 +11,7 @@ import path from 'node:path';
  * which is a condition under which it is finished.
  */
 
-const CHECKS = `(() => {
+export const CHECKS = `(() => {
   const vw = document.documentElement.clientWidth;
   const vh = document.documentElement.clientHeight;
 
@@ -203,7 +203,7 @@ const CHECKS = `(() => {
 })()`;
 
 /** Faults worth stopping the loop for, in the order they should be fixed. */
-const SEVERITY = [
+export const SEVERITY = [
   ['covered', 'critical', 'a control is behind something else and cannot be clicked'],
   ['offscreen', 'critical', 'content is cut off by the window edge'],
   ['overlaps', 'major', 'two elements are drawn on top of each other'],
@@ -288,4 +288,16 @@ export function summarizeAudit(report) {
     lines.push(`  ${f.screenshot}`);
   }
   return lines.join('\n');
+}
+
+/** Turn one raw CHECKS result into the same shape auditPage returns. */
+export function scoreFindings(url, findings) {
+  const counts = {};
+  for (const [key] of SEVERITY) counts[key] = findings.reduce((a, f) => a + (f[key]?.length ?? 0), 0);
+  return {
+    url,
+    counts,
+    clean: SEVERITY.filter(([, sev]) => sev !== 'minor').every(([key]) => counts[key] === 0),
+    findings,
+  };
 }

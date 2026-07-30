@@ -2232,3 +2232,85 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
     }
   });
 });
+
+describe('auditing the window that is already open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('measures the state the user is looking at, without closing their review', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      // A fault that only exists after you click into a state.
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="margin:0;padding:30px">
+           <button id="go">Show live view</button>
+           <div id="live" style="display:none;position:relative;height:200px">
+             <button id="deploy" style="position:absolute;left:20px;top:60px">Deploy</button>
+             <div id="toast" style="position:absolute;left:0;top:40px;width:300px;height:60px;background:#333"></div>
+           </div>
+           <script>
+             document.getElementById('go').onclick = () => {
+               document.getElementById('live').style.display = 'block';
+             };
+           </script>
+         </body></html>`,
+      );
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4850);
+      const events = [];
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 900, height: 600 },
+          onEvent: (e) => events.push(e),
+          onReady: async (page) => {
+            const askForAudit = async () => {
+              const res = path.join(out, 'audit-live.json');
+              await (await import('node:fs/promises')).rm(res, { force: true });
+              await writeFile(path.join(out, 'audit-request'), '1');
+              const deadline = Date.now() + 20000;
+              while (Date.now() < deadline && !existsSync(res)) await page.waitForTimeout(200);
+              return JSON.parse(await readFile(res, 'utf8'));
+            };
+
+            const before = await askForAudit();
+            assert.equal(before.counts.covered, 0, 'nothing is covered in the state it loads in');
+
+            // The user clicks into the state where things collide.
+            await page.click('#go');
+            await page.waitForTimeout(400);
+
+            const after = await askForAudit();
+            assert.equal(
+              after.counts.covered,
+              1,
+              'the fault that only exists after clicking is found, in the same window',
+            );
+            assert.match(after.findings[0].covered[0].label, /Deploy/);
+            assert.ok(!page.isClosed(), 'and their review was never closed to do it');
+            await page.close();
+          },
+        });
+
+        const audits = events.filter((e) => e.event === 'audit');
+        assert.equal(audits.length, 2, 'each audit is announced');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

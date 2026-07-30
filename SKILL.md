@@ -335,6 +335,25 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs task task-0004 --status in_progress
 
 Leave the verdict to them. Move a task to `approved` only when they say so.
 
+## Auditing what they are looking at
+
+If a review window is open, `audit` measures **inside it** — the same window, in
+whatever state they have clicked into:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs audit --json
+```
+
+This matters more than it sounds. Two Chromes cannot share a profile, so the
+alternative was closing their review to run an audit — and then measuring a
+freshly loaded page rather than the one they were on. A fault that only appears
+after they open a panel, switch to a live view or expand a node is invisible to a
+page at rest.
+
+So: **ask them to get the app into the state they care about, then audit.** When no
+window is open, it opens its own and `--flow steps.json` can walk it into a state
+first.
+
 ## Fixing things you found yourself
 
 When you find a fault the user did not ask about — from `audit`, or just from

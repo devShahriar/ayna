@@ -488,6 +488,42 @@ async function main() {
     }
 
     case 'audit': {
+      /*
+        If a review window is open, measure in it. Two Chromes cannot share a
+        profile, so the alternative was closing the user's review to run an audit
+        — and then measuring a freshly loaded page rather than the one they were
+        looking at.
+      */
+      const live = await readSession();
+      if (live?.live && !values['fresh-profile']) {
+        const reqFile = path.join(live.dir, 'audit-request');
+        const resFile = path.join(live.dir, 'audit-live.json');
+        await rm(resFile, { force: true });
+        await writeFile(reqFile, String(Date.now()));
+
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline && !existsSync(resFile)) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        if (!existsSync(resFile)) throw new Error('the open window did not answer — is it still there?');
+
+        const report = JSON.parse(await readFile(resFile, 'utf8'));
+        if (report.error) throw new Error(`the window could not measure itself: ${report.error}`);
+        if (values.json) {
+          console.log(JSON.stringify({ ...report, measuredIn: 'the open review window' }, null, 2));
+        } else {
+          banner(`ayna audit · ${report.url} (live window)`);
+          console.log(summarizeAudit(report));
+          console.log('');
+          (report.clean ? ok : fail)(
+            report.clean
+              ? 'no layout faults'
+              : `${report.counts.covered} covered · ${report.counts.offscreen} cut off · ${report.counts.overlaps} overlapping`,
+          );
+        }
+        return;
+      }
+
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const outDir = path.join(PROJECT, '.ayna', 'audits', stamp);
       const server = await startTarget(cfg);
