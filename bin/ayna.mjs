@@ -91,6 +91,7 @@ const { values, positionals } = parseArgs({
     routes: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
+    'no-wait': { type: 'boolean' },
     score: { type: 'string' },
     note: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
@@ -315,10 +316,23 @@ async function main() {
       }
       await writeFile(path.join(session.dir, 'applied'), String(Date.now()));
       ok('told the open window to refresh — waiting for the user to approve');
+
+      /*
+        Then stay on the line.
+
+        `wait` fires once and exits, so after the first round somebody has to
+        remember to arm it again. Nobody did, and rounds two and three of a real
+        review sat unseen while the page said "Sent". Blocking here means the
+        command that says "I'm done" is also the one that hears what happens next,
+        so the loop cannot be dropped by forgetting a step.
+      */
+      if (values['no-wait']) return;
+      await followSession(path.join(session.dir, 'status.json'), SESSION_DIR, { settle: true });
       return;
     }
 
-    case 'wait': {
+    case 'wait':
+    case 'follow': {
       // Blocks until the user sends a round (or closes the window), then exits.
       // Run this in the background so you are woken the moment they hit Send —
       // polling `status` by hand means the user sits there waiting on you.
@@ -329,34 +343,8 @@ async function main() {
         console.log(JSON.stringify({ phase: 'stale', done: true }));
         return;
       }
-      const statusFile = path.join(session.dir, 'status.json');
-
-      for (;;) {
-        const s = existsSync(statusFile)
-          ? JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}'))
-          : {};
-        if (s.phase === 'awaiting-claude') {
-          console.log(JSON.stringify({ phase: s.phase, round: s.round, comments: s.comments }));
-          return;
-        }
-        // "Needs work" on any comment is also a call to action — without this the
-        // user would have to press Send again just to tell you they rejected one.
-        if (s.rejected > 0) {
-          console.log(JSON.stringify({ phase: s.phase, rejected: s.rejected, action: 'retry-rejected' }));
-          return;
-        }
-        if (s.phase === 'approved' || s.phase === 'closed') {
-          console.log(JSON.stringify({ phase: s.phase, done: true }));
-          return;
-        }
-        // The user may just close the terminal or kill the window mid-review.
-        const still = await readSession();
-        if (!still || !still.live) {
-          console.log(JSON.stringify({ phase: 'stale', done: true }));
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 500));
-      }
+      await followSession(path.join(session.dir, 'status.json'), SESSION_DIR);
+      return;
     }
 
     case 'status': {
@@ -580,6 +568,54 @@ async function readSession() {
     }
   }
   return { ...info, dir: path.dirname(info.file), live };
+}
+
+/**
+ * Block until the user does something worth waking up for: sends another round,
+ * rejects a change, approves, or closes the window. Prints one JSON line saying
+ * which, then returns.
+ *
+ * `settle` skips over the state we are already in — right after `applied` the
+ * phase is still `awaiting-claude` from the round just handled, and returning on
+ * that would be answering our own question.
+ */
+async function followSession(statusFile, sessionDir, { settle = false } = {}) {
+  const read = async () =>
+    existsSync(statusFile) ? JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}')) : {};
+
+  if (settle) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const s = await read();
+      if (s.phase !== 'awaiting-claude') break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  for (;;) {
+    const s = await read();
+    if (s.phase === 'awaiting-claude') {
+      console.log(JSON.stringify({ phase: s.phase, round: s.round, comments: s.comments, action: 'read-comments' }));
+      return;
+    }
+    // "Needs work" is also a call to action — otherwise the user would have to
+    // press Send again just to tell you they rejected something.
+    if (s.rejected > 0) {
+      console.log(JSON.stringify({ phase: s.phase, rejected: s.rejected, action: 'retry-rejected' }));
+      return;
+    }
+    if (s.phase === 'approved' || s.phase === 'closed') {
+      console.log(JSON.stringify({ phase: s.phase, done: true }));
+      return;
+    }
+    // They may simply close the window, or the session that owns it may end.
+    const still = await readSession();
+    if (!still || !still.live) {
+      console.log(JSON.stringify({ phase: 'stale', done: true }));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 /** `--headed` beats `--headless` beats the config default. */
