@@ -155,7 +155,8 @@ The round-trip:
 4. **They judge each comment in place.** Every commented portion is re-highlighted
    on the changed page with its own **Looks right** / **Needs work** buttons
    attached to it. Judged comments collapse to a badge that still opens the
-   original text. **Approve all & close** resolves anything they left untouched.
+   original text. **Close review** ends the session without judging anything — whatever they did
+   not approve stays pending and is still waiting next time.
    **Then re-arm the watcher immediately: run `ayna wait` in the background again.**
    It exits when it fires, so if you do not restart it the user's next round sits
    in `awaiting-claude` while you do nothing — which looks to them like you have

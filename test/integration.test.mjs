@@ -950,71 +950,6 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
   });
 });
 
-describe('approve-all', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
-  let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
-  });
-  after(async () => {
-    await browser?.close();
-  });
-
-  test('closing via the global button resolves what is still open', async () => {
-    const { dir, dispose } = await tempDir();
-    try {
-      const site = path.join(dir, 'site');
-      await fixtureSite(site);
-      const out = path.join(dir, 'out');
-      const server = await serveStatic(site, 4580);
-      try {
-        const manifest = await runAnnotate({
-          browser,
-          url: server.url,
-          outDir: out,
-          projectDir: site,
-          viewport: { width: 1200, height: 800 },
-          onReady: async (page) => {
-            const add = async (sel, txt) => {
-              await page.click(sel);
-              await page.waitForSelector('.ayna-ov-pop textarea');
-              await page.fill('.ayna-ov-pop textarea', txt);
-              await page.click('.ayna-ov-save');
-              await page.waitForTimeout(450);
-            };
-            await add('.title', 'one');
-            await add('.lede', 'two');
-            await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
-            await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
-              timeout: 15000,
-            });
-            await page.waitForTimeout(400);
-
-            // Reject one explicitly, leave the other untouched, then approve all.
-            await page.click('.ayna-ov-revbar >> nth=1 >> .ayna-ov-no');
-            await page.waitForTimeout(350);
-            await page.click('[data-act=approve]');
-          },
-        });
-
-        assert.deepEqual(
-          manifest.comments.map((c) => c.status),
-          ['resolved', 'rejected'],
-          'untouched comments resolve; an explicit rejection is preserved',
-        );
-        const status = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8'));
-        assert.equal(status.resolved, 1);
-        assert.equal(status.open, 1, 'the rejected one is still outstanding');
-      } finally {
-        await server.close();
-      }
-    } finally {
-      await dispose();
-    }
-  });
-});
-
 describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
   before(async () => {
@@ -1614,6 +1549,168 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
           manifest.comments.map((c) => `${c.status}:${c.comment}`),
           ['resolved:round one', 'open:round two'],
         );
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('pending work survives, and closing is not a verdict', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('a reload keeps you in review with the markers intact', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4710);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'needs work');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(450);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.waitForTimeout(400);
+
+            // The user hits refresh while a change is waiting on their verdict.
+            await page.reload({ waitUntil: 'networkidle' });
+            await page.waitForTimeout(1200);
+
+            assert.ok(
+              await page.evaluate(() => !!document.querySelector('[data-act=approve]')),
+              'still in review after a reload',
+            );
+            assert.equal(
+              await page.evaluate(() => document.querySelectorAll('.ayna-ov-rev').length),
+              1,
+              'the pending marker came back',
+            );
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('closing leaves anything unjudged pending rather than signing it off', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4711);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'never judged');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(450);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.waitForTimeout(300);
+            await page.click('[data-act=approve]'); // close without judging
+          },
+        });
+
+        assert.equal(
+          manifest.comments[0].status,
+          'open',
+          'one click must not sign off work nobody looked at',
+        );
+        const status = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8'));
+        assert.equal(status.resolved, 0);
+        assert.equal(status.open, 1, 'it is still waiting for a verdict');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a framed region is attached to the comment automatically', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="margin:0">
+           <canvas id="c" width="900" height="600" style="display:block"></canvas>
+           <script>
+             const x = document.getElementById('c').getContext('2d');
+             x.fillStyle = '#222'; x.fillRect(0, 0, 900, 600);
+             x.fillStyle = '#8fd3ff'; x.fillRect(100, 100, 200, 120);
+           </script>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4712);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 900, height: 600 },
+          onReady: async (page) => {
+            await page.mouse.move(80, 80);
+            await page.mouse.down();
+            await page.mouse.move(330, 250, { steps: 10 });
+            await page.mouse.up();
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.waitForFunction(() => !!document.querySelector('.ayna-ov-auto img'), {
+              timeout: 10000,
+            });
+            assert.ok(
+              await page.evaluate(() =>
+                [...document.querySelectorAll('.ayna-ov-hint')].some((h) =>
+                  /attached automatically/.test(h.textContent),
+                ),
+              ),
+              'the box says the region travels with the comment',
+            );
+            await page.close();
+          },
+        });
       } finally {
         await server.close();
       }

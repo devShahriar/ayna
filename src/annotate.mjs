@@ -315,6 +315,30 @@ export async function runAnnotate({
     await writeStatus();
   });
 
+  /*
+    Screenshot a region on demand and hand it straight back as a data URL, so the
+    comment box can show what it captured before you write a word. On a canvas the
+    framed pixels are the entire message — you should be able to see that they were
+    taken, not take it on faith.
+  */
+  await page.exposeFunction('__aynaPreview', async (rect) => {
+    try {
+      const pad = 8;
+      const buf = await page.screenshot({
+        fullPage: true,
+        clip: {
+          x: Math.max(0, rect.x - pad),
+          y: Math.max(0, rect.y - pad),
+          width: Math.max(8, rect.width + pad * 2),
+          height: Math.max(8, rect.height + pad * 2),
+        },
+      });
+      return 'data:image/png;base64,' + buf.toString('base64');
+    } catch {
+      return null;
+    }
+  });
+
   // Comments survive navigation (they live here, not in the page), so a rebuilt
   // overlay can ask for the real running total.
   await page.exposeFunction('__aynaCount', async () => comments.length);
@@ -350,22 +374,26 @@ export async function runAnnotate({
   // They're happy — this is the only thing that closes the window.
   await page.exposeFunction('__aynaApprove', async () => {
     /*
-      Approving the session means approving what's left. Without this, closing via
-      the global button left every comment 'open' and the resolved history empty —
-      the record of what changed would show nothing changed. Anything explicitly
-      rejected keeps that verdict; it was a deliberate judgement.
+      Closing is not a verdict.
+
+      This used to mark every unjudged comment resolved, which meant one click
+      silently signed off work nobody had looked at. A task you have not approved
+      stays pending — it survives the window closing and is still waiting next
+      time. Each one is approved on its own marker, deliberately.
     */
-    for (const c of comments) {
-      if (c.status === 'open') {
-        c.status = 'resolved';
-        c.rounds.push({ round, status: 'resolved', via: 'approve-all' });
-      }
-    }
     phase = 'approved';
     done = true;
     await writeManifest();
     await writeStatus();
   });
+
+  // Lets a rebuilt overlay restore what it was in the middle of.
+  await page.exposeFunction('__aynaState', async () => ({
+    phase,
+    round,
+    count: comments.length,
+    pending: comments.filter((c) => c.status !== 'resolved').length,
+  }));
 
   const overlay = await readFile(new URL('./overlay.js', import.meta.url), 'utf8');
   await page.addInitScript(overlay);

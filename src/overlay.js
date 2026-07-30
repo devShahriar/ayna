@@ -123,6 +123,12 @@
     .${NS}-attach { color: #3b82f6; text-decoration: underline; cursor: pointer; }
     .${NS}-pop.${NS}-dragover { outline: 2px dashed #3b82f6; outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    .${NS}-auto { position: relative; display: inline-flex; }
+    .${NS}-auto b {
+      position: absolute; left: 2px; bottom: 2px; font-size: 8px; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase; color: #fff;
+      background: #16a34a; border-radius: 3px; padding: 1px 3px;
+    }
     .${NS}-thumbs img {
       width: 48px; height: 48px; object-fit: cover;
       border-radius: 6px; border: 1px solid #dfe3ea;
@@ -220,10 +226,25 @@
   setPhase('comment');
   watchForSignIn();
 
-  // A navigation rebuilds this overlay from scratch, but the comments already
-  // sent live in Node. Ask for the real total so the counter doesn't reset to 0
-  // and make the user think their earlier notes were lost.
-  if (window.__aynaCount) {
+  /*
+    A reload rebuilds this overlay from nothing, but the work lives in Node. Ask
+    what was going on and go back to it — otherwise pressing F5 while changes were
+    waiting for your verdict dropped you into a blank comment mode and the pending
+    approvals looked lost.
+  */
+  if (window.__aynaState) {
+    window.__aynaState()
+      .then((st) => {
+        if (!st) return;
+        if (typeof st.count === 'number' && st.count > state.seq) {
+          state.seq = st.count;
+          refreshCount();
+        }
+        if (st.phase === 'reviewing') setPhase('review');
+        else if (st.phase === 'awaiting-claude') setPhase('waiting');
+      })
+      .catch(() => {});
+  } else if (window.__aynaCount) {
     window.__aynaCount().then((n) => {
       if (typeof n === 'number' && n > state.seq) {
         state.seq = n;
@@ -310,7 +331,7 @@
       '<span>Changes are live — click a marker to judge it</span>' +
       '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
       '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
-      '<button data-act="approve" title="Marks everything still open as resolved">Approve all &amp; close</button>';
+      '<button data-act="approve" title="Anything you have not judged stays pending for next time">Close review</button>';
 
     // Re-anchor every comment on the changed page so each one can be judged
     // where it actually happened, not from memory.
@@ -1030,6 +1051,7 @@
     pop.innerHTML =
       '<div class="' + NS + '-sel"></div>' +
       '<textarea placeholder="What should change about this?"></textarea>' +
+      (region ? '<div class="' + NS + '-hint">The framed region is attached automatically.</div>' : '') +
       '<div class="' + NS + '-hint">Paste, drop, or ' +
       '<label class="' + NS + '-attach">choose an image<input type="file" accept="image/*" multiple hidden></label>' +
       ' · Esc to cancel</div>' +
@@ -1052,6 +1074,30 @@
 
     const ta = pop.querySelector('textarea');
     ta.focus();
+
+    /*
+      Show what was framed. On a canvas this crop is the whole comment — there is
+      no selector worth anything — so seeing it sit there as an attachment is the
+      difference between trusting the tool and hoping.
+    */
+    if (region && window.__aynaPreview) {
+      window.__aynaPreview(r)
+        .then((dataUrl) => {
+          if (!dataUrl || !pop) return;
+          const thumbs = pop.querySelector('.' + NS + '-thumbs');
+          const wrap = document.createElement('span');
+          wrap.className = NS + '-auto';
+          const img = document.createElement('img');
+          img.src = dataUrl;
+          img.title = 'The region you framed — attached automatically';
+          wrap.appendChild(img);
+          const tagEl = document.createElement('b');
+          tagEl.textContent = 'auto';
+          wrap.appendChild(tagEl);
+          thumbs.prepend(wrap);
+        })
+        .catch(() => {});
+    }
 
     const thumbs = pop.querySelector('.' + NS + '-thumbs');
 
