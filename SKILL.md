@@ -135,6 +135,10 @@ deciding which file to edit.**
 
 The round-trip:
 
+0. **Arm the watcher the moment the window opens** — `ayna wait` in the
+   background, before they have marked anything up. Polling `status` by hand
+   means the user waits on you noticing.
+
 1. **They comment and press "Send to Claude".** The bar switches to "Claude is
    making your changes" and the window stays open. Poll for it:
    ```bash
@@ -152,6 +156,16 @@ The round-trip:
    on the changed page with its own **Looks right** / **Needs work** buttons
    attached to it. Judged comments collapse to a badge that still opens the
    original text. **Approve all & close** resolves anything they left untouched.
+   **Then re-arm the watcher immediately: run `ayna wait` in the background again.**
+   It exits when it fires, so if you do not restart it the user's next round sits
+   in `awaiting-claude` while you do nothing — which looks to them like you have
+   stopped working. Re-arm after *every* `applied`, for as many rounds as they want.
+
+   **Then re-arm the watcher: run `ayna wait` in the background again.** It exits
+   when it fires, so unless you restart it the user's next round sits in
+   `awaiting-claude` while you do nothing — from their side the page just says
+   "Sent" forever. Re-arm after *every* `applied`, for as many rounds as they want.
+
 5. **`ayna wait` wakes you again when anything is rejected.** Re-read
    `comments --json`, fix only the comments whose `status` is `rejected` or `open`
    — **never touch a `resolved` one** — then run `applied` again. Rejected comments

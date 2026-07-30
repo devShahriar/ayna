@@ -1538,3 +1538,87 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
     }
   });
 });
+
+describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('a second round is picked up, and the first round stays resolved', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4680);
+      const phase = async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8'));
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            const add = async (sel, txt) => {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop textarea');
+              await page.fill('.ayna-ov-pop textarea', txt);
+              await page.click('.ayna-ov-save');
+              await page.waitForTimeout(450);
+            };
+
+            await add('.title', 'round one');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            assert.equal((await phase()).round, 1);
+
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+              timeout: 15000,
+            });
+            await page.waitForTimeout(400);
+            await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-ok');
+            await page.waitForTimeout(400);
+            assert.equal((await phase()).resolved, 1);
+
+            // Same window, another round.
+            await page.click('[data-act=more]');
+            await page.waitForTimeout(400);
+            assert.equal((await phase()).phase, 'commenting');
+            assert.equal(
+              await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
+              true,
+              'send is disabled again until the new round has something in it',
+            );
+
+            await add('.lede', 'round two');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(400);
+
+            const p = await phase();
+            assert.equal(p.phase, 'awaiting-claude', 'the new round is announced');
+            assert.equal(p.round, 2);
+            assert.equal(p.comments, 2);
+            assert.equal(p.resolved, 1, 'the approved comment stays approved');
+            assert.equal(p.open, 1, 'only the new one is outstanding');
+            await page.close();
+          },
+        });
+
+        assert.deepEqual(
+          manifest.comments.map((c) => `${c.status}:${c.comment}`),
+          ['resolved:round one', 'open:round two'],
+        );
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

@@ -33,6 +33,7 @@
     marquee: null,
     suppressClick: false,
     signIn: false,
+    waitWarn: null,
     mode: (() => {
       try {
         return sessionStorage.getItem('ayna-mode') || 'comment';
@@ -70,6 +71,7 @@
       padding: 6px 14px; cursor: pointer; background: #3b82f6; color: #fff;
     }
     .${NS}-count { opacity: .7; }
+    .${NS}-warn { color: #fbbf24; }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
       background: #3b82f6; color: #fff; border-radius: 4px; padding: 2px 7px;
@@ -240,6 +242,7 @@
   function setPhase(phase) {
     if (!bar) return;
     const leavingReview = state.phase === 'review' && phase !== 'review';
+    if (phase !== 'waiting') clearTimeout(state.waitWarn);
     state.phase = phase;
     state.picking = phase === 'comment';
     if (leavingReview) clearReview();
@@ -282,9 +285,23 @@
     }
 
     if (phase === 'waiting') {
+      /*
+        "Claude is making your changes" was a promise the page could not keep: it
+        appeared the moment Send was pressed, whether or not anything was
+        listening. When nothing was, the user sat watching a spinner that meant
+        nothing. Say only what is true — sent — and speak up if it goes unanswered.
+      */
       bar.innerHTML =
         '<span class="' + NS + '-spin" aria-hidden="true"></span>' +
-        '<span>Claude is making your changes — this page will refresh itself</span>';
+        '<span class="' + NS + '-waiting">Sent — waiting for Claude to pick this up…</span>';
+
+      clearTimeout(state.waitWarn);
+      state.waitWarn = setTimeout(() => {
+        const label = bar && bar.querySelector('.' + NS + '-waiting');
+        if (!label || state.phase !== 'waiting') return;
+        label.textContent = 'Still not picked up — is Claude watching? (it needs `ayna wait`)';
+        label.classList.add(NS + '-warn');
+      }, 45000);
       return;
     }
 

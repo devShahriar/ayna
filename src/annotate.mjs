@@ -40,8 +40,7 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
     try {
       const { stdout } = await exec(
         'grep',
-        ['-rn', '--binary-files=without-match', '--exclude-dir=node_modules',
-         '--exclude-dir=.git', '--exclude-dir=.ayna', '-F', needle, projectDir],
+        ['-rn', '--binary-files=without-match', ...GREP_EXCLUDES, '-F', needle, projectDir],
         { maxBuffer: 1024 * 1024 },
       );
       lines = stdout.split('\n');
@@ -61,7 +60,20 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
   return rankByPage(hits, pageUrl);
 }
 
-const SKIP_DIRS = new Set(['node_modules', '.git', '.ayna', 'dist', 'build', '.next', 'coverage']);
+/*
+  Build output is not source. A Next.js project answers a grep for a class name
+  from .next/server/... and .next/static/chunks/... long before it reaches the
+  component that produced it — so the file:line handed to Claude pointed at
+  generated code that is rewritten on every build. Same for dist, build, .nuxt
+  and friends.
+*/
+const SKIP_DIRS = [
+  'node_modules', '.git', '.ayna', '.next', '.nuxt', '.svelte-kit', '.output',
+  '.turbo', '.cache', '.parcel-cache', 'dist', 'build', 'out', 'coverage',
+  'vendor', '__pycache__',
+];
+
+const GREP_EXCLUDES = SKIP_DIRS.map((d) => `--exclude-dir=${d}`);
 const TEXT_EXT = new Set([
   '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx', '.mjs', '.cjs',
   '.ts', '.tsx', '.vue', '.svelte', '.astro', '.php', '.erb', '.hbs', '.ejs', '.md', '.json',
@@ -74,7 +86,7 @@ export async function scanInJs(dir, needle, out = [], budget = { files: 4000 }) 
     if (out.length >= 8 || budget.files <= 0) break;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      if (SKIP_DIRS.includes(entry.name) || entry.name.startsWith('.')) continue;
       await scanInJs(full, needle, out, budget);
       continue;
     }
