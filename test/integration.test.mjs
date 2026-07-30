@@ -1197,6 +1197,102 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
     }
   });
 
+  test('an email-only gate can be filled and submitted without leaving comment mode', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="padding:40px">
+           <form id="f"><h1>Continue with email</h1>
+             <input id="email" type="email" placeholder="Email">
+             <button id="go" type="submit">Continue</button>
+           </form>
+           <div id="app" style="display:none"><h1 class="dash">App behind the gate</h1></div>
+           <script>
+             document.getElementById('f').addEventListener('submit', e => {
+               e.preventDefault();
+               document.getElementById('f').style.display = 'none';
+               document.getElementById('app').style.display = 'block';
+             });
+           </script>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4622);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 1000, height: 700 },
+          onReady: async (page) => {
+            await page.click('#email');
+            await page.keyboard.type('me@example.com');
+            await page.click('#go');
+            await page.waitForTimeout(350);
+            assert.ok(
+              await page.evaluate(() => document.getElementById('app').style.display === 'block'),
+              'the submit button submits rather than opening a comment box',
+            );
+            assert.ok(
+              !(await page.evaluate(() => !!document.querySelector('.ayna-ov-pop'))),
+              'no comment box was opened by the click',
+            );
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a newsletter signup does not make a landing page look like a login', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="padding:40px"><h1 class="hero">Marketing landing page</h1>
+           <p>Lots of content worth reviewing.</p>
+           <footer><form><input type="email" placeholder="Newsletter">
+             <button type="submit">Subscribe</button></form></footer>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4623);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 1000, height: 700 },
+          onReady: async (page) => {
+            assert.doesNotMatch(
+              await page.evaluate(() => document.querySelector('.ayna-ov-bar').textContent),
+              /Sign in first/,
+              'an email capture in the footer is not a gate',
+            );
+            await page.click('.hero');
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   test('a text field is typable in comment mode, and arrow keys do not hijack it', async () => {
     const { dir, dispose } = await tempDir();
     try {

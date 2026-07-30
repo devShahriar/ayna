@@ -216,6 +216,7 @@
     state.signIn = true;
   }
   setPhase('comment');
+  watchForSignIn();
 
   // A navigation rebuilds this overlay from scratch, but the comments already
   // sent live in Node. Ask for the real total so the counter doesn't reset to 0
@@ -359,6 +360,28 @@
   // Node flips the overlay into review mode after it has reloaded the page.
   window.__aynaReview = () => setPhase('review');
 
+  /*
+    A login can arrive after load — an SPA modal, a session expiring mid-review.
+    Detecting it only once at startup left the user clicking a comment box onto a
+    dialog they needed to fill in.
+  */
+  function watchForSignIn() {
+    let queued = false;
+    const check = () => {
+      queued = false;
+      if (state.phase !== 'comment' || state.mode !== 'comment') return;
+      if (!looksLikeSignIn()) return;
+      state.signIn = true;
+      state.mode = 'browse';
+      setPhase('comment');
+    };
+    new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      setTimeout(check, 150);
+    }).observe(document.body || document.documentElement, { childList: true, subtree: true });
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
@@ -383,9 +406,33 @@
     return false;
   }
 
-  /** A page you have to get past before there is anything to review. */
+  /*
+    A control that submits the form you are standing in. Once fields are typable,
+    blocking the button that sends them is a dead end: you can fill a login and
+    never get past it. Scoped to inside a <form> so an ordinary page button is
+    still something you comment on by clicking.
+  */
+  function isFormAction(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    const isButton =
+      tag === 'button' || (tag === 'input' && /^(submit|button|image)$/.test((el.type || '').toLowerCase()));
+    return isButton && !!el.closest('form');
+  }
+
+  /*
+    A page you have to get past before there is anything to review.
+
+    Deliberately narrow: a password field, or a URL that says so. An
+    "email input + submit button" rule was tempting but matches the newsletter
+    signup in the footer of half the landing pages you would want to review, and
+    starting those in browse mode would be worse than the problem it solves.
+    Email-only gates still work — form fields and submit controls are operable in
+    comment mode regardless.
+  */
   function looksLikeSignIn() {
-    return !!document.querySelector('input[type=password]');
+    if (document.querySelector('input[type=password]')) return true;
+    return /(^|\/)(sign-?in|log-?in|auth|sso|oauth)(\/|$)/i.test(location.pathname);
   }
 
   function rectOf(el) {
@@ -436,8 +483,14 @@
   function showTag(el, r) {
     if (!tag) return;
     const canClimb = el.parentElement && el.parentElement !== document.documentElement;
+    const operable = isFormField(el) || isFormAction(el);
     tag.innerHTML =
-      '<b></b>' + (canClimb || state.climb ? '<i>↑ ↓ resize · ⇧click adds</i>' : '');
+      '<b></b>' +
+      (operable
+        ? '<i>⌥click to comment</i>'
+        : canClimb || state.climb
+          ? '<i>↑ ↓ resize · ⇧click adds</i>'
+          : '');
     tag.querySelector('b').textContent = describe(el);
     tag.style.display = 'block';
     // Sit above the box unless we're at the top of the page.
@@ -555,8 +608,9 @@
       */
       if (state.mode === 'browse') return;
 
-      // Typing must always be possible. Alt-click to comment on the field itself.
-      if (isFormField(e.target) && !e.altKey) return;
+      // Filling and submitting a form must always be possible.
+      // Alt-click to comment on the control itself instead.
+      if ((isFormField(e.target) || isFormAction(e.target)) && !e.altKey) return;
 
       e.preventDefault();
       e.stopPropagation();

@@ -50,13 +50,14 @@ Chrome opens with an overlay:
 | **Paste, drop, or pick an image** | attach a visual reference to the comment |
 | **Move mode → drag** | reorder an element among its siblings; the page updates live |
 | **Browse mode** | the app works normally — click through its own UI, follow links, or type a URL — so you can review any page in one session |
-| **Type in any field** | forms work in comment mode too; alt-click a field to comment on it instead |
+| **Use any form** | fields and submit buttons work in comment mode; alt-click one to comment on it instead |
 
 ### Apps behind a login
 
-Sign in yourself, in that window. A page with a password field opens in browse
-mode so the form works straight away, and the Chrome profile persists in
-`.ayna/profile`, so it is normally a one-time step. `--fresh-profile` starts logged
+Sign in yourself, in that window. Form fields and submit buttons work in comment
+mode, so you can just fill it in and click through. A page with a password field
+also drops into browse mode so nothing gets in the way. The Chrome profile persists
+in `.ayna/profile`, so it is normally a one-time step. `--fresh-profile` starts logged
 out when you want to check a signed-out view.
 
 **Ayna never sees your credentials** — you type them into your own app, and nothing
