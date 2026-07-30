@@ -93,6 +93,20 @@ the end of a session the page carries the record of everything that changed.
 
 Only **Approve & close** ends the session.
 
+## When Claude finds something itself
+
+Claude can audit your UI and spot faults you never mentioned. It does **not** edit
+your project off its own judgement. Each finding arrives in the same review window
+as a dashed purple marker — *"Claude suggests"* — with the fix it wants to make
+written out. You answer it there:
+
+- **Go ahead** → it makes the change, then you judge the result like anything else
+- **Leave it** → dropped
+- **Type something instead** → your words replace the suggestion, and it does that
+
+Your comments are instructions. Its findings are suggestions. Nothing in your
+project changes without a yes.
+
 ## Work that outlives the window
 
 ```bash

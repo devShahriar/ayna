@@ -22,8 +22,17 @@ import path from 'node:path';
 
 export const SCHEMA = 1;
 
-/** open → in_progress → applied → approved, or rejected back to open. */
-export const STATUSES = ['open', 'in_progress', 'applied', 'approved', 'rejected'];
+/*
+  proposed → open → in_progress → applied → approved, or rejected back to open.
+
+  `proposed` is the one that keeps Claude honest: a fault it found itself is a
+  suggestion, not permission. Nothing is edited until the user says so, or until
+  they redirect it with a comment of their own.
+*/
+export const STATUSES = ['proposed', 'open', 'in_progress', 'applied', 'approved', 'rejected'];
+
+/** Raised by Claude and still waiting on the user's word. */
+export const isProposal = (t) => t.status === 'proposed';
 
 /** Anything not yet accepted is still owed work. */
 export const isPending = (t) => t.status !== 'approved';

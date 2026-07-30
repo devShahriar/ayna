@@ -16,7 +16,7 @@ import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
 import { runAnnotate, loadComments } from '../src/annotate.mjs';
 import { runFlow, summarizeFlow } from '../src/flow.mjs';
-import { openStore, importLegacy, isPending } from '../src/tasks.mjs';
+import { openStore, importLegacy, isPending, isProposal } from '../src/tasks.mjs';
 import { auditPage, summarizeAudit } from '../src/audit.mjs';
 import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';
 import { watchTasks } from '../src/watch.mjs';
@@ -37,6 +37,7 @@ ${bold('USAGE')}
 ${bold('TASKS')}
   tasks       Every comment ever made here and where it stands
   task        Show one, or move it: ayna task task-0003 --status in_progress
+  propose     Put a change in front of the user before making it
   watch       Announce work as it appears; outlives any window (run under a monitor)
 
 ${bold('REVIEW')} — you point, Claude fixes
@@ -83,6 +84,9 @@ ${bold('OPTIONS')}
       --baseline <file>  Previous qa.json to compare against (qa)
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
+      --comment <text>   What you are proposing (propose)
+      --fix <text>       How you would fix it (propose)
+      --selector <sel>   What it applies to (propose)
       --headed           Show the Chrome window (default: headless)
       --fresh-profile    Start annotate logged out (default: reuse the profile)
       --open             Open the HTML report when done
@@ -113,6 +117,9 @@ const { values, positionals } = parseArgs({
     baseline: { type: 'string' },
     keep: { type: 'string' },
     status: { type: 'string' },
+    comment: { type: 'string' },
+    fix: { type: 'string' },
+    selector: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -373,6 +380,29 @@ async function main() {
 
       // A QA run has to be usable as a gate.
       if (suite.failed) process.exitCode = 1;
+      return;
+    }
+
+    case 'propose': {
+      /*
+        A change Claude wants to make, put in front of the user before anything is
+        edited. It lands in the same window as their own comments, with the same
+        controls, so approving a suggestion and answering a comment are one habit
+        rather than two.
+      */
+      if (!values.comment) throw new Error('what are you proposing? --comment "…" [--fix "…"] [--selector "…"]');
+      const store = await openStore(PROJECT);
+      const task = await store.create({
+        status: 'proposed',
+        kind: 'proposal',
+        comment: values.comment,
+        fix: values.fix ?? null,
+        selector: values.selector ?? null,
+        url: values.url ?? cfg.target.url ?? null,
+        source: 'claude',
+      });
+      if (values.json) console.log(JSON.stringify(task, null, 2));
+      else ok(`proposed ${task.id} — waiting for the user`);
       return;
     }
 

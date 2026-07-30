@@ -2137,3 +2137,98 @@ describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () =
     }
   });
 });
+
+describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('a proposal waits for the user, who can approve it or say what to do instead', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { openStore } = await import('../src/tasks.mjs');
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const server = await serveStatic(site, 4820);
+      const store = await openStore(dir);
+      const events = [];
+
+      // Two faults Claude found itself. Nothing has been edited.
+      await store.create({
+        status: 'proposed', kind: 'proposal', source: 'claude',
+        comment: 'the heading is cut off at 390px',
+        fix: 'let the container wrap below 640px',
+        selector: '.title', url: server.url,
+      });
+      await store.create({
+        status: 'proposed', kind: 'proposal', source: 'claude',
+        comment: 'body copy is cramped', fix: 'raise the line-height',
+        selector: '.lede', url: server.url,
+      });
+
+      try {
+        await runAnnotate({
+          browser, url: server.url, outDir: path.join(dir, 'out'), projectDir: dir, store,
+          viewport: { width: 1100, height: 700 },
+          onEvent: (e) => events.push(e),
+          onReady: async (page) => {
+            await page.waitForTimeout(500);
+            await page.evaluate(() => window.__aynaReview && window.__aynaReview());
+            await page.waitForTimeout(600);
+
+            assert.deepEqual(
+              await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
+              ['proposed', 'proposed'],
+              'suggestions are shown as suggestions, not as done work',
+            );
+
+            await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-revpin');
+            await page.waitForSelector('.ayna-ov-card');
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
+              /Claude suggests/,
+            );
+            assert.ok(
+              await page.evaluate(() => !!document.querySelector('.ayna-ov-fix')),
+              'the proposed fix is shown, so the user is judging something they can see',
+            );
+            assert.deepEqual(
+              await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-card button')].map((b) => b.textContent)),
+              ['Leave it', 'Go ahead'],
+            );
+            await page.click('[data-act=go]');
+            await page.waitForTimeout(500);
+
+            // The second one: redirect it instead of accepting it.
+            await page.click('.ayna-ov-revbar >> nth=1 >> .ayna-ov-revpin');
+            await page.waitForSelector('.ayna-ov-card textarea');
+            await page.fill('.ayna-ov-card textarea', 'no — hide it on mobile instead');
+            await page.click('[data-act=go]');
+            await page.waitForTimeout(600);
+            await page.close();
+          },
+        });
+
+        const tasks = await store.list();
+        const approved = tasks.find((t) => t.comment.includes('cut off'));
+        const redirected = tasks.find((t) => t.comment.includes('hide it on mobile'));
+
+        assert.equal(approved.status, 'open', 'approving a proposal authorises the work, it does not finish it');
+        assert.equal(approved.source, 'claude');
+        assert.ok(redirected, 'the user\'s words replaced the suggestion');
+        assert.equal(redirected.source, 'user', 'and it is now their instruction, not Claude\'s idea');
+
+        const actions = events.filter((e) => e.event === 'task').map((e) => e.action);
+        assert.deepEqual(actions, ['go-ahead', 'do-this-instead']);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

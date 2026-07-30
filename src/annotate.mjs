@@ -183,6 +183,10 @@ export async function runAnnotate({
         status: t.status,
         kind: t.kind ?? 'comment',
         comment: t.comment,
+        // A proposal carries the fix it is proposing; without it the card offers
+        // a verdict on something the user cannot see.
+        fix: t.fix ?? null,
+        source: t.source ?? 'user',
         selector: t.selector,
         elements: t.elements ?? [],
         region: t.region ?? null,
@@ -412,6 +416,34 @@ export async function runAnnotate({
     }
   });
 
+  /*
+    The user's answer to a proposal. They can wave it through, refuse it, or type
+    what they want instead — which turns Claude's suggestion into their
+    instruction and sends it back as work to do.
+  */
+  await page.exposeFunction('__aynaRespond', async (id, verdict, note) => {
+    const c = comments.find((x) => x.id === id);
+    if (!c) return { ok: false };
+
+    if (verdict === 'redirect' && note) {
+      c.comment = note;
+      c.status = 'open';
+      c.source = 'user';
+      if (store && c.taskId) await store.update(c.taskId, { comment: note, status: 'open', source: 'user' }, 'redirected by the user');
+      onEvent({ event: 'task', id: c.taskId ?? id, status: 'open', comment: note, action: 'do-this-instead' });
+    } else if (verdict === 'approve') {
+      c.status = 'open'; // approved to go ahead, not approved as done
+      if (store && c.taskId) await store.update(c.taskId, { status: 'open' }, 'user approved the proposal');
+      onEvent({ event: 'task', id: c.taskId ?? id, status: 'open', comment: c.comment, action: 'go-ahead' });
+    } else {
+      c.status = 'approved'; // declined and settled; nothing to do
+      if (store && c.taskId) await store.update(c.taskId, { status: 'approved' }, 'user declined the proposal');
+    }
+    await writeManifest();
+    await writeStatus();
+    return { ok: true, status: c.status };
+  });
+
   // Comments survive navigation (they live here, not in the page), so a rebuilt
   // overlay can ask for the real running total.
   await page.exposeFunction('__aynaCount', async () => comments.length);
@@ -423,6 +455,8 @@ export async function runAnnotate({
       n: c.n,
       comment: c.comment,
       kind: c.kind,
+      fix: c.fix ?? null,
+      source: c.source ?? 'user',
       selector: c.selector,
       rect: c.rect,
       status: c.status,

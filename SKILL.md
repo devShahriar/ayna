@@ -334,3 +334,31 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs task task-0004 --status in_progress
 ```
 
 Leave the verdict to them. Move a task to `approved` only when they say so.
+
+## Fixing things you found yourself
+
+When you find a fault the user did not ask about — from `audit`, or just from
+looking — **do not edit their app.** Put it to them first:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs propose \
+  --comment "The Run button is cut off at 390px" \
+  --fix "let .shot-query wrap so the button drops to its own line" \
+  --selector ".shot-query" --url "<page>"
+```
+
+It appears in their review window as a dashed purple marker reading **"Claude
+suggests"**, alongside their own comments, with the fix you are proposing written
+out. They answer it there:
+
+| they choose | you get | what it means |
+|---|---|---|
+| **Go ahead** | `action: "go-ahead"`, status `open` | now you may make the change |
+| **Leave it** | status `approved`, nothing to do | dropped |
+| **types something instead** | `action: "do-this-instead"`, their words replace yours | do that, not what you suggested |
+
+Approving a proposal authorises the work — it does not finish it. Make the change,
+run `applied`, and let them judge the result like any other task.
+
+**The rule: their comments are instructions, your findings are suggestions.** Never
+edit their project off your own judgement without a yes.

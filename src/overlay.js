@@ -161,6 +161,7 @@
     }
     .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
     .${NS}-rev[data-status=in_progress] { border-color: #38bdf8; background: rgba(56,189,248,.08); }
+    .${NS}-rev[data-status=proposed] { border-color: #a78bfa; background: rgba(167,139,250,.10); border-style: dashed; }
     .${NS}-rev[data-status=rejected] { border-color: #ef4444; background: rgba(239,68,68,.10); }
     .${NS}-revbar {
       position: absolute; z-index: 2147483644; display: flex; align-items: center; gap: 4px;
@@ -213,6 +214,7 @@
     }
     .${NS}-task[data-status=approved] .${NS}-dot { background: #16a34a; }
     .${NS}-task[data-status=in_progress] .${NS}-dot { background: #38bdf8; }
+    .${NS}-task[data-status=proposed] .${NS}-dot { background: #a78bfa; }
     .${NS}-task[data-status=rejected] .${NS}-dot { background: #ef4444; }
     .${NS}-task[data-status=approved] .${NS}-task-text { color: #6f7889; text-decoration: line-through; }
     .${NS}-task-text { flex: 1; min-width: 0; }
@@ -244,6 +246,15 @@
     }
     .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
     .${NS}-card[data-status=rejected] .${NS}-badge { background: #fee2e2; color: #991b1b; }
+    .${NS}-card[data-status=proposed] .${NS}-badge { background: #ede9fe; color: #5b21b6; }
+    .${NS}-card textarea {
+      width: 100%; min-height: 54px; resize: vertical; padding: 8px; margin-top: 8px;
+      border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; color: #111; background: #fff;
+    }
+    .${NS}-fix {
+      background: #f4f5f8; border-radius: 8px; padding: 8px 10px; margin: 8px 0;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151;
+    }
     .${NS}-card p { margin: 0 0 10px; }
     .${NS}-card .${NS}-when { color: #6b7280; font-size: 11px; margin-bottom: 10px; }
     .${NS}-pin i { font-style: normal; display: none; }
@@ -1408,7 +1419,9 @@
               ? '↺ ' + c.n
               : c.status === 'in_progress'
                 ? '⋯ ' + c.n // Claude has picked this one up
-                : String(c.n);
+                : c.status === 'proposed'
+                  ? '? ' + c.n // Claude's own suggestion, awaiting a word
+                  : String(c.n);
         // Once judged, collapse to the badge — it stays as the record.
         ok.style.display = c.status === 'open' ? '' : 'none';
         no.style.display = c.status === 'open' ? '' : 'none';
@@ -1450,18 +1463,32 @@
     card.dataset.status = c.status;
 
     const done = c.status === 'approved';
+    const proposal = c.status === 'proposed';
+
+    /*
+      A proposal is answered, not judged. Claude found this one itself, so the
+      choices are go ahead, leave it, or say what to do instead — and that last
+      one turns the suggestion into the user's own instruction rather than making
+      them dismiss the card and write a comment from scratch.
+    */
     card.innerHTML =
       '<div class="' + NS + '-body">' +
       '<div class="' + NS + '-badge"></div>' +
       '<p class="' + NS + '-text"></p>' +
+      (proposal && c.fix ? '<div class="' + NS + '-fix"></div>' : '') +
       '<div class="' + NS + '-when"></div>' +
+      (proposal ? '<textarea placeholder="…or tell me what to do instead"></textarea>' : '') +
       '</div>' +
       '<div class="' + NS + '-row">' +
-      (done
-        ? '<button class="' + NS + '-cancel" data-act="reopen">Reopen</button>'
-        : '<button class="' + NS + '-cancel" data-act="reject">Needs work</button>' +
-          '<button class="' + NS + '-save" data-act="resolve">Looks right</button>') +
+      (proposal
+        ? '<button class="' + NS + '-cancel" data-act="decline">Leave it</button>' +
+          '<button class="' + NS + '-save" data-act="go">Go ahead</button>'
+        : done
+          ? '<button class="' + NS + '-cancel" data-act="reopen">Reopen</button>'
+          : '<button class="' + NS + '-cancel" data-act="reject">Needs work</button>' +
+            '<button class="' + NS + '-save" data-act="resolve">Looks right</button>') +
       '</div>';
+    if (proposal && c.fix) card.querySelector('.' + NS + '-fix').textContent = c.fix;
 
     card.querySelector('.' + NS + '-badge').textContent =
       c.status === 'approved'
@@ -1470,7 +1497,9 @@
           ? 'needs work'
           : c.status === 'in_progress'
             ? 'Claude is on this'
-            : 'comment ' + c.n;
+            : c.status === 'proposed'
+              ? 'Claude suggests'
+              : 'comment ' + c.n;
     card.querySelector('.' + NS + '-text').textContent = c.comment;
     card.querySelector('.' + NS + '-when').textContent =
       c.kind === 'move' ? 'a reorder you made' : c.kind === 'region' ? 'a region you framed' : c.selector || '';
@@ -1486,6 +1515,20 @@
       closeCard();
       updateReviewBar();
     };
+
+    // Typing an instruction is itself the answer — sending it means "do that".
+    const respond = async (verdict) => {
+      const note = card.querySelector('textarea')?.value.trim();
+      const res = await window.__aynaRespond(c.id, note ? 'redirect' : verdict, note || null);
+      if (!res || !res.ok) return;
+      c.status = res.status;
+      if (paint) paint();
+      closeCard();
+      renderReview().then(updateReviewBar);
+      refreshTaskCount();
+    };
+    card.querySelector('[data-act=go]')?.addEventListener('click', () => respond('approve'));
+    card.querySelector('[data-act=decline]')?.addEventListener('click', () => respond('decline'));
 
     card.querySelector('[data-act=resolve]')?.addEventListener('click', () => set('approved'));
     card.querySelector('[data-act=reject]')?.addEventListener('click', () => set('rejected'));
