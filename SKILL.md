@@ -244,3 +244,33 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs loop -n 3 --open
 This costs several dollars per iteration. **In an interactive session, use the loop
 above instead** — same result, a fraction of the cost, because your context is
 already warm.
+
+## Reviewing a flow, not a page
+
+When the user describes a journey — "log in, open a diagram, add a node" — turn it
+into steps and run it:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs flow --flow steps.json --json
+```
+
+Steps: `goto`, `click`, `type`, `press`, `hover`, `scroll`, `wait`, `expect`.
+Mark a step `"optional": true` if failing it should not stop the run. A flow reuses
+the saved profile, so anything behind a login starts signed in.
+
+**Read every step image in order.** The filmstrip is the review; the numbers tell
+you where to look:
+
+| signal | what it means |
+|---|---|
+| `settleMs` high | the step looked done long before it was usable |
+| `layoutShift` > 0.1 | content moved under the user's cursor |
+| `focusLost` | focus fell to `<body>` — keyboard users are stranded |
+| `smallTarget` | the thing they clicked is under 44px |
+| `newConsoleErrors` | that action broke something |
+| `tinyTextNodes`, `unlabelledControls` | per screen, not per site |
+
+Judge it as a flow: does every action acknowledge itself, can they get back from
+each step, is the primary action obvious at each point, what happens on the error
+path, is the whole thing reachable from the keyboard. **Never put a real password
+in a flow** — use the saved profile, and test the failure path with a wrong one.

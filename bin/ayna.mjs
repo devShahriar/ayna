@@ -15,6 +15,7 @@ import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
 import { runAnnotate, loadComments } from '../src/annotate.mjs';
+import { runFlow, summarizeFlow } from '../src/flow.mjs';
 import { writeReport } from '../src/report.mjs';
 import { banner, step, ok, info, warn, fail, dim, bold, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
@@ -38,6 +39,7 @@ ${bold('REVIEW')} — you point, Claude fixes
 
 ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
+  flow        Drive a described UI flow and measure every step
   serve       Serve the target UI and stay up (ctrl-c to stop)
 
 ${bold('SAFETY')}
@@ -64,6 +66,7 @@ ${bold('OPTIONS')}
       --file <path>      A specific comments.json (comments)
       --json             Machine-readable output
       --events           Stream one JSON line per round/rejection/close (annotate)
+      --flow <file>      Flow definition to run (flow)
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
       --headed           Show the Chrome window (default: headless)
@@ -91,6 +94,7 @@ const { values, positionals } = parseArgs({
     root: { type: 'string' },
     routes: { type: 'string' },
     events: { type: 'boolean' },
+    flow: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -240,6 +244,49 @@ async function main() {
         ok(`${s.route ?? '/'} ${s.viewport} → ${path.relative(PROJECT, s.file)}`);
       }
       if (cap.consoleErrors.length) warn(`console errors: ${cap.consoleErrors.length}`);
+      return;
+    }
+
+    case 'flow': {
+      const spec = values.flow ?? values.file;
+      if (!spec) throw new Error('give me a flow: ayna flow --flow steps.json');
+      const flow = JSON.parse(await readFile(path.resolve(PROJECT, spec), 'utf8'));
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const outDir = path.join(PROJECT, '.ayna', 'flows', `${(flow.name ?? 'flow').replace(/[^\w-]+/g, '-').toLowerCase()}-${stamp}`);
+
+      const server = await startTarget(cfg);
+      // Reuse the saved profile, so a flow behind a login starts signed in.
+      const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
+      const context = profileDir
+        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        : null;
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+
+      const record = await runFlow({
+        browser,
+        context,
+        baseUrl: server.url,
+        flow,
+        outDir,
+        viewport: cfg.viewports[0],
+      });
+
+      if (context) await context.close().catch(() => {});
+      else await browser.close().catch(() => {});
+      await server.close().catch(() => {});
+
+      if (values.json) {
+        console.log(JSON.stringify({ ...record, hint: 'Read every step image in order — the filmstrip is the review.' }, null, 2));
+        return;
+      }
+      banner(`ayna flow · ${record.name}`);
+      console.log(summarizeFlow(record));
+      console.log('');
+      (record.completed ? ok : fail)(
+        record.completed ? `all ${record.steps.length} steps completed` : `stopped at step ${record.failedAt.n}: ${record.failedAt.error}`,
+      );
+      info(`${path.relative(PROJECT, outDir)}/flow.json`);
       return;
     }
 
