@@ -1918,3 +1918,134 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
     }
   });
 });
+
+describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  const inspect = (page, sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      const barB = document.querySelector('.ayna-ov-bar')?.getBoundingClientRect();
+      return {
+        onScreen:
+          b.left >= 0 && b.top >= 0 && b.right <= innerWidth + 1 && b.bottom <= innerHeight + 1,
+        clearOfBar: !barB || b.bottom <= barB.top + 1,
+      };
+    }, sel);
+
+  const clickable = (page, sel) =>
+    page.evaluate((s) => {
+      const b = document.querySelector(s).getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return !!hit && hit.closest(s) !== null;
+    }, sel);
+
+  test('the comment box stays reachable at any window size', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const server = await serveStatic(site, 4740);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 900, height: 600 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop');
+
+            for (const size of [
+              { width: 900, height: 600 },
+              { width: 1600, height: 1000 }, // going full screen
+              { width: 700, height: 380 }, // a cramped window
+              { width: 480, height: 820 }, // narrow and tall
+            ]) {
+              await page.setViewportSize(size);
+              await page.waitForTimeout(350);
+              const box = await inspect(page, '.ayna-ov-pop');
+              assert.ok(box.onScreen, `comment box on screen at ${size.width}x${size.height}`);
+              assert.ok(box.clearOfBar, `comment box clear of the bar at ${size.width}x${size.height}`);
+              assert.ok(
+                await clickable(page, '.ayna-ov-save'),
+                `Add comment reachable at ${size.width}x${size.height}`,
+              );
+            }
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('review markers follow the layout when the window changes', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4741);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1200, height: 800 },
+          onReady: async (page) => {
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'x');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(400);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+              timeout: 20000,
+            });
+            await page.waitForTimeout(400);
+
+            const boxOf = () =>
+              page.evaluate(() => {
+                const m = document.querySelector('.ayna-ov-rev').getBoundingClientRect();
+                const t = document.querySelector('.title').getBoundingClientRect();
+                return { markerLeft: Math.round(m.left), targetLeft: Math.round(t.left) };
+              });
+
+            const before = await boxOf();
+            assert.ok(Math.abs(before.markerLeft - before.targetLeft) < 6, 'marker starts aligned');
+
+            await page.setViewportSize({ width: 700, height: 900 });
+            await page.waitForTimeout(500);
+
+            const after = await boxOf();
+            assert.ok(
+              Math.abs(after.markerLeft - after.targetLeft) < 6,
+              'marker followed the element after the resize instead of staying put',
+            );
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

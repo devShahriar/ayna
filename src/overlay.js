@@ -62,6 +62,7 @@
     .${NS}-bar {
       position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%);
       bottom: 20px; display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px);
       background: #111418; color: #f2f4f8; padding: 10px 14px; border-radius: 999px;
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
       box-shadow: 0 8px 30px rgba(0,0,0,.35);
@@ -104,11 +105,15 @@
     }
     @keyframes ${NS}-rot { to { transform: rotate(360deg); } }
     .${NS}-pop {
-      position: fixed; z-index: 2147483646; width: 320px;
+      position: fixed; z-index: 2147483646; width: 320px; max-width: calc(100vw - 16px);
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
       box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
       font: 13px/1.5 -apple-system, system-ui, sans-serif;
+      display: flex; flex-direction: column; gap: 0;
     }
+    /* The body scrolls; the buttons never do. A row that can be pushed out of
+       reach is a row you cannot click. */
+    .${NS}-body { overflow: auto; min-height: 0; }
     .${NS}-pop textarea {
       width: 100%; min-height: 78px; resize: vertical; padding: 9px; color: #111;
       border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; background: #fff;
@@ -133,7 +138,10 @@
       width: 48px; height: 48px; object-fit: cover;
       border-radius: 6px; border: 1px solid #dfe3ea;
     }
-    .${NS}-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+    .${NS}-row {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
+      flex: none;  /* pinned: the action row is never scrolled away */
+    }
     .${NS}-row button {
       font: inherit; font-weight: 600; border-radius: 8px; padding: 7px 13px; cursor: pointer;
     }
@@ -175,10 +183,11 @@
     .${NS}-ok:hover { background: #15803d; }
     .${NS}-no:hover { background: #ef4444; color: #fff; }
     .${NS}-card {
-      position: fixed; z-index: 2147483646; width: 300px;
+      position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
       box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
       font: 13px/1.55 -apple-system, system-ui, sans-serif;
+      display: flex; flex-direction: column;
     }
     .${NS}-card .${NS}-badge {
       display: inline-block; font-size: 10px; text-transform: uppercase;
@@ -979,9 +988,28 @@
     end up reading a comment box that is clipped at the edge. Measure in viewport
     space, flip above the target when there is no room below, and clamp.
   */
+  /** How much of the bottom the mode bar occupies right now, wrapping included. */
+  function barSafeZone() {
+    if (!bar) return 0;
+    const b = bar.getBoundingClientRect();
+    return b.height ? b.height + 28 : 0;
+  }
+
   function placeFloating(el, r) {
+    // Remember the anchor so a resize can put it back in the right place.
+    el.__aynaAnchor = r;
+
     const vw = document.documentElement.clientWidth;
     const vh = document.documentElement.clientHeight;
+    const safe = barSafeZone();
+
+    /*
+      Bound the panel to what the window can actually show, then measure it. A
+      panel taller than the viewport used to run off the bottom and take its
+      buttons with it — visible, unreachable. Its body scrolls instead.
+    */
+    el.style.maxHeight = Math.max(160, vh - safe - 16) + 'px';
+
     const box = el.getBoundingClientRect();
     const w = box.width || 320;
     const h = box.height || 240;
@@ -989,20 +1017,37 @@
     const x = r.x - window.scrollX;
     const y = r.y - window.scrollY;
 
-    /*
-      The mode bar owns the bottom of the window and sits above everything, so a
-      panel pinned down there has its buttons swallowed — you could see "Add
-      comment" and never click it. Keep clear of that strip.
-    */
-    const BAR = 76;
     let top = y + r.height + 10;
-    if (top + h > vh - BAR) top = y - h - 10; // no room below — flip above
-    if (top < 8) top = Math.max(8, vh - BAR - h); // nor above — pin above the bar
+    if (top + h > vh - safe) top = y - h - 10; // no room below — flip above
+    if (top < 8) top = Math.max(8, vh - safe - h); // nor above — sit above the bar
 
     el.style.position = 'fixed';
     el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
-    el.style.top = top + 'px';
+    el.style.top = Math.max(8, top) + 'px';
   }
+
+  /*
+    Everything the overlay draws is positioned from measurements taken once. Resize
+    the window — or go full screen — and the page reflows while the markers, pins
+    and panels stay where the old layout put them. Recompute on any change to the
+    viewport.
+  */
+  let relayoutQueued = false;
+  function relayout() {
+    if (relayoutQueued) return;
+    relayoutQueued = true;
+    requestAnimationFrame(() => {
+      relayoutQueued = false;
+      hide(); // the hover highlight is stale the moment anything moves
+      if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
+      if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
+      // Review markers are anchored to live elements, so re-derive them.
+      if (state.phase === 'review') renderReview().then(updateReviewBar);
+    });
+  }
+
+  window.addEventListener('resize', relayout, { passive: true });
+  window.addEventListener('orientationchange', relayout, { passive: true });
 
   function closePopover() {
     if (pop) {
@@ -1062,6 +1107,7 @@
     pop.className = NS + '-pop';
     pop.setAttribute('data-ayna', '1');
     pop.innerHTML =
+      '<div class="' + NS + '-body">' +
       '<div class="' + NS + '-sel"></div>' +
       '<textarea placeholder="What should change about this?"></textarea>' +
       (region ? '<div class="' + NS + '-hint">The framed region is attached automatically.</div>' : '') +
@@ -1069,6 +1115,7 @@
       '<label class="' + NS + '-attach">choose an image<input type="file" accept="image/*" multiple hidden></label>' +
       ' · Esc to cancel</div>' +
       '<div class="' + NS + '-thumbs"></div>' +
+      '</div>' +
       '<div class="' + NS + '-row">' +
       '<button class="' + NS + '-cancel">Cancel</button>' +
       '<button class="' + NS + '-save">Add comment</button>' +
@@ -1337,9 +1384,11 @@
 
     const done = c.status === 'resolved';
     card.innerHTML =
+      '<div class="' + NS + '-body">' +
       '<div class="' + NS + '-badge"></div>' +
       '<p class="' + NS + '-text"></p>' +
       '<div class="' + NS + '-when"></div>' +
+      '</div>' +
       '<div class="' + NS + '-row">' +
       (done
         ? '<button class="' + NS + '-cancel" data-act="reopen">Reopen</button>'
