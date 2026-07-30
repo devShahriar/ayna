@@ -115,6 +115,11 @@ node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate
 **Run it in the background** — it stays open for the whole review, not just until
 they send. The window is theirs; you never close it.
 
+**If the app needs a login, they do it themselves in that window.** A page with a
+password field opens in browse mode so the form works, and the profile persists
+between reviews so it is usually a one-off. **Never type credentials for them and
+never ask for them** — nothing they type is captured.
+
 The overlay has three modes, cycled with one button: **comment** (click to
 annotate), **move** (drag to reorder), **browse** (the app behaves normally).
 

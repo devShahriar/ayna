@@ -116,14 +116,27 @@ function rankByPage(hits, pageUrl) {
  * Opens the page with the overlay and resolves once the user clicks
  * "Send to Claude" or closes the tab.
  */
-export async function runAnnotate({ browser, url, outDir, projectDir, viewport, onReady }) {
+export async function runAnnotate({
+  browser,
+  // A persistent context can be handed in so a login survives between reviews.
+  context: providedContext,
+  url,
+  outDir,
+  projectDir,
+  viewport,
+  onReady,
+}) {
   await mkdir(outDir, { recursive: true });
 
-  const context = await browser.newContext({
-    viewport: viewport ?? { width: 1440, height: 900 },
-    deviceScaleFactor: 1,
-  });
-  const page = await context.newPage();
+  const ownsContext = !providedContext;
+  const context =
+    providedContext ??
+    (await browser.newContext({
+      viewport: viewport ?? { width: 1440, height: 900 },
+      deviceScaleFactor: 1,
+    }));
+  // A persistent context opens with a page already; reuse it rather than stacking.
+  const page = context.pages()[0] ?? (await context.newPage());
 
   const comments = [];
   let nextId = 1;
@@ -385,7 +398,7 @@ export async function runAnnotate({ browser, url, outDir, projectDir, viewport, 
   const fullFile = path.join(outDir, 'full-page.png');
   if (!page.isClosed()) {
     await page.screenshot({ path: fullFile, fullPage: true }).catch(() => {});
-    await context.close().catch(() => {});
+    if (ownsContext) await context.close().catch(() => {});
   }
 
   phase = done ? 'approved' : 'closed';

@@ -105,6 +105,26 @@ export async function capture({ browser, url, viewports, outDir, label }) {
   };
 }
 
+/**
+ * A Chrome that remembers. Reviews of anything behind a login are miserable if
+ * every run starts logged out, so cookies live in `profileDir` between sessions —
+ * exactly like a normal browser profile. Ayna never sees or stores the
+ * credentials themselves; the user types them into their own app.
+ */
+export async function openPersistentContext({ profileDir, headless = false, viewport }) {
+  await mkdir(profileDir, { recursive: true });
+  const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
+  if (process.env.CI) args.push('--no-sandbox', '--disable-dev-shm-usage');
+
+  return chromium.launchPersistentContext(profileDir, {
+    channel: 'chrome',
+    headless,
+    viewport: viewport ?? { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    args,
+  });
+}
+
 /** "/" → home, "/pricing" → pricing, "/docs/intro" → docs-intro */
 export function routeSlug(route) {
   const clean = String(route).split('?')[0].split('#')[0].replace(/^\/+|\/+$/g, '');

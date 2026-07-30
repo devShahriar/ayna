@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { startTarget } from '../src/target.mjs';
-import { openBrowser, capture, captureRoutes } from '../src/browser.mjs';
+import { openBrowser, capture, captureRoutes, openPersistentContext } from '../src/browser.mjs';
 import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
@@ -66,6 +66,7 @@ ${bold('OPTIONS')}
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
       --headed           Show the Chrome window (default: headless)
+      --fresh-profile    Start annotate logged out (default: reuse the profile)
       --open             Open the HTML report when done
   -h, --help             This
 
@@ -89,6 +90,7 @@ const { values, positionals } = parseArgs({
     root: { type: 'string' },
     routes: { type: 'string' },
     file: { type: 'string' },
+    'fresh-profile': { type: 'boolean' },
     score: { type: 'string' },
     note: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
@@ -244,7 +246,13 @@ async function main() {
 
       const server = await startTarget(cfg);
       // Always headed — the whole point is that a human clicks things.
-      const browser = await openBrowser({ headless: false });
+      // A persistent profile keeps you logged in between reviews; --fresh-profile
+      // starts clean (useful for checking a signed-out view).
+      const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
+      const context = profileDir
+        ? await openPersistentContext({ profileDir, headless: false, viewport: cfg.viewports[0] })
+        : null;
+      const browser = context ? null : await openBrowser({ headless: false });
 
       // With --json, stdout must be nothing but JSON — the status lines go to stderr
       // so a caller can still see progress while piping the result.
@@ -269,13 +277,15 @@ async function main() {
 
       const manifest = await runAnnotate({
         browser,
+        context,
         url: server.url,
         outDir,
         projectDir: PROJECT,
         viewport: cfg.viewports[0],
       });
 
-      await browser.close().catch(() => {});
+      if (context) await context.close().catch(() => {});
+      else await browser.close().catch(() => {});
       await server.close().catch(() => {});
 
       if (values.json) {

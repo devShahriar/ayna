@@ -1106,3 +1106,145 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
     }
   });
 });
+
+describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  async function loginSite(dir) {
+    const site = path.join(dir, 'site');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(site, { recursive: true });
+    await writeFile(
+      path.join(site, 'index.html'),
+      `<html><body style="font-family:system-ui;padding:40px">
+         <form id="f"><h1>Sign in to continue</h1>
+           <input id="email" type="email" placeholder="Email">
+           <input id="pw" type="password" placeholder="Password">
+           <button type="submit">Log in</button>
+         </form>
+         <div id="app" style="display:none"><h1 class="dash">The dashboard behind the login</h1></div>
+         <script>
+           document.getElementById('f').addEventListener('submit', e => {
+             e.preventDefault();
+             document.getElementById('f').style.display = 'none';
+             document.getElementById('app').style.display = 'block';
+           });
+         </script>
+       </body></html>`,
+    );
+    return site;
+  }
+
+  test('a sign-in page starts out of the way, and the form actually works', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = await loginSite(dir);
+      const server = await serveStatic(site, 4620);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 1000, height: 700 },
+          onReady: async (page) => {
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-bar').textContent),
+              /Sign in first/,
+              'a password field means browse mode, with an explanation',
+            );
+
+            // No mode fiddling — just sign in.
+            await page.click('#email');
+            await page.keyboard.type('me@example.com');
+            await page.click('#pw');
+            await page.keyboard.type('correct horse battery');
+            await page.click('button[type=submit]');
+            await page.waitForTimeout(300);
+            assert.ok(
+              await page.evaluate(() => document.getElementById('app').style.display === 'block'),
+              'the login went through',
+            );
+
+            await page.click('[data-act=mode]'); // browse -> comment
+            await page.click('.dash');
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.fill('.ayna-ov-pop textarea', 'heading needs work');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(500);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(400);
+            await page.close();
+          },
+        });
+
+        assert.equal(manifest.comments.length, 1, 'reviewed the page behind the login');
+        assert.ok(
+          !JSON.stringify(manifest).includes('correct horse battery'),
+          'what the user typed is never captured',
+        );
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a text field is typable in comment mode, and arrow keys do not hijack it', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      // No password field, so the overlay stays in comment mode.
+      await writeFile(
+        path.join(site, 'index.html'),
+        '<html><body style="padding:40px"><h1>Filter the list to reach the view</h1>' +
+          '<input id="q" type="search" placeholder="Search"></body></html>',
+      );
+      const server = await serveStatic(site, 4621);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 1000, height: 700 },
+          onReady: async (page) => {
+            assert.doesNotMatch(
+              await page.evaluate(() => document.querySelector('.ayna-ov-bar').textContent),
+              /Sign in first/,
+              'no password field, so no auto-switch',
+            );
+            await page.click('#q');
+            await page.keyboard.type('northwind');
+            assert.equal(await page.inputValue('#q'), 'northwind', 'typing works in comment mode');
+
+            await page.keyboard.press('ArrowUp');
+            assert.equal(
+              await page.inputValue('#q'),
+              'northwind',
+              'DOM traversal must not fire while a field has focus',
+            );
+
+            // Alt-click is how you comment on the field itself.
+            await page.click('#q', { modifiers: ['Alt'] });
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

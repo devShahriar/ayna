@@ -32,6 +32,7 @@
     // you back into comment mode on every page and swallow your next link click.
     marquee: null,
     suppressClick: false,
+    signIn: false,
     mode: (() => {
       try {
         return sessionStorage.getItem('ayna-mode') || 'comment';
@@ -202,6 +203,18 @@
   bar.className = NS + '-bar';
   bar.setAttribute('data-ayna', '1');
   document.documentElement.appendChild(bar);
+
+  // Start out of the way on a sign-in screen: there is nothing to review until
+  // the user is through it, and every click would otherwise become a comment.
+  if (looksLikeSignIn() && state.mode === 'comment') {
+    state.mode = 'browse';
+    try {
+      sessionStorage.setItem('ayna-mode', 'browse');
+    } catch {
+      // Not persistable here; the mode still applies to this page.
+    }
+    state.signIn = true;
+  }
   setPhase('comment');
 
   // A navigation rebuilds this overlay from scratch, but the comments already
@@ -236,7 +249,9 @@
       const HINT = {
         comment: 'Click anything to comment',
         move: 'Drag an element to reorder it',
-        browse: 'Browsing — click links freely, nothing is captured',
+        browse: state.signIn
+          ? 'Sign in first — nothing is captured while you do'
+          : 'Browsing — click links freely, nothing is captured',
       };
       const NEXT_LABEL = { comment: 'Move mode', move: 'Browse mode', browse: 'Comment mode' };
 
@@ -351,6 +366,27 @@
   }
 
   const isOurs = (el) => !el || !el.closest || !!el.closest('[data-ayna]');
+
+  const TEXT_INPUT = /^(text|email|password|search|tel|url|number|date|time|month|week|datetime-local)$/;
+
+  /*
+    Controls the user needs to actually operate — above all a login form. Clicking
+    one used to open a comment box instead of focusing it, so the field stayed
+    empty and there was no way to sign in without knowing to switch modes first.
+  */
+  function isFormField(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'textarea' || tag === 'select') return true;
+    if (el.isContentEditable) return true;
+    if (tag === 'input') return TEXT_INPUT.test((el.type || 'text').toLowerCase());
+    return false;
+  }
+
+  /** A page you have to get past before there is anything to review. */
+  function looksLikeSignIn() {
+    return !!document.querySelector('input[type=password]');
+  }
 
   function rectOf(el) {
     const r = el.getBoundingClientRect();
@@ -519,6 +555,9 @@
       */
       if (state.mode === 'browse') return;
 
+      // Typing must always be possible. Alt-click to comment on the field itself.
+      if (isFormField(e.target) && !e.altKey) return;
+
       e.preventDefault();
       e.stopPropagation();
       // In move mode the drag handlers own the mouse.
@@ -540,12 +579,16 @@
     'keydown',
     (e) => {
       if (e.key === 'Escape') {
+        // Let the page's own field handle Escape if that is where focus is.
+        if (isFormField(document.activeElement) && !pop) return;
         closePopover();
         closeCard();
         clearSelection();
         return;
       }
       if (!state.picking || !state.hoverBase) return;
+      // ArrowUp/Down drive DOM traversal — but not while someone is filling a field.
+      if (isFormField(document.activeElement)) return;
 
       // Walk up/down the tree without moving the mouse.
       if (e.key === 'ArrowUp') {
