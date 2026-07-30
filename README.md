@@ -77,6 +77,9 @@ Press **Send to Claude**. For each comment Claude gets:
 So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
 as: this element, this crop, this file, this line, these styles.
 
+Claude runs it as an event stream (`annotate --events`), so every round you send
+notifies it directly — there is no polling and nothing to re-arm.
+
 **Your window stays open.** Claude edits, the page reloads itself, and **every
 portion you commented on is highlighted again in place** — so you judge each change
 where it happened.

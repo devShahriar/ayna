@@ -1809,6 +1809,70 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
     }
   });
 
+  test('every round and rejection is emitted, with nothing re-armed', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, 'out');
+      const server = await serveStatic(site, 4732);
+      const events = [];
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: site,
+          viewport: { width: 1100, height: 700 },
+          onEvent: (e) => events.push(e),
+          onReady: async (page) => {
+            const add = async (sel, txt) => {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop textarea');
+              await page.fill('.ayna-ov-pop textarea', txt);
+              await page.click('.ayna-ov-save');
+              await page.waitForTimeout(400);
+            };
+
+            await add('.title', 'round one');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(500);
+
+            await writeFile(path.join(out, 'applied'), '1');
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+              timeout: 20000,
+            });
+            await page.waitForTimeout(400);
+
+            await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-no');
+            await page.waitForTimeout(400);
+
+            await page.click('[data-act=more]');
+            await page.waitForTimeout(400);
+            await add('.lede', 'round two');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(600);
+            await page.close();
+          },
+        });
+
+        const kinds = events.map((e) => e.event);
+        assert.deepEqual(kinds, ['round', 'rejected', 'round', 'closed'], kinds.join(','));
+        assert.deepEqual(
+          events.filter((e) => e.event === 'round').map((e) => e.round),
+          [1, 2],
+          'the second round is announced without anything being re-armed',
+        );
+        assert.equal(events[0].action, 'read-comments');
+        assert.equal(events[1].action, 'retry-rejected');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   test('the comment box never hides under the mode bar', async () => {
     const { dir, dispose } = await tempDir();
     try {

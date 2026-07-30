@@ -63,6 +63,7 @@ ${bold('OPTIONS')}
       --root <dir>       The UI directory to snapshot/restore
       --file <path>      A specific comments.json (comments)
       --json             Machine-readable output
+      --events           Stream one JSON line per round/rejection/close (annotate)
       --score <n>        Score for this round (record)
       --note <text>      What changed this round (record)
       --headed           Show the Chrome window (default: headless)
@@ -89,6 +90,7 @@ const { values, positionals } = parseArgs({
     json: { type: 'boolean' },
     root: { type: 'string' },
     routes: { type: 'string' },
+    events: { type: 'boolean' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -279,6 +281,10 @@ async function main() {
       const manifest = await runAnnotate({
         browser,
         context,
+        // One line of JSON per thing worth waking up for. Run this under a
+        // monitor and every round the user sends notifies you — no second
+        // process, nothing to re-arm.
+        onEvent: values.events ? (e) => console.log(JSON.stringify(e)) : undefined,
         url: server.url,
         outDir,
         projectDir: PROJECT,
@@ -289,6 +295,7 @@ async function main() {
       else await browser.close().catch(() => {});
       await server.close().catch(() => {});
 
+      if (values.events) return; // the stream was the output
       if (values.json) {
         console.log(JSON.stringify(manifest, null, 2));
         return;

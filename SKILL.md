@@ -112,8 +112,25 @@ mouse instead of guessing:
 node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate
 ```
 
-**Run it in the background** — it stays open for the whole review, not just until
-they send. The window is theirs; you never close it.
+**Run it as an event stream, and let it notify you:**
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs annotate --events --url <the page>
+```
+
+Run this under a **monitor** (a background process whose stdout lines become
+notifications). It prints one JSON line every time the user does something:
+
+```json
+{"event":"round","round":1,"comments":2,"action":"read-comments"}
+{"event":"rejected","comment":"…","action":"retry-rejected"}
+{"event":"closed","approved":true}
+```
+
+**This is the whole mechanism.** One process, push-based. There is nothing to
+re-arm and nothing to poll, so a round cannot go unnoticed because you forgot a
+step — which is exactly how comments used to sit unread while the page said
+"Sent".
 
 **If the app needs a login, they do it themselves in that window.** A page with a
 password field opens in browse mode so the form works, and the profile persists
@@ -124,70 +141,27 @@ The overlay has three modes, cycled with one button: **comment** (click to
 annotate), **move** (drag to reorder), **browse** (the app behaves normally).
 
 **Browse mode means they can reach any page themselves** — clicking through the
-app's own UI, following links, or typing a URL. Client-side routing works too: the
-overlay survives pushState navigation and the running comment count comes with it.
-So if you can't work out the right URL, opening the app's entry point is fine —
-they'll navigate to what they mean.
+app's own UI, following links, or typing a URL. Client-side routing works too.
 
 Each comment records the `url` it was made on, and `sourceCandidates` are ranked
 toward that route. **If their notes span several pages, check `comment.url` before
 deciding which file to edit.**
 
-The round-trip:
+## On each `round` event
 
-0. **Arm the watcher the moment the window opens** — `ayna wait` in the
-   background, before they have marked anything up. Polling `status` by hand
-   means the user waits on you noticing.
-
-1. **They comment and press "Send to Claude".** The bar switches to "Claude is
-   making your changes" and the window stays open. Poll for it:
-   ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs status      # phase: awaiting-claude
-   node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs comments --json
-   ```
-2. **You make the edits.**
-3. **Tell the window you're done:**
-   ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs applied
-   ```
-   It reloads the page in place so they see the result immediately, and offers
-   **Approve & close** / **Comment more**.
-4. **They judge each comment in place.** Every commented portion is re-highlighted
-   on the changed page with its own **Looks right** / **Needs work** buttons
-   attached to it. Judged comments collapse to a badge that still opens the
-   original text. **Close review** ends the session without judging anything — whatever they did
-   not approve stays pending and is still waiting next time.
-   **Then re-arm the watcher immediately: run `ayna wait` in the background again.**
-   It exits when it fires, so if you do not restart it the user's next round sits
-   in `awaiting-claude` while you do nothing — which looks to them like you have
-   stopped working. Re-arm after *every* `applied`, for as many rounds as they want.
-
-   **Then re-arm the watcher: run `ayna wait` in the background again.** It exits
-   when it fires, so unless you restart it the user's next round sits in
-   `awaiting-claude` while you do nothing — from their side the page just says
-   "Sent" forever. Re-arm after *every* `applied`, for as many rounds as they want.
-
-5. **`ayna wait` wakes you again when anything is rejected.** Re-read
-   `comments --json`, fix only the comments whose `status` is `rejected` or `open`
-   — **never touch a `resolved` one** — then run `applied` again. Rejected comments
-   return to `open` for re-judging.
-6. **If they click "Comment more"**, phase goes back to `commenting` and a new
-   round arrives — repeat from 1.
-7. **If they approve**, the background command exits and the window closes. Only
-   their approval closes it.
+1. `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs comments --json`
+2. Act on every comment whose `status` is `open` or `rejected`. **Never touch a
+   `resolved` one.**
+3. `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs applied` — reloads their page in place
+   so each change is highlighted where it happened, with **Looks right** /
+   **Needs work** on it.
+4. Go back to waiting for the next event. The window stays open; only the user
+   closes it. **Never kill the annotate process to "finish" a review.**
 
 `ayna status` reports the tally: `open`, `resolved`, `rejected`. Resolved comments
-stay in the manifest permanently as the record of what changed this session — the
-user can click any green marker to re-read it.
-
-Do **not** kill the annotate process to "finish" a review, and don't close the
-browser yourself. Waiting is the correct behavior.
-
-**A resumed conversation does not inherit the window.** The browser died with the
-session that opened it, so `status` reports `phase: "stale"` and `wait` returns
-immediately rather than blocking on a review nobody is in. When you see `stale`,
-say so and start a fresh `annotate` — don't try to resume the old one. Previous
-comments are still on disk (`comments --json`) if you need to read what was asked.
+stay in the manifest as the record of what changed — the user can click any green
+marker to re-read it. **Close** ends a review without judging anything; whatever
+they did not approve stays pending.
 
 Each comment gives you:
 

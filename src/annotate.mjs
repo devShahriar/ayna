@@ -139,6 +139,15 @@ export async function runAnnotate({
   projectDir,
   viewport,
   onReady,
+  /*
+    Called the moment anything happens that Claude should act on.
+
+    Waiting used to need a second process — `wait` or `applied` — that somebody had
+    to remember to start. When nobody did, a comment sat in the file and the user
+    watched a page that said "Sent". Emitting events from the process that already
+    owns the window means one thing to run and nothing to re-arm.
+  */
+  onEvent = () => {},
 }) {
   await mkdir(outDir, { recursive: true });
 
@@ -308,6 +317,14 @@ export async function runAnnotate({
     phase = 'awaiting-claude';
     await writeManifest();
     await writeStatus();
+    onEvent({
+      event: 'round',
+      round,
+      comments: comments.length,
+      open: comments.filter((c) => c.status !== 'resolved').length,
+      commentsFile,
+      action: 'read-comments',
+    });
   });
 
   // They looked at the result and want another pass.
@@ -370,6 +387,9 @@ export async function runAnnotate({
     c.rounds.push({ round, status });
     await writeManifest();
     await writeStatus();
+    if (status === 'rejected') {
+      onEvent({ event: 'rejected', id: c.id, comment: c.comment, commentsFile, action: 'retry-rejected' });
+    }
     return { ok: true, status, open: comments.filter((x) => x.status !== 'resolved').length };
   });
 
@@ -387,6 +407,7 @@ export async function runAnnotate({
     done = true;
     await writeManifest();
     await writeStatus();
+    onEvent({ event: 'closed', approved: true, commentsFile });
   });
 
   // Approving everything is now a deliberate button of its own, never a side
@@ -497,6 +518,7 @@ export async function runAnnotate({
 
   phase = done ? 'approved' : 'closed';
   await writeStatus();
+  if (!done) onEvent({ event: 'closed', approved: false, commentsFile });
 
   const manifest = {
     url,
