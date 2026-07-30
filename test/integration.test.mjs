@@ -1458,3 +1458,83 @@ describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set'
     }
   });
 });
+
+describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('a region can be framed on a canvas without the app panning underneath', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="margin:0">
+           <canvas id="c" class="excalidraw__canvas" width="1000" height="700" style="display:block"></canvas>
+           <script>
+             const c = document.getElementById('c'), x = c.getContext('2d');
+             x.fillStyle = '#1e2430'; x.fillRect(0, 0, 1000, 700);
+             x.fillStyle = '#8fd3ff'; x.fillRect(120, 120, 220, 120);
+             window.panned = 0;
+             c.addEventListener('mousedown', () => { window.panned++; });
+           </script>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4660);
+      try {
+        const manifest = await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 1000, height: 700 },
+          onReady: async (page) => {
+            await page.mouse.move(200, 180);
+            await page.waitForTimeout(200);
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-tag').textContent),
+              /drag a box/,
+              'a canvas tells you to frame a region, since traversal has nothing finer',
+            );
+
+            await page.mouse.move(100, 100);
+            await page.mouse.down();
+            await page.mouse.move(370, 260, { steps: 12 });
+            await page.waitForTimeout(150);
+            await page.mouse.up();
+
+            assert.equal(
+              await page.evaluate(() => window.panned),
+              0,
+              'the drawing app must not receive the press that frames the region',
+            );
+
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
+            await page.fill('.ayna-ov-pop textarea', 'this node is too cramped');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(600);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(300);
+            await page.close();
+          },
+        });
+
+        const c = manifest.comments[0];
+        assert.equal(c.kind, 'region');
+        assert.ok(existsSync(c.regionScreenshot), 'the framed pixels are what carries the meaning');
+        assert.ok(c.region.rect.width > 200);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});

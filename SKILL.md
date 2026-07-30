@@ -207,6 +207,17 @@ target state. Reproduce that order **in the source** by moving the corresponding
 block — do not fake it with CSS `order` or absolute positioning unless the layout
 genuinely calls for it. `siblingOrder` is the thing to match.
 
+### Canvas-rendered UIs
+
+In a diagram editor, chart or map, everything drawn is **one `<canvas>`** — the
+shapes inside are pixels, not elements. So `selector` will be something useless
+like `canvas.excalidraw__canvas`, `elements[]` holds only the canvas, and
+`sourceCandidates` will not point at the thing the user means.
+
+**The crop is the whole message there.** Read `regionScreenshot`, work out which
+component renders what it shows, and search the drawing code for it. Say which
+component you think it is before editing, so the user can correct you cheaply.
+
 **Read `regionScreenshot` for every comment before editing.** The crop is the point
 — it's the difference between "the button looks off" and seeing the exact button.
 If an attachment is present, that's the look they're asking for; match it.

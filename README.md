@@ -44,7 +44,7 @@ Chrome opens with an overlay:
 | | |
 |---|---|
 | **Click** an element | leave a comment on it |
-| **Drag a box** | comment on a whole area — the crop is exactly what you framed |
+| **Drag a box** | comment on a whole area — the crop is exactly what you framed. The only way to point inside a `<canvas>` (diagrams, charts, maps), where there are no elements to click |
 | **↑ / ↓** | walk up and down the DOM, like devtools — grab the card, not the `<span>` inside it |
 | **⇧ Shift-click** | select several elements for a single comment |
 | **Paste, drop, or pick an image** | attach a visual reference to the comment |

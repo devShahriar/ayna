@@ -484,13 +484,19 @@
     if (!tag) return;
     const canClimb = el.parentElement && el.parentElement !== document.documentElement;
     const operable = isFormField(el) || isFormAction(el);
+    // A canvas is one element however much is drawn in it — the shapes inside are
+    // pixels, not nodes, so traversal has nothing finer to offer. Framing a region
+    // is the only way to point at part of it, and the crop carries the meaning.
+    const isCanvas = el.tagName.toLowerCase() === 'canvas';
     tag.innerHTML =
       '<b></b>' +
-      (operable
-        ? '<i>⌥click to comment</i>'
-        : canClimb || state.climb
-          ? '<i>↑ ↓ resize · ⇧click adds</i>'
-          : '');
+      (isCanvas
+        ? '<i>drag a box — this is one canvas</i>'
+        : operable
+          ? '<i>⌥click to comment</i>'
+          : canClimb || state.climb
+            ? '<i>↑ ↓ resize · ⇧click adds</i>'
+            : '');
     tag.querySelector('b').textContent = describe(el);
     tag.style.display = 'block';
     // Sit above the box unless we're at the top of the page.
@@ -710,6 +716,17 @@
     'mousedown',
     (e) => {
       if (state.mode !== 'comment' || state.phase !== 'comment' || isOurs(e.target) || pop) return;
+      // Fields and submit controls still need real mouse events.
+      if (isFormField(e.target) || isFormAction(e.target)) return;
+
+      /*
+        Swallow the press. Without this the page gets it too: on a canvas app the
+        diagram pans away underneath the box you are trying to drag, and a drawing
+        tool starts a stroke. Comment mode should be inert for the page.
+      */
+      e.preventDefault();
+      e.stopPropagation();
+
       state.marquee = {
         startX: e.pageX,
         startY: e.pageY,
