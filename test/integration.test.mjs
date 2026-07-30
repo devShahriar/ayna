@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
@@ -182,10 +183,10 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.waitForTimeout(400);
             await writeFile(path.join(out, 'applied'), '1');
             await page.waitForFunction(
-              () => document.querySelector('[data-act=approve]') !== null,
+              () => document.querySelector('[data-act=close]') !== null,
               { timeout: 15000 },
             );
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -239,13 +240,13 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             assert.equal(page.isClosed(), false, 'window must stay open after send');
 
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
             phases.push(await phase());
             assert.equal(page.isClosed(), false, 'window must stay open during review');
 
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
         assert.deepEqual(phases, ['awaiting-claude', 'reviewing']);
@@ -287,10 +288,10 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.waitForTimeout(700);
             phaseAfterSend = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
         assert.equal(phaseAfterSend, 'awaiting-claude', 'must wait for a fresh marker');
@@ -509,10 +510,10 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -679,10 +680,10 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -725,10 +726,10 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
         assert.equal(manifest.comments[0].kind, 'comment');
@@ -795,10 +796,10 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -891,7 +892,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
             await page.waitForTimeout(500);
@@ -929,7 +930,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
               await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
               /resolved/,
             );
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -1012,7 +1013,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 20000,
             });
             await page.waitForTimeout(400);
@@ -1028,7 +1029,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
               /Home view of the application/,
               'the app shell actually booted rather than 404ing',
             );
-            await page.click('[data-act=approve]');
+            await page.click('[data-act=close]');
           },
         });
 
@@ -1513,7 +1514,7 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
             assert.equal((await phase()).round, 1);
 
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
             await page.waitForTimeout(400);
@@ -1590,7 +1591,7 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
             await page.waitForTimeout(400);
@@ -1600,7 +1601,7 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
             await page.waitForTimeout(1200);
 
             assert.ok(
-              await page.evaluate(() => !!document.querySelector('[data-act=approve]')),
+              await page.evaluate(() => !!document.querySelector('[data-act=close]')),
               'still in review after a reload',
             );
             assert.equal(
@@ -1642,11 +1643,11 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
             await page.click('[data-act=send]');
             await page.waitForTimeout(300);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=approve]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
             await page.waitForTimeout(300);
-            await page.click('[data-act=approve]'); // close without judging
+            await page.click('[data-act=close]'); // close without judging
           },
         });
 
@@ -1708,6 +1709,140 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
               ),
               'the box says the region travels with the comment',
             );
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('applied catches the next round with nothing re-armed by hand', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { execFile } = await import('node:child_process');
+      const { mkdir } = await import('node:fs/promises');
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      const out = path.join(dir, '.ayna', 'comments', 's1');
+      await mkdir(path.join(dir, '.ayna', 'session'), { recursive: true });
+      await mkdir(out, { recursive: true });
+      await writeFile(
+        path.join(dir, 'ayna.config.json'),
+        JSON.stringify({ target: { name: 'c', root: 'site', url: 'http://127.0.0.1:4730/' } }),
+      );
+      await writeFile(
+        path.join(dir, '.ayna', 'session', 'last-comments.json'),
+        JSON.stringify({ file: path.join(out, 'comments.json'), pid: process.pid }),
+      );
+
+      const bin = path.resolve(fileURLToPath(new URL('../bin/ayna.mjs', import.meta.url)));
+      const applied = () =>
+        new Promise((res) => {
+          execFile('node', [bin, 'applied'], { cwd: dir, timeout: 120_000 }, (e, so) =>
+            res(((so || '').trim().split('\n').pop()) || ''),
+          );
+        });
+
+      const server = await serveStatic(site, 4730);
+      let returned = '';
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: out,
+          projectDir: dir,
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            const add = async (sel, txt) => {
+              await page.click(sel);
+              await page.waitForSelector('.ayna-ov-pop textarea');
+              await page.fill('.ayna-ov-pop textarea', txt);
+              await page.click('.ayna-ov-save');
+              await page.waitForTimeout(400);
+            };
+
+            await add('.title', 'round one');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(400);
+
+            // The only waiting command an agent runs after finishing its edits.
+            const pending = applied();
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+              timeout: 20000,
+            });
+            await page.waitForTimeout(500);
+
+            // A second round, with nothing re-armed in between.
+            await page.click('[data-act=more]');
+            await page.waitForTimeout(400);
+            await add('.lede', 'round two');
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(700);
+
+            returned = await pending;
+            await page.close();
+          },
+        });
+
+        const payload = JSON.parse(returned);
+        assert.equal(payload.round, 2, 'applied returned when the second round arrived');
+        assert.equal(payload.action, 'read-comments');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('the comment box never hides under the mode bar', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const site = path.join(dir, 'site');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="margin:0;height:100vh">
+           <p class="bottom" style="position:absolute;bottom:8px;left:20px">Right at the bottom edge</p>
+         </body></html>`,
+      );
+      const server = await serveStatic(site, 4731);
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: site,
+          viewport: { width: 900, height: 600 },
+          onReady: async (page) => {
+            await page.click('.bottom');
+            await page.waitForSelector('.ayna-ov-pop');
+            const clear = await page.evaluate(() => {
+              const pop = document.querySelector('.ayna-ov-pop').getBoundingClientRect();
+              const bar = document.querySelector('.ayna-ov-bar').getBoundingClientRect();
+              return pop.bottom <= bar.top;
+            });
+            assert.ok(clear, 'the box sits above the bar, so its buttons are clickable');
+            // and it is genuinely clickable
+            await page.fill('.ayna-ov-pop textarea', 'reachable');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(400);
+            assert.equal(await page.evaluate(() => document.querySelectorAll('.ayna-ov-pin').length), 1);
             await page.close();
           },
         });

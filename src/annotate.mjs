@@ -1,4 +1,6 @@
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { watch } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -387,6 +389,22 @@ export async function runAnnotate({
     await writeStatus();
   });
 
+  // Approving everything is now a deliberate button of its own, never a side
+  // effect of closing.
+  await page.exposeFunction('__aynaApproveAll', async () => {
+    let n = 0;
+    for (const c of comments) {
+      if (c.status !== 'resolved') {
+        c.status = 'resolved';
+        c.rounds.push({ round, status: 'resolved', via: 'approve-all' });
+        n += 1;
+      }
+    }
+    await writeManifest();
+    await writeStatus();
+    return { ok: true, resolved: n };
+  });
+
   // Lets a rebuilt overlay restore what it was in the middle of.
   await page.exposeFunction('__aynaState', async () => ({
     phase,
@@ -395,9 +413,39 @@ export async function runAnnotate({
     pending: comments.filter((c) => c.status !== 'resolved').length,
   }));
 
-  const overlay = await readFile(new URL('./overlay.js', import.meta.url), 'utf8');
-  await page.addInitScript(overlay);
+  /*
+    Inject on every load rather than with addInitScript.
+
+    addInitScript captures the source once, so an open window kept running
+    whatever the overlay was when the process started — every fix meant closing
+    the review and starting over. Reading the file per load means a reload picks
+    up the current code, and the watcher below turns an edit into a reload.
+  */
+  const overlayFile = fileURLToPath(new URL('./overlay.js', import.meta.url));
+  const injectOverlay = async () => {
+    const src = await readFile(overlayFile, 'utf8').catch(() => null);
+    if (src) await page.evaluate(src).catch(() => {});
+  };
+  page.on('load', injectOverlay);
+
   await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+  await injectOverlay();
+
+  // Editing the overlay reloads the open window, so a fix lands without the user
+  // losing their place.
+  let reloading = false;
+  const overlayWatcher = watch(overlayFile, async () => {
+    if (reloading || page.isClosed()) return;
+    reloading = true;
+    setTimeout(async () => {
+      try {
+        await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+      } catch {
+        // The window may have gone; the loop below will notice.
+      }
+      reloading = false;
+    }, 250);
+  });
 
   // Lets tests and scripted flows drive the overlay without a human at the mouse.
   // Deliberately not awaited: a real user clicks while the watch loop below is
@@ -424,6 +472,10 @@ export async function runAnnotate({
       }
       try {
         await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+        // The overlay is injected per load and that is asynchronous — without
+        // waiting for it, __aynaReview fires into a page that has no overlay yet
+        // and the review markers never appear.
+        await injectOverlay();
         await page.evaluate(() => window.__aynaReview && window.__aynaReview());
         phase = 'reviewing';
       } catch {
@@ -434,6 +486,8 @@ export async function runAnnotate({
     }
     await new Promise((r) => setTimeout(r, 300));
   }
+
+  overlayWatcher.close();
 
   const fullFile = path.join(outDir, 'full-page.png');
   if (!page.isClosed()) {

@@ -326,12 +326,14 @@
       return;
     }
 
-    // review
+    // review — three separate actions, none of which is a side effect of another
     bar.innerHTML =
-      '<span>Changes are live — click a marker to judge it</span>' +
+      '<span>Changes are live — judge each one</span>' +
       '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
       '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
-      '<button data-act="approve" title="Anything you have not judged stays pending for next time">Close review</button>';
+      '<button data-act="approve-all" class="' + NS + '-ghost" ' +
+      'title="Marks every pending change approved">Approve all</button>' +
+      '<button data-act="close" title="Ends the review — anything unjudged stays pending">Close</button>';
 
     // Re-anchor every comment on the changed page so each one can be judged
     // where it actually happened, not from memory.
@@ -343,7 +345,12 @@
       setPhase('comment');
       window.__aynaMore();
     });
-    bar.querySelector('[data-act=approve]').addEventListener('click', () => {
+    bar.querySelector('[data-act=approve-all]').addEventListener('click', async () => {
+      await window.__aynaApproveAll();
+      await renderReview();
+      updateReviewBar();
+    });
+    bar.querySelector('[data-act=close]').addEventListener('click', () => {
       cleanup();
       window.__aynaApprove();
     });
@@ -982,9 +989,15 @@
     const x = r.x - window.scrollX;
     const y = r.y - window.scrollY;
 
+    /*
+      The mode bar owns the bottom of the window and sits above everything, so a
+      panel pinned down there has its buttons swallowed — you could see "Add
+      comment" and never click it. Keep clear of that strip.
+    */
+    const BAR = 76;
     let top = y + r.height + 10;
-    if (top + h > vh - 8) top = y - h - 10; // no room below — flip above
-    if (top < 8) top = Math.max(8, vh - h - 8); // nor above — pin inside
+    if (top + h > vh - BAR) top = y - h - 10; // no room below — flip above
+    if (top < 8) top = Math.max(8, vh - BAR - h); // nor above — pin above the bar
 
     el.style.position = 'fixed';
     el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
