@@ -1341,7 +1341,7 @@
         pin.dataset.status = c.status;
         box.dataset.status = c.status;
         pin.textContent =
-          c.status === 'resolved' ? '✓ ' + c.n : c.status === 'rejected' ? '↺ ' + c.n : String(c.n);
+          c.status === 'approved' ? '✓ ' + c.n : c.status === 'rejected' ? '↺ ' + c.n : String(c.n);
         // Once judged, collapse to the badge — it stays as the record.
         ok.style.display = c.status === 'open' ? '' : 'none';
         no.style.display = c.status === 'open' ? '' : 'none';
@@ -1360,7 +1360,7 @@
       ok.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        set('resolved');
+        set('approved');
       });
       no.addEventListener('click', (ev) => {
         ev.preventDefault();
@@ -1382,7 +1382,7 @@
     card.setAttribute('data-ayna', '1');
     card.dataset.status = c.status;
 
-    const done = c.status === 'resolved';
+    const done = c.status === 'approved';
     card.innerHTML =
       '<div class="' + NS + '-body">' +
       '<div class="' + NS + '-badge"></div>' +
@@ -1397,7 +1397,7 @@
       '</div>';
 
     card.querySelector('.' + NS + '-badge').textContent =
-      c.status === 'resolved' ? 'resolved' : c.status === 'rejected' ? 'needs work' : 'comment ' + c.n;
+      c.status === 'approved' ? 'approved' : c.status === 'rejected' ? 'needs work' : 'comment ' + c.n;
     card.querySelector('.' + NS + '-text').textContent = c.comment;
     card.querySelector('.' + NS + '-when').textContent =
       c.kind === 'move' ? 'a reorder you made' : c.kind === 'region' ? 'a region you framed' : c.selector || '';
@@ -1414,7 +1414,7 @@
       updateReviewBar();
     };
 
-    card.querySelector('[data-act=resolve]')?.addEventListener('click', () => set('resolved'));
+    card.querySelector('[data-act=resolve]')?.addEventListener('click', () => set('approved'));
     card.querySelector('[data-act=reject]')?.addEventListener('click', () => set('rejected'));
     card.querySelector('[data-act=reopen]')?.addEventListener('click', () => set('open'));
   }
@@ -1422,7 +1422,7 @@
   async function updateReviewBar() {
     if (!bar || state.phase !== 'review' || !window.__aynaList) return;
     const comments = await window.__aynaList().catch(() => []);
-    const resolved = comments.filter((c) => c.status === 'resolved').length;
+    const resolved = comments.filter((c) => c.status === 'approved').length;
     const label = bar.querySelector('.' + NS + '-progress');
     if (label) label.textContent = resolved + ' of ' + comments.length + ' resolved';
   }

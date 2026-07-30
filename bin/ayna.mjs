@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { readdir, mkdir, access, readFile, writeFile } from 'node:fs/promises';
+import { readdir, mkdir, access, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -48,6 +48,7 @@ ${bold('LOOK')}
   flow        Drive a described UI flow and measure every step
   audit       Find layout faults the page can prove: covered, cut off, overlapping
   qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
+  clean       Drop old runs (--keep N, default 3); tasks and login are kept
   serve       Serve the target UI and stay up (ctrl-c to stop)
 
 ${bold('SAFETY')}
@@ -107,6 +108,7 @@ const { values, positionals } = parseArgs({
     flow: { type: 'string' },
     dir: { type: 'string' },
     baseline: { type: 'string' },
+    keep: { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -370,6 +372,48 @@ async function main() {
       return;
     }
 
+    case 'clean': {
+      /*
+        .ayna grows with every shot, flow and audit. On a project used for a day it
+        was already tens of megabytes, none of it needed once the run is read.
+        Tasks and the login profile are never touched — those are the parts you
+        would miss.
+      */
+      const keep = Number(values.keep ?? 3);
+      const kinds = ['runs', 'flows', 'audits', 'qa', 'comments'];
+      let freed = 0;
+      let removed = 0;
+
+      const sizeOf = async (dir) => {
+        let total = 0;
+        for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) total += await sizeOf(full);
+          else total += (await stat(full).catch(() => ({ size: 0 }))).size;
+        }
+        return total;
+      };
+
+      for (const kind of kinds) {
+        const base = path.join(PROJECT, '.ayna', kind);
+        const entries = (await readdir(base, { withFileTypes: true }).catch(() => []))
+          .filter((e) => e.isDirectory())
+          .map((e) => e.name)
+          .sort();
+        // Newest last, so drop everything before the tail we are keeping.
+        for (const name of entries.slice(0, Math.max(0, entries.length - keep))) {
+          const dir = path.join(base, name);
+          freed += await sizeOf(dir);
+          await rm(dir, { recursive: true, force: true });
+          removed += 1;
+        }
+      }
+
+      ok(`removed ${removed} old run(s), freed ${(freed / 1024 / 1024).toFixed(1)} MB`);
+      info(`kept the newest ${keep} of each · tasks and the login profile untouched`);
+      return;
+    }
+
     case 'audit': {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const outDir = path.join(PROJECT, '.ayna', 'audits', stamp);
@@ -478,13 +522,18 @@ async function main() {
 
       // Written before we block, so `ayna applied` and `ayna status` can find this
       // session while the window is still open.
+      /*
+        One pointer per process, not per project.
+
+        A single last-comments.json meant a second review in the same repo
+        overwrote the first, and commands then talked to whichever window wrote
+        last — silently routing comments to the wrong one. Each session writes its
+        own file; readers pick the newest live one.
+      */
       await mkdir(SESSION_DIR, { recursive: true });
-      await writeFile(
-        path.join(SESSION_DIR, 'last-comments.json'),
-        // The pid lets later commands tell a live window from a dead one. Resuming
-        // a conversation does not resurrect the browser the old session owned.
-        JSON.stringify({ file: path.join(outDir, 'comments.json'), pid: process.pid }),
-      );
+      const pointer = { file: path.join(outDir, 'comments.json'), pid: process.pid, startedAt: Date.now() };
+      await writeFile(path.join(SESSION_DIR, `session-${process.pid}.json`), JSON.stringify(pointer));
+      await writeFile(path.join(SESSION_DIR, 'last-comments.json'), JSON.stringify(pointer));
 
       const manifest = await runAnnotate({
         browser,
@@ -586,6 +635,49 @@ async function main() {
     }
 
     case 'comments': {
+      /*
+        Read from the store, so comments outlive the window that captured them.
+        Reading a session manifest meant that once the process was gone the work
+        was unreachable — which is exactly how three rounds went missing.
+      */
+      if (!values.file) {
+        const store = await openStore(PROJECT);
+        await importLegacy(PROJECT, store);
+        const tasks = await store.list();
+        const payload = {
+          total: tasks.length,
+          pending: tasks.filter(isPending).length,
+          comments: tasks.map((t, i) => ({
+            n: i + 1,
+            id: t.id,
+            status: t.status,
+            kind: t.kind,
+            comment: t.comment,
+            url: t.url,
+            selector: t.selector,
+            elements: t.elements ?? [],
+            region: t.region ?? null,
+            move: t.move ?? null,
+            styles: t.styles ?? {},
+            regionScreenshot: t.regionScreenshot,
+            attachments: t.attachments,
+            sourceCandidates: t.sourceCandidates ?? [],
+          })),
+          hint: 'Act on anything not approved. Read regionScreenshot and attachments first.',
+        };
+        if (values.json) {
+          console.log(JSON.stringify(payload, null, 2));
+        } else if (!tasks.length) {
+          warn('no comments yet — run `ayna annotate`');
+        } else {
+          for (const c of payload.comments) {
+            console.log(`${bold('#' + c.n)} [${c.status}] ${c.selector ?? ''}`);
+            console.log(`   "${c.comment}"`);
+          }
+        }
+        return;
+      }
+
       const session = await readSession();
       // --root means "UI directory" everywhere else; don't overload it here.
       let file = values.file;
@@ -768,21 +860,36 @@ async function main() {
  * frozen file forever.
  */
 async function readSession() {
-  const pointer = path.join(SESSION_DIR, 'last-comments.json');
-  if (!existsSync(pointer)) return null;
-  const info = JSON.parse(await readFile(pointer, 'utf8').catch(() => '{}'));
-  if (!info.file) return null;
-
-  let live = false;
-  if (info.pid) {
+  const alive = (pid) => {
+    if (!pid) return false;
     try {
-      process.kill(info.pid, 0); // signal 0 = liveness probe, sends nothing
-      live = true;
+      process.kill(pid, 0); // signal 0 is a liveness probe; it sends nothing
+      return true;
     } catch {
-      live = false;
+      return false;
     }
+  };
+
+  const candidates = [];
+  for (const name of await readdir(SESSION_DIR).catch(() => [])) {
+    if (!/^session-\d+\.json$/.test(name)) continue;
+    const info = JSON.parse(await readFile(path.join(SESSION_DIR, name), 'utf8').catch(() => '{}'));
+    if (info.file) candidates.push(info);
   }
-  return { ...info, dir: path.dirname(info.file), live };
+
+  // Prefer a live session, newest first; fall back to the last one for context.
+  const live = candidates.filter((c) => alive(c.pid)).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+  if (live.length) return { ...live[0], dir: path.dirname(live[0].file), live: true, others: live.length - 1 };
+
+  // Nothing live in the new format — fall back to the single-pointer file a
+  // session written before this change would have left, and still ask whether
+  // its process is running rather than assuming it is not.
+  const legacy = path.join(SESSION_DIR, 'last-comments.json');
+  const fallback =
+    candidates.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0] ??
+    (existsSync(legacy) ? JSON.parse(await readFile(legacy, 'utf8').catch(() => '{}')) : null);
+  if (!fallback?.file) return null;
+  return { ...fallback, dir: path.dirname(fallback.file), live: alive(fallback.pid) };
 }
 
 /**

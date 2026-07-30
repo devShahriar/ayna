@@ -148,6 +148,13 @@ export async function runAnnotate({
     owns the window means one thing to run and nothing to re-arm.
   */
   onEvent = () => {},
+  /*
+    The task store. Comments are written to it as they are made and their verdicts
+    written back, so the window stops being where the work lives. Anything still
+    owed from an earlier session is loaded on open, which is the whole point:
+    closing the window no longer loses it.
+  */
+  store = null,
 }) {
   await mkdir(outDir, { recursive: true });
 
@@ -164,6 +171,34 @@ export async function runAnnotate({
   const comments = [];
   let nextId = 1;
   let done = false;
+
+  // Pending work from before this window existed.
+  let resumed = 0;
+  if (store) {
+    for (const t of await store.list({ pending: true })) {
+      comments.push({
+        id: nextId++,
+        taskId: t.id,
+        n: comments.length + 1,
+        status: t.status,
+        kind: t.kind ?? 'comment',
+        comment: t.comment,
+        selector: t.selector,
+        elements: t.elements ?? [],
+        region: t.region ?? null,
+        move: t.move ?? null,
+        rect: t.rect ?? null,
+        styles: t.styles ?? {},
+        url: t.url,
+        regionScreenshot: t.regionScreenshot,
+        attachments: t.attachments ?? [],
+        sourceCandidates: t.sourceCandidates ?? [],
+        rounds: [],
+        resumed: true,
+      });
+      resumed += 1;
+    }
+  }
 
   await page.exposeFunction('__aynaSubmit', async (payload) => {
     const n = comments.length + 1;
@@ -249,6 +284,25 @@ export async function runAnnotate({
       attachments,
       sourceCandidates: source,
     };
+    if (store) {
+      const task = await store.create(
+        {
+          url: record.url,
+          kind: record.kind,
+          comment: record.comment,
+          selector: record.selector,
+          elements: record.elements,
+          region: record.region,
+          move: record.move,
+          rect: record.rect,
+          styles: record.styles,
+          sourceCandidates: record.sourceCandidates,
+        },
+        { regionScreenshot: record.regionScreenshot, attachments: record.attachments },
+      );
+      record.taskId = task.id;
+    }
+
     comments.push(record);
     await writeFile(path.join(dir, 'comment.json'), JSON.stringify(record, null, 2));
     return { ok: true, n, id: record.id };
@@ -285,8 +339,8 @@ export async function runAnnotate({
           phase,
           round,
           comments: comments.length,
-          open: comments.filter((c) => c.status !== 'resolved').length,
-          resolved: comments.filter((c) => c.status === 'resolved').length,
+          open: comments.filter((c) => c.status !== 'approved').length,
+          resolved: comments.filter((c) => c.status === 'approved').length,
           rejected: comments.filter((c) => c.status === 'rejected').length,
           approved: done,
           url,
@@ -321,7 +375,7 @@ export async function runAnnotate({
       event: 'round',
       round,
       comments: comments.length,
-      open: comments.filter((c) => c.status !== 'resolved').length,
+      open: comments.filter((c) => c.status !== 'approved').length,
       commentsFile,
       action: 'read-comments',
     });
@@ -380,17 +434,18 @@ export async function runAnnotate({
   // it back in front of Claude for another attempt.
   await page.exposeFunction('__aynaResolve', async (id, status) => {
     const c = comments.find((x) => x.id === id);
-    if (!c || !['resolved', 'rejected', 'open'].includes(status)) {
+    if (!c || !['approved', 'rejected', 'open'].includes(status)) {
       return { ok: false };
     }
     c.status = status;
     c.rounds.push({ round, status });
+    if (store && c.taskId) await store.update(c.taskId, { status });
     await writeManifest();
     await writeStatus();
     if (status === 'rejected') {
       onEvent({ event: 'rejected', id: c.id, comment: c.comment, commentsFile, action: 'retry-rejected' });
     }
-    return { ok: true, status, open: comments.filter((x) => x.status !== 'resolved').length };
+    return { ok: true, status, open: comments.filter((x) => x.status !== 'approved').length };
   });
 
   // They're happy — this is the only thing that closes the window.
@@ -415,9 +470,10 @@ export async function runAnnotate({
   await page.exposeFunction('__aynaApproveAll', async () => {
     let n = 0;
     for (const c of comments) {
-      if (c.status !== 'resolved') {
-        c.status = 'resolved';
-        c.rounds.push({ round, status: 'resolved', via: 'approve-all' });
+      if (c.status !== 'approved') {
+        c.status = 'approved';
+        if (store && c.taskId) await store.update(c.taskId, { status: 'approved' });
+        c.rounds.push({ round, status: 'approved', via: 'approve-all' });
         n += 1;
       }
     }
@@ -431,7 +487,8 @@ export async function runAnnotate({
     phase,
     round,
     count: comments.length,
-    pending: comments.filter((c) => c.status !== 'resolved').length,
+    pending: comments.filter((c) => c.status !== 'approved').length,
+    resumed,
   }));
 
   /*

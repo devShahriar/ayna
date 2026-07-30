@@ -196,3 +196,61 @@ describe('cli: session state', () => {
     }
   });
 });
+
+describe('cli: concurrency and housekeeping', () => {
+  test('two live sessions do not route to each other', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const session = path.join(dir, '.ayna', 'session');
+      await mkdir(session, { recursive: true });
+
+      const mk = async (pid, name, phase) => {
+        const out = path.join(dir, '.ayna', 'comments', name);
+        await mkdir(out, { recursive: true });
+        await writeFile(path.join(out, 'comments.json'), JSON.stringify({ comments: [] }));
+        await writeFile(path.join(out, 'status.json'), JSON.stringify({ phase }));
+        await writeFile(
+          path.join(session, `session-${pid}.json`),
+          JSON.stringify({ file: path.join(out, 'comments.json'), pid, startedAt: Date.now() }),
+        );
+      };
+
+      // A dead session, then a live one started later.
+      await mk(999999, 'dead', 'reviewing');
+      await mk(process.pid, 'live', 'commenting');
+
+      const res = await ayna(dir, ['status']);
+      assert.equal(res.code, 0);
+      assert.equal(
+        JSON.parse(res.stdout.trim()).phase,
+        'commenting',
+        'the live session wins, not whichever wrote last',
+      );
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('clean drops old runs but never tasks or the login profile', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const make = async (rel, bytes = 'x'.repeat(500)) => {
+        await mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+        await writeFile(path.join(dir, rel), bytes);
+      };
+      for (const n of ['a', 'b', 'c', 'd', 'e']) await make(`.ayna/runs/${n}/shot.png`);
+      await make('.ayna/tasks/task-0001/task.json', '{"id":"task-0001"}');
+      await make('.ayna/profile/Default/Cookies', 'session');
+
+      const res = await ayna(dir, ['clean', '--keep', '2']);
+      assert.equal(res.code, 0, res.stderr);
+
+      const left = await (await import('node:fs/promises')).readdir(path.join(dir, '.ayna', 'runs'));
+      assert.deepEqual(left.sort(), ['d', 'e'], 'the newest two runs are kept');
+      assert.ok(existsSync(path.join(dir, '.ayna', 'tasks', 'task-0001', 'task.json')), 'tasks survive');
+      assert.ok(existsSync(path.join(dir, '.ayna', 'profile', 'Default', 'Cookies')), 'the login survives');
+    } finally {
+      await dispose();
+    }
+  });
+});

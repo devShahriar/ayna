@@ -916,7 +916,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
 
             assert.deepEqual(
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
-              ['resolved', 'rejected'],
+              ['approved', 'rejected'],
             );
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent),
@@ -936,7 +936,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
 
         assert.deepEqual(
           manifest.comments.map((c) => c.status),
-          ['resolved', 'rejected'],
+          ['approved', 'rejected'],
           'verdicts persist into the manifest',
         );
         const status = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8'));
@@ -1548,7 +1548,7 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
 
         assert.deepEqual(
           manifest.comments.map((c) => `${c.status}:${c.comment}`),
-          ['resolved:round one', 'open:round two'],
+          ['approved:round one', 'open:round two'],
         );
       } finally {
         await server.close();
