@@ -1,6 +1,6 @@
 ---
 name: ayna
-description: Look at a UI and improve it from what is actually on screen. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — as well as via /ayna, /ayna-look, /ayna-review, or /ayna-fix — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
+description: Look at a UI and improve it from what is actually on screen. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — as well as via /ayna, /ayna:look, /ayna:review, or /ayna:fix — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
 ---
 
 # ayna — look at what you built
@@ -32,7 +32,11 @@ set `target.routes` in the config) and every one gets captured. If the user asks
 about "the app" rather than one screen, shoot the routes that matter — each shot
 carries the `route` it came from.
 
-If the app isn't running, start its dev server first (background it), then shoot.
+**You usually do not need to start anything.** If `ayna.config.json` has
+`target.url: null`, ayna serves `target.root` itself — just run the command. Start
+a dev server only when the config points at one (`target.url`) and it is not up, or
+when the user names a URL that is not responding. Never start a second server of
+your own alongside ayna's.
 
 **Open the page the work is actually about — not the site root.**
 
@@ -357,7 +361,7 @@ first.
 ## Self-improvement, end to end
 
 When the user asks you to evaluate or improve a UI yourself — "self improve",
-"find and fix the UI issues", `/ayna-fix` — run this whole loop without being
+"find and fix the UI issues", `/ayna:fix` — run this whole loop without being
 prompted through it:
 
 1. **Audit.** In their open window if there is one, so you measure the state they

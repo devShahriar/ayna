@@ -16,4 +16,4 @@ Screenshot and critique, **without editing anything**: **$ARGUMENTS**
    *"improve typography"*.
 
 Do **not** edit any files. This is a read-only look. If I want the fixes applied,
-I'll run `/ayna`.
+I'll run `/ayna:loop`.

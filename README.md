@@ -27,10 +27,10 @@ You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
 
 | command | what it does |
 |---|---|
-| `/ayna-look` | screenshot + critique, **changes nothing** |
-| `/ayna` | shoot → critique → fix → verify, on repeat |
-| `/ayna-review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
-| `/ayna-fix` | Claude audits it, proposes fixes grouped by cause, and re-measures each one you approve |
+| `/ayna:look` | screenshot + critique, **changes nothing** |
+| `/ayna:loop` | shoot → critique → fix → verify, on repeat |
+| `/ayna:review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
+| `/ayna:fix` | Claude audits it, proposes fixes grouped by cause, and re-measures each one you approve |
 
 Asking in words works too — *"screenshot the page"*, *"how does this look?"*,
 *"self improve my UI"*.
@@ -173,7 +173,7 @@ Snapshots are taken before every edit, so any round can be rolled back.
 | brain | the Claude session you're in | spawned `claude -p` subprocesses |
 | cost | near-free — context is already warm | ~$1.50–3.30 per iteration |
 | use for | interactive work | CI, unattended runs |
-| entry | the `ayna` skill / `/ayna` | `node bin/ayna.mjs loop -n 3` |
+| entry | the `ayna` skill / `/ayna:loop` | `node bin/ayna.mjs loop -n 3` |
 
 The in-session path is why the plugin form matters: Claude reads the PNG with its
 own Read tool and edits with its own Edit tool, so there are no extra model calls
@@ -246,7 +246,7 @@ default landing-page goal.
 
 ```
 SKILL.md            the in-session loop — the plugin's actual behavior
-commands/           /ayna, /ayna-look, /ayna-review
+commands/           /ayna, /ayna:look, /ayna:review
 bin/ayna.mjs        CLI
 src/annotate.mjs    click-to-comment capture, crops, source mapping
 src/overlay.js      the in-page annotation UI (runs in the browser)

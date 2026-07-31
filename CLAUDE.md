@@ -25,7 +25,7 @@ unattended/CI runs only.
 
 ```
 SKILL.md            the in-session loop — the plugin's real behavior
-commands/           /ayna, /ayna-look, /ayna-review
+commands/           /ayna, /ayna:look, /ayna:review
 bin/ayna.mjs        CLI
 src/browser.mjs     Chrome control, screenshots, page diagnostics
 src/loop.mjs        standalone orchestration (spawns its own Claude sessions)

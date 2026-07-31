@@ -41,7 +41,7 @@ without tests.
 
 ```
 SKILL.md            the in-session loop — what Claude actually follows
-commands/           slash commands (/ayna, /ayna-look, /ayna-review)
+commands/           slash commands (/ayna, /ayna:look, /ayna:review)
 bin/ayna.mjs        CLI
 src/annotate.mjs    click-to-comment capture, crops, source mapping
 src/overlay.js      the in-page UI — runs in the browser, not in Node
