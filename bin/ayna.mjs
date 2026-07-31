@@ -617,10 +617,15 @@ async function main() {
       // A persistent profile keeps you logged in between reviews; --fresh-profile
       // starts clean (useful for checking a signed-out view).
       const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
-      const context = profileDir
+      let context = profileDir
         ? await openPersistentContext({ profileDir, headless: false, viewport: cfg.viewports[0] })
         : null;
       const browser = context ? null : await openBrowser({ headless: false });
+      if (!context) {
+        // viewport null so the page follows the window the user resizes, rather
+        // than staying the size it launched at with dead space around it.
+        context = await browser.newContext({ viewport: null });
+      }
 
       // With --json, stdout must be nothing but JSON — the status lines go to stderr
       // so a caller can still see progress while piping the result.

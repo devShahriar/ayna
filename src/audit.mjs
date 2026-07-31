@@ -228,7 +228,11 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     const ctx =
       context ??
       (await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 }));
-    if (context) await context.pages()[0]?.setViewportSize({ width: vp.width, height: vp.height });
+    // A window that follows the OS window has no viewport to set — and resizing
+    // the user's review out from under them would be rude anyway.
+    if (context) {
+      await context.pages()[0]?.setViewportSize({ width: vp.width, height: vp.height }).catch(() => {});
+    }
 
     const page = ctx.pages()[0] ?? (await ctx.newPage());
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});

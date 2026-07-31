@@ -116,11 +116,26 @@ export async function openPersistentContext({ profileDir, headless = false, view
   const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
   if (process.env.CI) args.push('--no-sandbox', '--disable-dev-shm-usage');
 
+  const size = viewport ?? { width: 1440, height: 900 };
+  if (!headless) args.push(`--window-size=${size.width},${size.height}`);
+
   return chromium.launchPersistentContext(profileDir, {
     channel: 'chrome',
     headless,
-    viewport: viewport ?? { width: 1440, height: 900 },
-    deviceScaleFactor: 1,
+    /*
+      A headed window must follow the window.
+
+      A fixed viewport is pinned at launch, so going full screen left the page
+      rendering at its original size with dead space around it — the app never
+      learns it got bigger. null lets the page track the real window, which is
+      what a person resizing it expects. Headless keeps a fixed viewport, because
+      a screenshot has to be the same size every time to be comparable.
+    */
+    viewport: headless ? size : null,
+    // Playwright refuses deviceScaleFactor alongside a null viewport, and a null
+    // viewport is the whole point of a window the user can resize — so it only
+    // applies to the fixed-size headless case.
+    ...(headless ? { deviceScaleFactor: 1 } : {}),
     args,
   });
 }

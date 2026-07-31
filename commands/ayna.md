@@ -11,7 +11,7 @@ genuinely cannot tell what to point at.
 
 Follow the `ayna` skill. The essentials:
 
-1. `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs shot --json` — start the dev server first if it isn't up.
+1. `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" shot --json` — start the dev server first if it isn't up.
 2. **Read every screenshot path it prints.** Critique what you see, not what the source implies.
 3. `... snapshot --root <ui-dir>`, then fix the issues worst-first. Visual pass only — keep the copy.
 4. Re-shoot, Read again, and check your own work skeptically. `... restore --root <ui-dir>` if it got worse.

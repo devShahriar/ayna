@@ -88,6 +88,13 @@ Each of these is a bug that already happened once:
 - **The annotate window belongs to the user.** Only their approval closes it. Don't
   close the browser or kill the process to "finish" a review.
 - **Artifacts go in the user's project**, not the plugin directory.
+- **The review window follows the OS window; captures do not.** `annotate` is headed
+  with `viewport: null` so resizing it re-renders the page. `shot`, `audit` and
+  `flow` keep a fixed viewport, because a screenshot has to be the same size every
+  time to be worth comparing.
+- **Every command in SKILL.md must be runnable as written.** `${CLAUDE_PLUGIN_ROOT}`
+  is not expanded in a skill body, so a bare reference to it sends the reader
+  hunting for where ayna lives instead of doing the work.
 - **Don't add config that isn't enforced.** `editGlobs` used to sit in the default
   config looking like a sandbox while nothing read it. A setting that implies a
   guarantee it doesn't provide is worse than no setting.

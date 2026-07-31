@@ -7,7 +7,7 @@ Screenshot and critique, **without editing anything**: **$ARGUMENTS**
 
 1. Work out what to shoot: the URL I gave, else `ayna.config.json`, else a dev
    server already running. Start the dev server if it isn't up.
-2. `node ${CLAUDE_PLUGIN_ROOT}/bin/ayna.mjs shot --json`
+2. `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" shot --json`
 3. **Read every screenshot path it printed.** Critique what you see, not what the
    source implies.
 4. Give me a 0–10 score and the issues worst-first — typography, spacing, color,
