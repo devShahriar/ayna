@@ -30,8 +30,10 @@ You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
 | `/ayna-look` | screenshot + critique, **changes nothing** |
 | `/ayna` | shoot → critique → fix → verify, on repeat |
 | `/ayna-review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
+| `/ayna-fix` | Claude audits it, proposes fixes grouped by cause, and re-measures each one you approve |
 
-Asking in words works too — *"screenshot the page"*, *"how does this look?"*
+Asking in words works too — *"screenshot the page"*, *"how does this look?"*,
+*"self improve my UI"*.
 
 ## Point at what you mean
 

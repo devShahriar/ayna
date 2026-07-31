@@ -1,6 +1,6 @@
 ---
 name: ayna
-description: Look at a UI and improve it from what is actually on screen. Invoked by the user via /ayna, /ayna-look, or /ayna-review — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
+description: Look at a UI and improve it from what is actually on screen. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — as well as via /ayna, /ayna-look, /ayna-review, or /ayna-fix — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
 ---
 
 # ayna — look at what you built
@@ -353,6 +353,31 @@ page at rest.
 So: **ask them to get the app into the state they care about, then audit.** When no
 window is open, it opens its own and `--flow steps.json` can walk it into a state
 first.
+
+## Self-improvement, end to end
+
+When the user asks you to evaluate or improve a UI yourself — "self improve",
+"find and fix the UI issues", `/ayna-fix` — run this whole loop without being
+prompted through it:
+
+1. **Audit.** In their open window if there is one, so you measure the state they
+   are actually in. Ask which state matters if it is not obvious; a page at rest
+   hides the worst faults.
+2. **Group by root cause.** Seventeen covered controls in one toolbar is one
+   stacking rule. Propose causes, not symptoms — a list of thirty findings makes
+   the user do the triage you were supposed to do.
+3. **Propose, never edit.** `ayna propose` with the fix written out. Worst first.
+4. **Wait for their answer** — go ahead, leave it, or their own instruction.
+5. **On a go-ahead:** claim it `in_progress`, `snapshot` first, make the change,
+   then **audit again and show the count went to zero.** Never report a fix you
+   have not re-measured.
+6. **Repeat** until clean, then say what is left that needs their judgement rather
+   than a measurement.
+
+**Do not propose taste as though it were a fault.** "This control cannot be
+clicked" is measured; "this looks cramped" is an opinion. Keep them apart and say
+which is which — the whole value of the audit is that its findings are not
+arguable.
 
 ## Fixing things you found yourself
 
