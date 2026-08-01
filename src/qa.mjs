@@ -95,15 +95,24 @@ export async function runSuite({ browser, context, baseUrl, flows, outDir, viewp
     const flowDir = path.join(outDir, flow.name.replace(/[^\w-]+/g, '-').toLowerCase());
     const record = await runFlow({ browser, context, baseUrl, flow, outDir: flowDir, viewport: viewports[0] });
 
-    // Audit where the flow left the app, not where it started.
+    /*
+      Audit where the flow left the app, which means walking it there again.
+
+      Pointing the audit at the URL the flow ended on looked equivalent and was
+      not: a fresh load throws away everything the steps did, so a panel the flow
+      opened is closed again and every fault inside it invisible. The reason to
+      audit after a flow is to see the state only the flow can reach, so the steps
+      are replayed first. That costs a second run of the journey; measuring the
+      wrong page costs more.
+    */
     let audit = null;
     const wants = (flow.assert?.noLayoutFaults ?? DEFAULT_ASSERT.noLayoutFaults) ?? [];
     if (wants.length) {
-      const landed = record.steps.at(-1)?.metrics?.url ?? record.start;
       audit = await auditPage({
         browser,
         context,
-        url: landed,
+        url: record.start,
+        steps: flow.steps ?? [],
         viewports: [viewports[0]],
         outDir: path.join(flowDir, 'audit'),
       }).catch(() => null);

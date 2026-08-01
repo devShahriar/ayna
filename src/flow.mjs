@@ -211,7 +211,13 @@ export async function runFlow({ browser, context: providedContext, baseUrl, flow
 
     results.push({
       n,
-      step,
+      /*
+        Redact what was typed before it is written down. The note already said only
+        how many characters there were, but the step itself was stored verbatim —
+        so a flow carrying a password wrote it into flow.json, where it would be
+        read by anyone reviewing the run and committed by anyone versioning it.
+      */
+      step: step.do === 'type' ? { ...step, text: `«${String(step.text ?? '').length} characters»` } : step,
       note,
       ok: !error,
       error,

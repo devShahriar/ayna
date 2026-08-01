@@ -246,6 +246,41 @@ default landing-page goal.
   follows plus a snapshot you can roll back — **not a sandbox**. Point it somewhere
   you're happy to have rewritten.
 
+## Known limitations
+
+Written down because finding these yourself, mid-task, is worse than reading them
+here.
+
+**Nothing inside a `<canvas>` can be measured.** Diagram editors, charts, maps and
+3D are pixels with no DOM behind them, so `audit` sees one element where you see a
+hundred. Frame a region and comment on it instead — the crop is the message.
+
+**Source mapping is a grep, not a compiler.** It matches ids, class names and text
+back through your files, which works well for plain HTML, JSX, Vue and Svelte. On
+CSS-in-JS with generated class names it will often find nothing. The selector,
+crop and computed styles still arrive, so Claude can work — it just has to find
+the file itself.
+
+**Cross-origin iframes are opaque.** Embedded widgets, payment fields, anything
+from another origin. Browser security, not something ayna can route around.
+
+**`ayna loop` has no tests.** It is the standalone path that spawns its own Claude
+sessions and costs real money. Everything else here is covered; that is not. Use
+the in-session flow unless you specifically want unattended runs.
+
+**Windows is untested.** The fallbacks exist — a JS file scanner where `grep` is
+absent, a platform-aware "open" — but they have never been run there.
+
+**Rejecting a change does not undo it.** It marks the task for another attempt and
+leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
+Per-task revert is not built.
+
+**It only knows what it can measure.** "This control cannot be clicked" is a fact.
+"This looks wrong" is not, and ayna will not tell you. Taste is still yours.
+
+**Two days old.** Written and used hard, on a handful of real apps. Expect rough
+edges in proportion to that.
+
 ## Layout
 
 ```
