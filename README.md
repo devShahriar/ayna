@@ -16,12 +16,16 @@ comment re-anchored on the change → approve it. The window never closes on you
 ## Install
 
 ```bash
-cd ayna && npm install
-claude --plugin-dir /path/to/ayna          # try it in one session
+git clone https://github.com/devshahriar/ayna && cd ayna
+npm install
+npm run setup      # links it where Claude Code looks
 ```
 
+Then start a new Claude session anywhere and run `/ayna:fix`.
+
 Requires Node 20+, Google Chrome, and Claude Code. `playwright-core` drives your
-installed Chrome — no browser download, no API key.
+installed Chrome — no browser download, no API key. `npm run uninstall` removes
+the links again; it only ever touches links it made itself.
 
 You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
 

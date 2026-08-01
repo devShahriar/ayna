@@ -31,7 +31,9 @@
     "shot": "node bin/ayna.mjs shot",
     "annotate": "node bin/ayna.mjs annotate",
     "serve": "node bin/ayna.mjs serve",
-    "demo:gif": "node scripts/make-demo-gif.mjs"
+    "demo:gif": "node scripts/make-demo-gif.mjs",
+    "setup": "node scripts/setup.mjs",
+    "uninstall": "node scripts/setup.mjs --uninstall"
   },
   "engines": {
     "node": ">=20"
