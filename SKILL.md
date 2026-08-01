@@ -383,6 +383,24 @@ clicked" is measured; "this looks cramped" is an opinion. Keep them apart and sa
 which is which — the whole value of the audit is that its findings are not
 arguable.
 
+## When the app wants a login
+
+An audit that lands on a sign-in screen reports `blocked: "authentication"` and
+measures nothing. Do not try to get past it yourself:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" login --url <page>
+```
+
+That opens the app and waits for the user to sign in. Tell them it is open and
+what it needs. It exits when the sign-in screen is gone, the session is saved in
+the profile, and everything afterwards starts from there — so it is asked once,
+not at the start of every review.
+
+**Never type credentials, and never ask for them.** Not into the app, not into a
+flow file, not "just for this run". The window is how a person signs in; that is
+the whole arrangement.
+
 ## Fixing things you found yourself
 
 When you find a fault the user did not ask about — from `audit`, or just from

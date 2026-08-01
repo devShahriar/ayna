@@ -61,6 +61,13 @@ Chrome opens with an overlay:
 
 ### Apps behind a login
 
+```bash
+node bin/ayna.mjs login          # opens the app; you sign in; the session is saved
+```
+
+An audit that hits a sign-in screen stops and says so rather than reporting on the
+login page. Claude never types your credentials — it opens the window and waits.
+
 Sign in yourself, in that window. Form fields and submit buttons work in comment
 mode, so you can just fill it in and click through. A page with a password field
 also drops into browse mode so nothing gets in the way. The Chrome profile persists

@@ -402,3 +402,63 @@ describe('qa', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
     }
   });
 });
+
+describe('hitting a sign-in wall', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close();
+  });
+
+  test('a login screen is reported as blocked, not audited as a page', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { auditPage, summarizeAudit } = await import('../src/audit.mjs');
+      const site = path.join(dir, 'site');
+      await mkdir(site, { recursive: true });
+      await writeFile(
+        path.join(site, 'index.html'),
+        `<html><body style="padding:40px"><h1>Sign in</h1><form>
+           <input type="email"><input type="password"><button type="submit">Log in</button>
+         </form></body></html>`,
+      );
+      const server = await serveStatic(site, 4910);
+      try {
+        const report = await auditPage({
+          browser,
+          url: server.url,
+          viewports: [{ name: 'desktop', width: 1200, height: 800 }],
+          outDir: path.join(dir, 'out'),
+        });
+        assert.equal(report.blocked, 'authentication');
+        assert.equal(report.clean, false, 'a wall is not a clean page');
+        assert.match(summarizeAudit(report), /sign-in screen/);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('an audit that could not run never reports itself as clean', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const { scoreFindings } = await import('../src/audit.mjs');
+      // What auditPage records when the page script throws.
+      const report = scoreFindings('http://x/', [
+        { viewport: 'desktop', unavailable: 'SyntaxError: something broke' },
+      ]);
+      assert.equal(
+        report.clean,
+        false,
+        'every count is zero because nothing was measured — that is not the same as nothing being wrong',
+      );
+      assert.equal(report.unmeasured.length, 1);
+    } finally {
+      await dispose();
+    }
+  });
+});

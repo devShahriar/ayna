@@ -189,8 +189,23 @@ export const CHECKS = `(() => {
     .slice(0, 20)
     .map((el) => ({ element: describe(el), rect: box(el) }));
 
+  /*
+    A sign-in wall is not a layout report.
+
+    Auditing a login screen produces findings about a login screen — technically
+    true, useless, and it hides that the thing you asked about was never reached.
+    Say so instead, so the caller can get past it rather than acting on the wrong
+    page.
+  */
+  // Built from a string, not a literal: this whole script lives in a template
+  // literal, which eats the backslash in an escaped slash and leaves a regex that
+  // terminates early.
+  const AUTH_PATH = new RegExp('(^|/)(sign-?in|log-?in|auth|sso|oauth)(/|$)', 'i');
+  const signIn = !!document.querySelector('input[type=password]') || AUTH_PATH.test(location.pathname);
+
   return {
     viewport: { width: vw, height: vh },
+    blocked: signIn ? 'authentication' : null,
     horizontalOverflow: document.documentElement.scrollWidth > vw + 1,
     covered,
     offscreen,
@@ -251,7 +266,7 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     }
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
 
-    const result = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message }));
+    const result = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message.split('\n')[0] }));
     const shot = path.join(outDir, `audit-${vp.name}.png`);
     await page.screenshot({ path: shot }).catch(() => {});
 
@@ -261,11 +276,27 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
 
   const counted = {};
   for (const [key] of SEVERITY) counted[key] = findings.reduce((a, f) => a + (f[key]?.length ?? 0), 0);
+  const blocked = findings.find((f) => f.blocked)?.blocked ?? null;
+  /*
+    An audit that could not run is not an audit that found nothing.
+
+    Every count came back zero because nothing was measured, and zero faults reads
+    as a clean page — so a broken check reported the same result as a healthy UI.
+    Anything that failed to measure has to be louder than anything it might have
+    found.
+  */
+  const unmeasured = findings.filter((f) => f.unavailable);
   const report = {
     url,
     ranAt: outDir,
+    // Nothing measured here is worth acting on until this is dealt with.
+    blocked,
+    unmeasured: unmeasured.map((f) => ({ viewport: f.viewport, error: f.unavailable })),
     counts: counted,
-    clean: SEVERITY.filter(([, sev]) => sev !== 'minor').every(([key]) => counted[key] === 0),
+    clean:
+      !blocked &&
+      unmeasured.length === 0 &&
+      SEVERITY.filter(([, sev]) => sev !== 'minor').every(([key]) => counted[key] === 0),
     findings,
   };
   await writeFile(path.join(outDir, 'audit.json'), JSON.stringify(report, null, 2));
@@ -274,6 +305,16 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
 
 export function summarizeAudit(report) {
   const lines = [];
+  for (const f of report.unmeasured ?? []) {
+    lines.push(`COULD NOT MEASURE ${f.viewport}: ${f.error}`);
+    lines.push('Treat this as unknown, not as clean.');
+    lines.push('');
+  }
+  if (report.blocked === 'authentication') {
+    lines.push('Stopped at a sign-in screen — nothing past it has been measured.');
+    lines.push('Run `ayna login` and sign in yourself; the session is remembered afterwards.');
+    lines.push('');
+  }
   for (const f of report.findings) {
     lines.push(`${f.viewport} (${f.size})${f.horizontalOverflow ? ' — page scrolls sideways' : ''}`);
     for (const [key, sev, why] of SEVERITY) {
@@ -298,10 +339,18 @@ export function summarizeAudit(report) {
 export function scoreFindings(url, findings) {
   const counts = {};
   for (const [key] of SEVERITY) counts[key] = findings.reduce((a, f) => a + (f[key]?.length ?? 0), 0);
+  const blocked = findings.find((f) => f.blocked)?.blocked ?? null;
+  const unmeasured = findings.filter((f) => f.unavailable);
   return {
     url,
+    blocked,
+    unmeasured: unmeasured.map((f) => ({ viewport: f.viewport, error: f.unavailable })),
     counts,
-    clean: SEVERITY.filter(([, sev]) => sev !== 'minor').every(([key]) => counts[key] === 0),
+    // Same rule as auditPage: unknown is not clean.
+    clean:
+      !blocked &&
+      unmeasured.length === 0 &&
+      SEVERITY.filter(([, sev]) => sev !== 'minor').every(([key]) => counts[key] === 0),
     findings,
   };
 }

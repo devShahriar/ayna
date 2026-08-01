@@ -20,6 +20,7 @@ import { openStore, importLegacy, isPending, isProposal } from '../src/tasks.mjs
 import { auditPage, summarizeAudit } from '../src/audit.mjs';
 import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';
 import { watchTasks } from '../src/watch.mjs';
+import { waitForLogin } from '../src/login.mjs';
 import { writeReport } from '../src/report.mjs';
 import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red, openInDesktop } from '../src/log.mjs';
 
@@ -54,6 +55,7 @@ ${bold('LOOK')}
               (--flow steps.json to audit a state you have to click into)
   qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
   clean       Drop old runs (--keep N, default 3); tasks and login are kept
+  login       Open the app so you can sign in; the session is remembered
   serve       Serve the target UI and stay up (ctrl-c to stop)
 
 ${bold('SAFETY')}
@@ -384,6 +386,44 @@ async function main() {
       return;
     }
 
+    case 'login': {
+      /*
+        The user signs in; Claude never does. It opens the window, waits for the
+        sign-in screen to go away, and remembers the session so this is asked once
+        instead of at the start of every review.
+      */
+      const server = await startTarget(cfg);
+      const target = values.url ?? new URL(routes[0] ?? '/', server.url).toString();
+      const profileDir = path.join(PROJECT, '.ayna', 'profile');
+
+      banner('ayna login');
+      info(`opening ${target}`);
+      const result = await waitForLogin({
+        profileDir,
+        url: target,
+        viewport: cfg.viewports[0],
+        onState: (e) => {
+          if (e.state === 'waiting') info('sign in in the window — I will wait, and I never see what you type');
+          if (e.state === 'already-signed-in') ok('already signed in');
+        },
+      });
+      await server.close().catch(() => {});
+
+      if (values.json) {
+        console.log(JSON.stringify(result));
+        if (!result.signedIn) process.exitCode = 1;
+        return;
+      }
+      if (result.signedIn) {
+        ok(result.alreadySignedIn ? 'session already valid — nothing to do' : 'signed in; the session is saved');
+        info('audits and reviews will start from here now');
+      } else {
+        fail(result.closed ? 'window closed before the sign-in finished' : 'timed out waiting for the sign-in');
+        process.exitCode = 1;
+      }
+      return;
+    }
+
     case 'propose': {
       /*
         A change Claude wants to make, put in front of the user before anything is
@@ -557,6 +597,11 @@ async function main() {
       banner(`ayna audit · ${target}`);
       console.log(summarizeAudit(report));
       console.log('');
+      if (report.blocked === 'authentication') {
+        fail('blocked at a sign-in screen — run `ayna login` first');
+        process.exitCode = 2;
+        return;
+      }
       (report.clean ? ok : fail)(
         report.clean
           ? 'no layout faults'
