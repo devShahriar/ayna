@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
-import { runAnnotate } from '../src/annotate.mjs';
+import { runAnnotate, cropRegion } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser } from './helpers.mjs';
 
 describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {

@@ -282,6 +282,12 @@ absent, a platform-aware "open" — but they have never been run there.
 leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
 Per-task revert is not built.
 
+**Cropping something scrolled off-screen makes the page flinch.** A crop of what
+is on screen is silent. Reaching past the viewport needs a full-page capture, which
+briefly relays the page out at another size — visible on anything that re-renders
+on resize, a canvas above all. Scroll it into view before you frame it and this
+never happens.
+
 **It only knows what it can measure.** "This control cannot be clicked" is a fact.
 "This looks wrong" is not, and ayna will not tell you. Taste is still yours.
 

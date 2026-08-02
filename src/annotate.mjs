@@ -18,6 +18,60 @@ import path from 'node:path';
  */
 
 /**
+ * Crop a page-coordinate region without disturbing what the user is looking at.
+ *
+ * `fullPage: true` is the obvious way to clip an arbitrary page rect, and on a
+ * window-following page (`viewport: null`, which is every review window) it makes
+ * Chromium relay the page out at a different size and back. Nothing in Node
+ * notices — `innerWidth` reads the same before and after — but the page fires
+ * `window` and `visualViewport` resize events, so anything that re-measures on
+ * resize re-renders at the wrong size and snaps back. On a canvas app that is the
+ * whole UI flinching, every time you frame a region or open the comment box.
+ *
+ * A clip *without* `fullPage` fires no resize events at all. Its coordinates are
+ * viewport-relative rather than page-relative, so subtract the scroll offset. That
+ * only works while the region is on screen — which it is, because the user just
+ * pointed at it. Anything scrolled out falls back to the disruptive path, since a
+ * silently truncated crop of what they framed would be worse than a flinch.
+ */
+export async function cropRegion(page, rect, pad) {
+  const clip = {
+    x: Math.max(0, rect.x - pad),
+    y: Math.max(0, rect.y - pad),
+    width: Math.max(8, rect.width + pad * 2),
+    height: Math.max(8, rect.height + pad * 2),
+  };
+
+  const view = await page
+    .evaluate(() => ({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight }))
+    .catch(() => null);
+
+  if (view) {
+    // Judge visibility on the region itself, then clamp the padding to the edges.
+    // Testing the padded box instead rejects anything full-width — the padding
+    // alone puts it past the right edge — which is most of what people click, so
+    // the fast path would exist and never be taken.
+    const x = rect.x - view.x;
+    const y = rect.y - view.y;
+    const visible = x >= 0 && y >= 0 && x + rect.width <= view.w && y + rect.height <= view.h;
+    if (visible) {
+      const left = Math.max(0, x - pad);
+      const top = Math.max(0, y - pad);
+      return {
+        clip: {
+          x: left,
+          y: top,
+          width: Math.max(8, Math.min(view.w, x + rect.width + pad) - left),
+          height: Math.max(8, Math.min(view.h, y + rect.height + pad) - top),
+        },
+        fullPage: false,
+      };
+    }
+  }
+  return { clip, fullPage: true };
+}
+
+/**
  * Best-effort map from a DOM node back to the source that produced it.
  *
  * `pageUrl` matters on multi-page sites: a grep for "about" hits the *link* to
@@ -210,16 +264,9 @@ export async function runAnnotate({
     await mkdir(dir, { recursive: true });
 
     // Crop the exact region the user pointed at, with a little breathing room.
-    const pad = 12;
-    const clip = {
-      x: Math.max(0, payload.rect.x - pad),
-      y: Math.max(0, payload.rect.y - pad),
-      width: Math.max(8, payload.rect.width + pad * 2),
-      height: Math.max(8, payload.rect.height + pad * 2),
-    };
     const regionFile = path.join(dir, 'region.png');
     try {
-      await page.screenshot({ path: regionFile, clip, fullPage: true });
+      await page.screenshot({ path: regionFile, ...(await cropRegion(page, payload.rect, 12)) });
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
     }
@@ -402,16 +449,7 @@ export async function runAnnotate({
   */
   await page.exposeFunction('__aynaPreview', async (rect) => {
     try {
-      const pad = 8;
-      const buf = await page.screenshot({
-        fullPage: true,
-        clip: {
-          x: Math.max(0, rect.x - pad),
-          y: Math.max(0, rect.y - pad),
-          width: Math.max(8, rect.width + pad * 2),
-          height: Math.max(8, rect.height + pad * 2),
-        },
-      });
+      const buf = await page.screenshot(await cropRegion(page, rect, 8));
       return 'data:image/png;base64,' + buf.toString('base64');
     } catch {
       return null;
@@ -630,7 +668,13 @@ export async function runAnnotate({
 
   const fullFile = path.join(outDir, 'full-page.png');
   if (!page.isClosed()) {
-    await page.screenshot({ path: fullFile, fullPage: true }).catch(() => {});
+    // Same flinch as a region crop, and this fires while the window is still in
+    // front of the user. When the page already fits, the viewport *is* the full
+    // page, so ask for the expensive capture only when it would show more.
+    const overflows = await page
+      .evaluate(() => document.documentElement.scrollHeight > innerHeight + 4)
+      .catch(() => true);
+    await page.screenshot({ path: fullFile, fullPage: overflows }).catch(() => {});
     if (ownsContext) await context.close().catch(() => {});
   }
 

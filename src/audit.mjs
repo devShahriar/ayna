@@ -243,11 +243,17 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     const ctx =
       context ??
       (await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 }));
-    // A window that follows the OS window has no viewport to set — and resizing
-    // the user's review out from under them would be rude anyway.
-    if (context) {
-      await context.pages()[0]?.setViewportSize({ width: vp.width, height: vp.height }).catch(() => {});
-    }
+    /*
+      Do not touch the size of a window someone handed us.
+
+      The comment here used to say resizing the user's review out from under them
+      would be rude, and the line under it did exactly that. It was worse than
+      rude: `setViewportSize` on a window-following page converts it to a fixed
+      viewport, so the window stopped tracking the OS window for the rest of the
+      session — the bug we had already fixed once, reintroduced by whichever audit
+      ran next. An audit of a live window measures the size it is actually being
+      used at, and reports that size rather than the one that was asked for.
+    */
 
     const page = ctx.pages()[0] ?? (await ctx.newPage());
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});
@@ -270,7 +276,17 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     const shot = path.join(outDir, `audit-${vp.name}.png`);
     await page.screenshot({ path: shot }).catch(() => {});
 
-    findings.push({ ...result, viewport: vp.name, size: `${vp.width}x${vp.height}`, screenshot: shot, reached });
+    // The size we asked for and the size it ran at are the same thing only when we
+    // opened the window ourselves. Report what was measured, or a finding gets
+    // filed against a width the page never had.
+    const ran = await page.evaluate(() => `${innerWidth}x${innerHeight}`).catch(() => null);
+    findings.push({
+      ...result,
+      viewport: vp.name,
+      size: ran ?? `${vp.width}x${vp.height}`,
+      screenshot: shot,
+      reached,
+    });
     if (!context) await ctx.close().catch(() => {});
   }
 
