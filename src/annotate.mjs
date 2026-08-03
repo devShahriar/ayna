@@ -420,10 +420,49 @@ export async function runAnnotate({
   await rm(appliedFile, { force: true });
   await writeStatus();
 
+  /*
+    Notice the work instead of waiting to be told about it.
+
+    Leaving "waiting for Claude" required somebody to run `ayna applied`. When
+    nobody did — a session that never learned the command, a run that ended, a
+    plain forgotten step — the window sat on that spinner forever while the edits
+    it was waiting for were already on disk. The user was told to wait for
+    something that had happened.
+
+    A marker is cooperation; a changed file is evidence. So watch the project, and
+    once edits stop arriving, treat the round as applied. The marker still works
+    and still wins, for anything that does report in.
+  */
+  let editedAt = 0;
+  let projectWatcher = null;
+  const watchProject = () => {
+    if (projectWatcher || !projectDir) return;
+    try {
+      projectWatcher = watch(projectDir, { recursive: true }, (_event, name) => {
+        if (!name) return;
+        const rel = String(name);
+        const parts = rel.split(/[\\/]/);
+        // Our own output changes constantly; so does anything generated.
+        if (parts.some((part) => part === '.ayna' || SKIP_DIRS.includes(part))) return;
+        if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) return;
+        editedAt = Date.now();
+      });
+    } catch {
+      // No recursive watch on this platform — the marker path still works.
+      projectWatcher = null;
+    }
+  };
+  const stopWatchingProject = () => {
+    projectWatcher?.close();
+    projectWatcher = null;
+    editedAt = 0;
+  };
+
   // The user finished a round of comments and wants them acted on.
   await page.exposeFunction('__aynaDone', async () => {
     round += 1;
     phase = 'awaiting-claude';
+    watchProject();
     await writeManifest();
     await writeStatus();
     onEvent({
@@ -436,9 +475,22 @@ export async function runAnnotate({
     });
   });
 
+  /*
+    The user can always say the changes have landed.
+
+    Even with the watcher, an edit made somewhere this cannot see — another
+    machine, a container, a generated file — leaves them stuck. Nobody should have
+    to kill a window to escape a progress message.
+  */
+  let saidApplied = false;
+  await page.exposeFunction('__aynaApplied', async () => {
+    saidApplied = true;
+  });
+
   // They looked at the result and want another pass.
   await page.exposeFunction('__aynaMore', async () => {
     phase = 'commenting';
+    stopWatchingProject();
     await rm(appliedFile, { force: true });
     await writeStatus();
   });
@@ -642,8 +694,16 @@ export async function runAnnotate({
       }
     }
 
-    if (phase === 'awaiting-claude' && existsSync(appliedFile)) {
+    // Edits have to stop arriving before the page reloads, or a save mid-edit
+    // shows a half-finished screen and calls it the result.
+    const editsSettled = editedAt > 0 && Date.now() - editedAt > 1800;
+
+    if (phase === 'awaiting-claude' && (existsSync(appliedFile) || editsSettled || saidApplied)) {
+      const reason = existsSync(appliedFile) ? 'marker' : saidApplied ? 'user' : 'file-change';
+      saidApplied = false;
+      stopWatchingProject();
       await rm(appliedFile, { force: true });
+      onEvent({ event: 'applied', round, via: reason });
       // Anything the user sent back for another attempt has now had one, so it
       // returns to the pile to be judged again rather than staying "rejected".
       for (const c of comments) {
@@ -679,6 +739,7 @@ export async function runAnnotate({
   }
 
   overlayWatcher.close();
+  stopWatchingProject();
 
   const fullFile = path.join(outDir, 'full-page.png');
   if (!page.isClosed()) {

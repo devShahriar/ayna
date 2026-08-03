@@ -385,13 +385,28 @@
       */
       bar.innerHTML =
         '<span class="' + NS + '-spin" aria-hidden="true"></span>' +
-        '<span class="' + NS + '-waiting">Sent — waiting for Claude to pick this up…</span>';
+        '<span class="' + NS + '-waiting">Sent — waiting for Claude to pick this up…</span>' +
+        '<button data-act="applied" title="Reload and show the result now">Changes are in</button>';
+
+      /*
+        A way out that does not need anything else to be running.
+
+        This message used to be the end of the road: it cleared only when another
+        process wrote a marker file, so a session that never ran `ayna applied`
+        left the user watching a spinner over work that was already finished. The
+        window watches for the edits now, and this button is for when it cannot
+        see them — an edit in a container, on another machine, in a file the watch
+        ignores.
+      */
+      bar.querySelector('[data-act=applied]').addEventListener('click', () => {
+        if (window.__aynaApplied) window.__aynaApplied();
+      });
 
       clearTimeout(state.waitWarn);
       state.waitWarn = setTimeout(() => {
         const label = bar && bar.querySelector('.' + NS + '-waiting');
         if (!label || state.phase !== 'waiting') return;
-        label.textContent = 'Still not picked up — is Claude watching? (it needs `ayna wait`)';
+        label.textContent = 'Not picked up yet — press “Changes are in” if they have landed';
         label.classList.add(NS + '-warn');
       }, 45000);
       return;

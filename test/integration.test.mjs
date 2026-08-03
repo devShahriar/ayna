@@ -1857,14 +1857,22 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
         });
 
         const kinds = events.map((e) => e.event);
-        assert.deepEqual(kinds, ['round', 'rejected', 'round', 'closed'], kinds.join(','));
+        // `applied` reports that the window left the waiting phase, and says which
+        // of the three signals ended it — the marker, a file change, or the user.
+        assert.deepEqual(
+          kinds,
+          ['round', 'applied', 'rejected', 'round', 'closed'],
+          kinds.join(','),
+        );
+        assert.equal(events.find((e) => e.event === 'applied').via, 'marker');
         assert.deepEqual(
           events.filter((e) => e.event === 'round').map((e) => e.round),
           [1, 2],
           'the second round is announced without anything being re-armed',
         );
-        assert.equal(events[0].action, 'read-comments');
-        assert.equal(events[1].action, 'retry-rejected');
+        // By name, not by index: an added event should not break this.
+        assert.equal(events.find((e) => e.event === 'round').action, 'read-comments');
+        assert.equal(events.find((e) => e.event === 'rejected').action, 'retry-rejected');
       } finally {
         await server.close();
       }

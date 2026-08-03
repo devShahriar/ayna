@@ -282,6 +282,11 @@ absent, a platform-aware "open" — but they have never been run there.
 leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
 Per-task revert is not built.
 
+**"Waiting for Claude" used to be a dead end.** It cleared only when something ran
+`ayna applied`, so a session that never did left the window on a spinner over
+changes already on disk. It now notices the edits itself, and there is a
+**Changes are in** button for edits it cannot see.
+
 **Apps that never stop talking used to hang it.** Loads waited for the network to
 go quiet, which an app that polls never does — so every load ran to a 30s timeout.
 Loads now wait for the document and give the network a bounded moment after it.

@@ -9,7 +9,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -288,5 +288,95 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
       srv.close();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  /*
+    "Sent — waiting for Claude" cleared on one thing: a marker file written by
+    `ayna applied`. A session that never ran it left the window on that spinner
+    permanently, over changes that were already on disk — the user waiting for
+    something that had happened. There are now three ways out, and all three must
+    keep working, because the failure is indistinguishable from Claude being slow.
+  */
+  async function reachesReview(escape) {
+    const { srv, url } = await pollingServer('<h1 class="title">Hello</h1>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-wait-'));
+    try {
+      await writeFile(path.join(dir, 'app.css'), 'h1{font-size:20px}');
+      let reached = false;
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          await page.click('.title');
+          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          await page.fill('.ayna-ov-pop textarea', 'make it bigger');
+          await page.click('.ayna-ov-save');
+          await page.waitForTimeout(300);
+          await page.click('[data-act=send]');
+          await page.waitForSelector('.ayna-ov-waiting', { timeout: 10000 });
+          await page.waitForTimeout(400);
+
+          await escape(page, dir);
+
+          reached = await page
+            .waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+              timeout: 20000,
+            })
+            .then(() => true)
+            .catch(() => false);
+          await page.close();
+        },
+      });
+      return reached;
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('an edit on disk is enough, with nothing reporting in', async () => {
+    const reached = await reachesReview(async (_page, dir) => {
+      await writeFile(path.join(dir, 'app.css'), 'h1{font-size:48px}');
+    });
+    assert.ok(reached, 'a changed project file should end the wait on its own');
+  });
+
+  test('the user can always say the changes have landed', async () => {
+    const reached = await reachesReview(async (page) => {
+      await page.click('[data-act=applied]');
+    });
+    assert.ok(reached, 'the button in the window must not depend on anything else running');
+  });
+
+  test('`ayna applied` still works for anything that does report in', async () => {
+    const reached = await reachesReview(async (_page, dir) => {
+      await writeFile(path.join(dir, 'out', 'applied'), '1');
+    });
+    assert.ok(reached, 'the marker path must keep working');
+  });
+
+  test('ayna’s own output does not count as Claude finishing', async () => {
+    // Comments, screenshots and status all land under .ayna while the user is
+    // still commenting. Counting those would reload the page mid-sentence.
+    const reached = await reachesReview(async (_page, dir) => {
+      await mkdir(path.join(dir, '.ayna'), { recursive: true });
+      await writeFile(path.join(dir, '.ayna', 'noise.json'), '{"a":1}');
+      await writeFile(path.join(dir, 'node_modules-ish.txt'), 'not source');
+      await new Promise((r) => setTimeout(r, 3500));
+    });
+    assert.equal(reached, false, 'writing under .ayna must not be read as an applied fix');
   });
 });

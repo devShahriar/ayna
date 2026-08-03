@@ -127,9 +127,15 @@ notifications). It prints one JSON line every time the user does something:
 
 ```json
 {"event":"round","round":1,"comments":2,"action":"read-comments"}
+{"event":"applied","round":1,"via":"marker"}
 {"event":"rejected","comment":"…","action":"retry-rejected"}
 {"event":"closed","approved":true}
 ```
+
+`applied` means the window has stopped waiting on you and the user is now judging
+the result. `via` says what ended the wait: `marker` if you ran `applied`,
+`file-change` if it saw your edits land, `user` if they pressed **Changes are in**
+because it could not.
 
 **This is the whole mechanism.** One process, push-based. There is nothing to
 re-arm and nothing to poll, so a round cannot go unnoticed because you forgot a
@@ -158,9 +164,16 @@ deciding which file to edit.**
    `resolved` one.**
 3. `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" applied` — reloads their page in place
    so each change is highlighted where it happened, with **Looks right** /
-   **Needs work** on it.
+   **Needs work** on it. **Say this the moment you have finished editing.** The
+   window is showing them "waiting for Claude" until you do, and a spinner over
+   work that is already done reads as a hang.
 4. Go back to waiting for the next event. The window stays open; only the user
    closes it. **Never kill the annotate process to "finish" a review.**
+
+The window also watches the project and moves on by itself once your edits stop
+arriving, and the user can press **Changes are in** — so forgetting step 3 no
+longer strands them. Run it anyway: it is immediate, and it is the only one of
+the three that knows the edits are finished rather than merely paused.
 
 The overlay's **Tasks** button lists everything still owed across the project,
 grouped by the page it was raised on, with the current page first. The user can
