@@ -15,6 +15,42 @@ export async function openBrowser({ headless = false } = {}) {
   return chromium.launch({ channel: 'chrome', headless, args });
 }
 
+/*
+  Wait for the page, not for the network to stop.
+
+  Every load here used to wait for `networkidle`, which means 500ms with nothing in
+  flight. Plenty of real apps never have that: anything that polls an endpoint, or
+  holds a long-poll open for hot reload, keeps a request outstanding forever. On
+  those, `networkidle` does not settle late — it never settles, so every load ran to
+  the full 30s timeout. Measured against an app polling every 400ms: 30049ms with
+  networkidle, 222ms without. That is the freeze people describe as the window
+  hanging, and on the one call site with no `.catch()` it was a hard error at the
+  end of the wait.
+
+  So: wait for the document, then give the network a bounded chance to go quiet.
+  A quiet page still gets its images and fonts; a busy one costs a fixed pause
+  instead of half a minute.
+*/
+const SETTLE_MS = 1500;
+
+export async function settle(page, ms = SETTLE_MS) {
+  await page.waitForLoadState('networkidle', { timeout: ms }).catch(() => {});
+}
+
+/** `goto` that is fast on apps which never go idle. Throws what `goto` throws. */
+export async function gotoSettled(page, url, { timeout = 30_000, settleMs = SETTLE_MS } = {}) {
+  const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+  await settle(page, settleMs);
+  return res;
+}
+
+/** `reload` with the same bounded wait. */
+export async function reloadSettled(page, { timeout = 30_000, settleMs = SETTLE_MS } = {}) {
+  const res = await page.reload({ waitUntil: 'domcontentloaded', timeout });
+  await settle(page, settleMs);
+  return res;
+}
+
 /**
  * Loads `url` at each viewport, screenshots it, and collects the diagnostics a
  * screenshot alone cannot show: console errors, horizontal overflow, blank renders.
@@ -46,7 +82,7 @@ export async function capture({ browser, url, viewports, outDir, label }) {
     let loadError = null;
     let transportError = false;
     try {
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+      await gotoSettled(page, url, { settleMs: 2500 });
     } catch (err) {
       loadError = err.message;
       // The server being unreachable is our problem, not the page's. Callers must

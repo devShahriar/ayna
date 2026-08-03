@@ -282,6 +282,10 @@ absent, a platform-aware "open" — but they have never been run there.
 leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
 Per-task revert is not built.
 
+**Apps that never stop talking used to hang it.** Loads waited for the network to
+go quiet, which an app that polls never does — so every load ran to a 30s timeout.
+Loads now wait for the document and give the network a bounded moment after it.
+
 **Cropping something scrolled off-screen makes the page flinch.** A crop of what
 is on screen is silent. Reaching past the viewport needs a full-page capture, which
 briefly relays the page out at another size — visible on anything that re-renders

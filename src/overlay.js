@@ -1056,6 +1056,26 @@
     space, flip above the target when there is no room below, and clamp.
   */
   /** How much of the bottom the mode bar occupies right now, wrapping included. */
+  /*
+    Ask the window how tall it is, not the document.
+
+    documentElement.clientHeight is the viewport only in standards mode. On a page
+    with no doctype the browser is in quirks mode and it returns the height of the
+    content instead — 4344 on an 800px window, in the case that found this. Every
+    "is there room below?" test then passed trivially, so the comment box never
+    flipped above its anchor and simply ran off the bottom of the screen, taking
+    "Add comment" with it. The user could see the box and could not file the
+    comment, and the dead panel swallowed the next click.
+
+    innerHeight is the viewport in both modes.
+  */
+  function viewportH() {
+    return Math.round(window.visualViewport?.height ?? window.innerHeight);
+  }
+  function viewportW() {
+    return Math.round(window.visualViewport?.width ?? window.innerWidth);
+  }
+
   function barSafeZone() {
     if (!bar) return 0;
     const b = bar.getBoundingClientRect();
@@ -1066,8 +1086,8 @@
     // Remember the anchor so a resize can put it back in the right place.
     el.__aynaAnchor = r;
 
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
+    const vw = viewportW();
+    const vh = viewportH();
     const safe = barSafeZone();
 
     /*
@@ -1088,9 +1108,38 @@
     if (top + h > vh - safe) top = y - h - 10; // no room below — flip above
     if (top < 8) top = Math.max(8, vh - safe - h); // nor above — sit above the bar
 
+    // Last resort: if it fits nowhere, keep the bottom on screen rather than the
+    // top. The buttons are at the bottom, and a panel whose buttons you cannot
+    // reach is the same as no panel.
+    if (top + h > vh - safe) top = Math.max(8, vh - safe - h);
+
     el.style.position = 'fixed';
     el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
     el.style.top = Math.max(8, top) + 'px';
+
+    /*
+      Place it again when it grows.
+
+      Position was computed once, from a measurement taken the instant the panel
+      was created — before the region crop had come back from Node and been added
+      to it. The image then landed, the panel got taller, and everything below the
+      fold went with it: "Add comment" rendered at y=823 in an 800px window, so the
+      only way to file the comment was off screen. Nothing recovered from it
+      either, because the stale panel stayed open and swallowed the next click.
+
+      Anything that changes the height — the crop arriving, a pasted screenshot,
+      the textarea growing — has to move it back into view.
+    */
+    el.__aynaPlacedH = h;
+    if (!el.__aynaRO && typeof ResizeObserver === 'function') {
+      el.__aynaRO = new ResizeObserver(() => {
+        if (!el.isConnected || !el.__aynaAnchor) return;
+        // Only react to a real size change, or re-placing would retrigger this.
+        if (Math.abs(el.getBoundingClientRect().height - (el.__aynaPlacedH ?? 0)) < 2) return;
+        placeFloating(el, el.__aynaAnchor);
+      });
+      el.__aynaRO.observe(el);
+    }
   }
 
   /*
@@ -1100,6 +1149,8 @@
     viewport.
   */
   let relayoutQueued = false;
+  let reviewSettleTimer = 0;
+
   function relayout() {
     if (relayoutQueued) return;
     relayoutQueued = true;
@@ -1110,10 +1161,17 @@
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
       if (panel) {
         panel.style.maxHeight =
-          Math.max(200, document.documentElement.clientHeight - barSafeZone() - 32) + 'px';
+          Math.max(200, viewportH() - barSafeZone() - 32) + 'px';
       }
-      // Review markers are anchored to live elements, so re-derive them.
-      if (state.phase === 'review') renderReview().then(updateReviewBar);
+      // Review markers are anchored to live elements, so re-derive them —
+      // cheaply now, and properly once the user stops dragging.
+      if (state.phase === 'review') {
+        repositionReview();
+        clearTimeout(reviewSettleTimer);
+        reviewSettleTimer = setTimeout(() => {
+          if (state.phase === 'review') renderReview().then(updateReviewBar);
+        }, 200);
+      }
     });
   }
 
@@ -1359,6 +1417,35 @@
     return c.rect;
   }
 
+  /*
+    Move the review markers; do not rebuild them.
+
+    renderReview is async — it asks Node for the comment list over the exposed
+    function bridge — and it tears down and recreates every marker node. Calling it
+    from the resize handler meant an IPC round-trip and a full DOM rebuild on every
+    animation frame, so dragging the window to full screen fired ~60 of them a
+    second. That is the stutter, and it lands precisely when the user is resizing.
+
+    Positions are all that can change during a resize. The comments have not moved,
+    only their elements have, so re-derive rects from the nodes we already built.
+  */
+  function repositionReview() {
+    for (const n of reviewNodes) {
+      const c = n.__aynaFor;
+      if (!c) continue;
+      const r = anchorFor(c);
+      if (!r || !r.width) continue;
+      n.style.left = r.x + 'px';
+      if (n.__aynaKind === 'bar') {
+        n.style.top = Math.max(0, r.y - 28) + 'px';
+      } else {
+        n.style.top = r.y + 'px';
+        n.style.width = r.width + 'px';
+        n.style.height = r.height + 'px';
+      }
+    }
+  }
+
   async function renderReview() {
     clearReview();
     if (!window.__aynaList) return;
@@ -1378,6 +1465,8 @@
       box.style.top = r.y + 'px';
       box.style.width = r.width + 'px';
       box.style.height = r.height + 'px';
+      box.__aynaFor = c;
+      box.__aynaKind = 'box';
       document.documentElement.appendChild(box);
       reviewNodes.push(box);
 
@@ -1406,6 +1495,8 @@
       barEl.appendChild(ok);
       barEl.appendChild(no);
 
+      barEl.__aynaFor = c;
+      barEl.__aynaKind = 'bar';
       document.documentElement.appendChild(barEl);
       reviewNodes.push(barEl);
 
@@ -1573,7 +1664,7 @@
     panel = document.createElement('div');
     panel.className = NS + '-panel';
     panel.setAttribute('data-ayna', '1');
-    panel.style.maxHeight = Math.max(200, document.documentElement.clientHeight - barSafeZone() - 32) + 'px';
+    panel.style.maxHeight = Math.max(200, viewportH() - barSafeZone() - 32) + 'px';
 
     const pending = tasks.filter((t) => t.status !== 'approved').length;
     panel.innerHTML =

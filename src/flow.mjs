@@ -1,3 +1,4 @@
+import { settle } from './browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -195,7 +196,7 @@ export async function runFlow({ browser, context: providedContext, baseUrl, flow
     }
 
     // How long until the step is actually usable, not merely triggered.
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await settle(page, 2500);
     const settleMs = Date.now() - began;
     await page.waitForTimeout(150);
 

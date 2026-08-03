@@ -1,3 +1,4 @@
+import { gotoSettled, settle } from './browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -12,8 +13,11 @@ import path from 'node:path';
  */
 
 export const CHECKS = `(() => {
-  const vw = document.documentElement.clientWidth;
-  const vh = document.documentElement.clientHeight;
+  // innerWidth/innerHeight are the viewport in both standards and quirks mode;
+  // documentElement.clientHeight returns the *content* height without a doctype,
+  // which made every off-screen and covered check silently pass on such a page.
+  const vw = Math.round(window.visualViewport ? window.visualViewport.width : window.innerWidth);
+  const vh = Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight);
 
   const describe = (el) => {
     if (!el || !el.tagName) return null;
@@ -256,7 +260,7 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     */
 
     const page = ctx.pages()[0] ?? (await ctx.newPage());
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});
+    await gotoSettled(page, url, { settleMs: 2500 }).catch(() => {});
     await page.waitForTimeout(700);
 
     const reached = [];
@@ -270,7 +274,7 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
         break; // measuring a state we failed to reach would be a lie
       }
     }
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await settle(page, 2500);
 
     const result = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message.split('\n')[0] }));
     const shot = path.join(outDir, `audit-${vp.name}.png`);

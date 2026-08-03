@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { gotoSettled, reloadSettled } from './browser.mjs';
+
 /**
  * Point-and-comment review on the live page.
  *
@@ -580,7 +582,7 @@ export async function runAnnotate({
   };
   page.on('load', injectOverlay);
 
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+  await gotoSettled(page, url);
   await injectOverlay();
 
   // Editing the overlay reloads the open window, so a fix lands without the user
@@ -591,7 +593,7 @@ export async function runAnnotate({
     reloading = true;
     setTimeout(async () => {
       try {
-        await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+        await reloadSettled(page);
       } catch {
         // The window may have gone; the loop below will notice.
       }
@@ -648,7 +650,19 @@ export async function runAnnotate({
         if (c.status === 'rejected') c.status = 'open';
       }
       try {
-        await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+        /*
+          Come back to where they were standing.
+
+          The reload is how a fix becomes visible, but it also returns the page to
+          the top. Someone who commented on something far down the page pressed
+          approve and lost their place, on every round — so the thing they were
+          judging was off screen exactly when they needed to look at it.
+        */
+        const at = await page.evaluate(() => ({ x: scrollX, y: scrollY })).catch(() => null);
+        await reloadSettled(page);
+        if (at && (at.x || at.y)) {
+          await page.evaluate((p) => scrollTo(p.x, p.y), at).catch(() => {});
+        }
         // The overlay is injected per load and that is asynchronous — without
         // waiting for it, __aynaReview fires into a page that has no overlay yet
         // and the review markers never appear.
