@@ -1,6 +1,8 @@
-import { mkdir, readdir, readFile, writeFile, rename, rm, cp } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+
+import { openDb, appendEvent, pack, unpack, transact } from './db.mjs';
 
 /**
  * The task store.
@@ -10,17 +12,20 @@ import path from 'node:path';
  * pending approvals vanished. A comment you had not judged simply stopped
  * existing, which is the worst thing a review tool can do.
  *
- * So tasks live on disk and the window is a view of them. One directory per task,
- * holding its record and its images, with relative paths inside so the directory
- * can be moved or copied and still make sense.
+ * So tasks live outside the window. Records are rows now rather than one JSON
+ * file per directory — several windows, a worker and a watcher all write this at
+ * once, and "read, merge, rename" across processes loses updates whenever two of
+ * them touch the same task. The images stay exactly where they were:
  *
  *   .ayna/tasks/task-0007/
- *     task.json
  *     region.png
  *     attached-1.png
+ *
+ * so an existing store keeps working, and a task directory is still something you
+ * can look inside.
  */
 
-export const SCHEMA = 1;
+export const SCHEMA = 2;
 
 /*
   proposed → open → in_progress → applied → approved, or rejected back to open.
@@ -28,76 +33,100 @@ export const SCHEMA = 1;
   `proposed` is the one that keeps Claude honest: a fault it found itself is a
   suggestion, not permission. Nothing is edited until the user says so, or until
   they redirect it with a comment of their own.
+
+  `obsolete` and `needs_confirmation` come from re-checking a task before working
+  it. A measured fault that no longer reproduces was fixed by somebody — there is
+  nothing left to do and nobody needs to read it. Anything asked for in words
+  cannot be measured, so a changed element only earns a question, never a closure.
 */
-export const STATUSES = ['proposed', 'open', 'in_progress', 'applied', 'approved', 'rejected'];
+export const STATUSES = [
+  'proposed',
+  'open',
+  'in_progress',
+  'applied',
+  'approved',
+  'rejected',
+  'needs_confirmation',
+  'obsolete',
+];
 
 /** Raised by Claude and still waiting on the user's word. */
 export const isProposal = (t) => t.status === 'proposed';
 
-/** Anything not yet accepted is still owed work. */
-export const isPending = (t) => t.status !== 'approved';
+/** Nothing left to do: accepted, or verified gone. */
+const SETTLED = new Set(['approved', 'obsolete']);
 
-function storeDir(projectDir) {
-  return path.join(projectDir, '.ayna', 'tasks');
-}
+/** Anything not yet settled is still owed work. */
+export const isPending = (t) => !SETTLED.has(t.status);
 
-/** Write via a temp file and rename, so a crash can't leave half a record. */
-async function writeAtomic(file, text) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, text);
-  await rename(tmp, file);
-}
+const storeDir = (projectDir) => path.join(projectDir, '.ayna', 'tasks');
 
-export async function openStore(projectDir) {
+/** Columns that are their own field; everything else rides in `extra`. */
+const COLUMNS = new Set([
+  'tab_id', 'status', 'kind', 'comment', 'selector', 'url', 'rect', 'styles',
+  'elements', 'source_candidates', 'check_kind', 'fingerprint', 'legacy_key',
+  'claimed_by', 'claim_expires_at', 'verified_at', 'verdict',
+]);
+
+const CAMEL = {
+  tabId: 'tab_id', sourceCandidates: 'source_candidates', checkKind: 'check_kind',
+  legacyKey: 'legacy_key', claimedBy: 'claimed_by', claimExpiresAt: 'claim_expires_at',
+  verifiedAt: 'verified_at',
+};
+
+export async function openStore(projectDir, { db: given } = {}) {
   const dir = storeDir(projectDir);
   await mkdir(dir, { recursive: true });
+  const db = given ?? (await openDb(projectDir));
 
   const taskDir = (id) => path.join(dir, id);
-  const taskFile = (id) => path.join(taskDir(id), 'task.json');
-
-  async function ids() {
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    return entries
-      .filter((e) => e.isDirectory() && /^task-\d+$/.test(e.name))
-      .map((e) => e.name)
-      .sort();
-  }
-
-  async function read(id) {
-    const raw = await readFile(taskFile(id), 'utf8').catch(() => null);
-    if (!raw) return null;
-    let t;
-    try {
-      t = JSON.parse(raw);
-    } catch {
-      return null; // A corrupt record must not take the whole store down.
-    }
-    return hydrate(t, taskDir(id));
-  }
 
   /** Absolute paths for callers, relative ones on disk. */
-  function hydrate(t, base) {
+  function hydrate(row) {
+    if (!row) return null;
+    const base = taskDir(row.id);
+    const assets = db.prepare('SELECT kind, path FROM task_assets WHERE task_id = ?').all(row.id);
+    const region = assets.find((a) => a.kind === 'region');
     return {
-      ...t,
+      v: SCHEMA,
+      id: row.id,
       dir: base,
-      regionScreenshot: t.regionScreenshot ? path.join(base, t.regionScreenshot) : null,
-      attachments: (t.attachments ?? []).map((a) => path.join(base, a)),
+      status: row.status,
+      kind: row.kind,
+      comment: row.comment,
+      selector: row.selector,
+      url: row.url,
+      rect: unpack(row.rect),
+      styles: unpack(row.styles, {}),
+      elements: unpack(row.elements, []),
+      sourceCandidates: unpack(row.source_candidates, []),
+      checkKind: row.check_kind,
+      fingerprint: unpack(row.fingerprint),
+      legacyKey: row.legacy_key,
+      tabId: row.tab_id,
+      claimedBy: row.claimed_by,
+      claimExpiresAt: row.claim_expires_at,
+      verifiedAt: row.verified_at,
+      verdict: unpack(row.verdict),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+      history: db
+        .prepare('SELECT at, status, note FROM task_history WHERE task_id = ? ORDER BY at ASC, rowid ASC')
+        .all(row.id)
+        .map((h) => ({ at: new Date(h.at).toISOString(), status: h.status, ...(h.note ? { note: h.note } : {}) })),
+      regionScreenshot: region ? path.join(base, region.path) : null,
+      attachments: assets.filter((a) => a.kind === 'attachment').map((a) => path.join(base, a.path)),
+      ...unpack(row.extra, {}),
     };
   }
 
-  function dehydrate(t) {
-    const { dir: _d, ...rest } = t;
-    return {
-      ...rest,
-      regionScreenshot: t.regionScreenshot ? path.basename(t.regionScreenshot) : null,
-      attachments: (t.attachments ?? []).map((a) => path.basename(a)),
-    };
-  }
+  const read = async (id) => hydrate(db.prepare('SELECT * FROM tasks WHERE id = ?').get(id));
 
   async function list(filter = {}) {
+    const rows = db.prepare('SELECT * FROM tasks ORDER BY id ASC').all();
     const out = [];
-    for (const id of await ids()) {
-      const t = await read(id);
+    for (const row of rows) {
+      const t = hydrate(row);
       if (!t) continue;
       if (filter.status && t.status !== filter.status) continue;
       if (filter.pending && !isPending(t)) continue;
@@ -107,10 +136,35 @@ export async function openStore(projectDir) {
     return out;
   }
 
-  async function nextId() {
-    const existing = await ids();
-    const last = existing.length ? Number(existing[existing.length - 1].slice(5)) : 0;
-    return `task-${String(last + 1).padStart(4, '0')}`;
+  const JSON_COLUMNS = ['rect', 'styles', 'elements', 'source_candidates', 'fingerprint', 'verdict'];
+
+  /*
+    SQLite will not bind `undefined` or a boolean, and callers pass both — a
+    comment with no selector, a flag on a proposal. The file store simply wrote
+    them out, so this is the one place the move to columns can break a caller that
+    was previously fine. Coerce at the boundary rather than making every call site
+    remember.
+  */
+  const bindable = (value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value === 'object') return pack(value);
+    return value;
+  };
+
+  /** Split caller data into real columns and the rest. */
+  function split(data) {
+    const cols = {};
+    const extra = {};
+    for (const [key, value] of Object.entries(data ?? {})) {
+      const col = CAMEL[key] ?? key;
+      if (COLUMNS.has(col)) {
+        cols[col] = JSON_COLUMNS.includes(col) ? pack(value) : bindable(value);
+      } else if (!['id', 'v', 'dir', 'createdAt', 'updatedAt', 'history', 'regionScreenshot', 'attachments'].includes(key)) {
+        extra[key] = value;
+      }
+    }
+    return { cols, extra };
   }
 
   /**
@@ -119,61 +173,100 @@ export async function openStore(projectDir) {
    * is cleaned up.
    */
   async function create(data, assets = {}) {
-    // A directory that already exists means a parallel writer got there first.
-    let id;
-    for (let attempt = 0; attempt < 25; attempt++) {
-      id = await nextId();
-      try {
-        await mkdir(taskDir(id), { recursive: false });
-        break;
-      } catch {
-        id = null;
+    const { cols, extra } = split(data);
+    const now = Date.now();
+
+    // The id and the row are allocated together, so two writers cannot pick the
+    // same number — the retry loop the directory-based store needed is gone.
+    const id = transact(db, () => {
+      const last = db.prepare("SELECT id FROM tasks ORDER BY id DESC LIMIT 1").get()?.id;
+      const next = `task-${String((last ? Number(last.slice(5)) : 0) + 1).padStart(4, '0')}`;
+      const status = cols.status ?? 'open';
+      const keys = ['id', 'created_at', 'updated_at', 'extra', ...Object.keys(cols)];
+      const values = [next, now, now, pack(extra), ...Object.values(cols)];
+      if (!('status' in cols)) {
+        keys.push('status');
+        values.push(status);
       }
-    }
-    if (!id) throw new Error('could not allocate a task id');
+      db.prepare(`INSERT INTO tasks (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values);
+      db.prepare('INSERT INTO task_history (task_id, at, status) VALUES (?, ?, ?)').run(next, now, status);
+      appendEvent(db, { event: 'task', taskId: next, status, comment: cols.comment ?? null, url: cols.url ?? null });
+      return next;
+    });
 
-    const now = new Date().toISOString();
-    const record = {
-      v: SCHEMA,
-      id,
-      status: 'open',
-      createdAt: now,
-      updatedAt: now,
-      history: [{ at: now, status: 'open' }],
-      ...data,
-      regionScreenshot: null,
-      attachments: [],
-    };
-
+    await mkdir(taskDir(id), { recursive: true });
     if (assets.regionScreenshot && existsSync(assets.regionScreenshot)) {
       await cp(assets.regionScreenshot, path.join(taskDir(id), 'region.png'));
-      record.regionScreenshot = 'region.png';
+      db.prepare('INSERT INTO task_assets (task_id, kind, path) VALUES (?, ?, ?)').run(id, 'region', 'region.png');
     }
     for (const [i, src] of (assets.attachments ?? []).entries()) {
       if (!existsSync(src)) continue;
       const name = `attached-${i + 1}${path.extname(src) || '.png'}`;
       await cp(src, path.join(taskDir(id), name));
-      record.attachments.push(name);
+      db.prepare('INSERT INTO task_assets (task_id, kind, path) VALUES (?, ?, ?)').run(id, 'attachment', name);
     }
-
-    await writeAtomic(taskFile(id), JSON.stringify(record, null, 2));
-    return hydrate(record, taskDir(id));
+    return read(id);
   }
 
   async function update(id, patch, note) {
-    const current = await read(id);
+    const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     if (!current) return null;
 
-    const now = new Date().toISOString();
-    const next = { ...dehydrate(current), ...patch, updatedAt: now };
-    if (patch.status && patch.status !== current.status) {
-      next.history = [...(current.history ?? []), { at: now, status: patch.status, ...(note ? { note } : {}) }];
-    }
-    await writeAtomic(taskFile(id), JSON.stringify(next, null, 2));
-    return hydrate(next, taskDir(id));
+    const { cols, extra } = split(patch);
+    const now = Date.now();
+    transact(db, () => {
+      const merged = { ...unpack(current.extra, {}), ...extra };
+      const sets = [...Object.keys(cols).map((c) => `${c} = ?`), 'extra = ?', 'updated_at = ?'];
+      db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(
+        ...Object.values(cols),
+        pack(merged),
+        now,
+        id,
+      );
+      if (patch.status && patch.status !== current.status) {
+        db.prepare('INSERT INTO task_history (task_id, at, status, note) VALUES (?, ?, ?, ?)').run(
+          id, now, patch.status, note ?? null,
+        );
+        appendEvent(db, { event: 'task', taskId: id, status: patch.status, ...(note ? { note } : {}) });
+      }
+    });
+    return read(id);
+  }
+
+  /**
+   * Take a task, or find someone else already has it.
+   *
+   * A single conditional UPDATE is the whole mechanism: whoever's write lands
+   * first owns it, and the loser is told plainly rather than quietly doing the
+   * same work twice. The lease expires so a worker that dies does not take the
+   * task with it.
+   */
+  async function claim(id, owner, { leaseMs = 10 * 60 * 1000 } = {}) {
+    const now = Date.now();
+    const won = transact(db, () => {
+      const info = db
+        .prepare(
+          'UPDATE tasks SET claimed_by = ?, claim_expires_at = ? ' +
+            'WHERE id = ? AND (claimed_by IS NULL OR claim_expires_at < ?)',
+        )
+        .run(owner, now + leaseMs, id, now);
+      if (info.changes) appendEvent(db, { event: 'claimed', taskId: id, by: owner });
+      return info.changes > 0;
+    });
+    return won ? read(id) : null;
+  }
+
+  async function release(id) {
+    db.prepare('UPDATE tasks SET claimed_by = NULL, claim_expires_at = NULL WHERE id = ?').run(id);
+    return read(id);
   }
 
   async function remove(id) {
+    transact(db, () => {
+      db.prepare('DELETE FROM task_assets WHERE task_id = ?').run(id);
+      db.prepare('DELETE FROM task_history WHERE task_id = ?').run(id);
+      db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    });
     await rm(taskDir(id), { recursive: true, force: true });
   }
 
@@ -188,10 +281,72 @@ export async function openStore(projectDir) {
       applied: by('applied'),
       approved: by('approved'),
       rejected: by('rejected'),
+      needs_confirmation: by('needs_confirmation'),
+      obsolete: by('obsolete'),
     };
   }
 
-  return { dir, list, get: read, create, update, remove, stats };
+  await migrateFromFiles(db, dir);
+
+  return { dir, db, list, get: read, create, update, claim, release, remove, stats };
+}
+
+/**
+ * Adopt task directories written by the file store.
+ *
+ * Runs on every open and does nothing once there is nothing left to adopt. An
+ * upgrade must not be a thing the user has to know about, and least of all one
+ * that loses the work they have not judged yet.
+ */
+export async function migrateFromFiles(db, dir) {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  let adopted = 0;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^task-\d+$/.test(entry.name)) continue;
+    const file = path.join(dir, entry.name, 'task.json');
+    if (!existsSync(file)) continue;
+    if (db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(entry.name)) continue;
+
+    let t;
+    try {
+      t = JSON.parse(await readFile(file, 'utf8'));
+    } catch {
+      continue; // A corrupt record must not stop the rest being adopted.
+    }
+
+    const at = Date.parse(t.createdAt) || Date.now();
+    transact(db, () => {
+      db.prepare(
+        'INSERT INTO tasks (id, status, kind, comment, selector, url, rect, styles, elements, ' +
+          'source_candidates, legacy_key, extra, created_at, updated_at) ' +
+          'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      ).run(
+        t.id ?? entry.name, t.status ?? 'open', t.kind ?? null, t.comment ?? null, t.selector ?? null,
+        t.url ?? null, pack(t.rect), pack(t.styles ?? {}), pack(t.elements ?? []),
+        pack(t.sourceCandidates ?? []), t.legacyKey ?? null,
+        pack({ region: t.region ?? null, move: t.move ?? null, fix: t.fix ?? null, source: t.source ?? null }),
+        at, Date.parse(t.updatedAt) || at,
+      );
+      for (const h of t.history ?? []) {
+        db.prepare('INSERT INTO task_history (task_id, at, status, note) VALUES (?,?,?,?)').run(
+          entry.name, Date.parse(h.at) || at, h.status, h.note ?? null,
+        );
+      }
+      if (t.regionScreenshot) {
+        db.prepare('INSERT INTO task_assets (task_id, kind, path) VALUES (?,?,?)').run(
+          entry.name, 'region', path.basename(t.regionScreenshot),
+        );
+      }
+      for (const a of t.attachments ?? []) {
+        db.prepare('INSERT INTO task_assets (task_id, kind, path) VALUES (?,?,?)').run(
+          entry.name, 'attachment', path.basename(a),
+        );
+      }
+    });
+    adopted += 1;
+  }
+  return adopted;
 }
 
 /**
@@ -229,14 +384,21 @@ export async function importLegacy(projectDir, store) {
       seen = null;
     }
   }
-  if (!seen) {
-    try {
-      // No ledger anywhere — fall back to what is already in the store, so an
-      // upgrade from before any ledger existed doesn't duplicate everything.
-      seen = new Set((await store.list()).map((t) => t.legacyKey).filter(Boolean));
-    } catch {
-      seen = new Set();
-    }
+  if (!seen) seen = new Set();
+
+  /*
+    Union the ledger with the keys tasks already carry.
+
+    The ledger alone was enough while comments only ever reached the store
+    through this function. Now the window writes them as they are made and
+    claims their key, so a manifest scraped afterwards must not adopt them
+    again. Deleting a task still cannot resurrect it: its key stays in the
+    ledger, which is the whole reason the ledger lives outside the store.
+  */
+  try {
+    for (const t of await store.list()) if (t.legacyKey) seen.add(t.legacyKey);
+  } catch {
+    // A store that will not list is a bigger problem than a duplicate import.
   }
 
   let imported = 0;

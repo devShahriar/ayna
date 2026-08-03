@@ -115,6 +115,10 @@ const { values, positionals } = parseArgs({
     root: { type: 'string' },
     routes: { type: 'string' },
     events: { type: 'boolean' },
+    since: { type: 'string' },
+    consumer: { type: 'string' },
+    follow: { type: 'boolean' },
+    ndjson: { type: 'boolean' },
     flow: { type: 'string' },
     dir: { type: 'string' },
     baseline: { type: 'string' },
@@ -447,6 +451,46 @@ async function main() {
       return;
     }
 
+    /*
+      What happened while nobody was looking.
+
+      `watch` announces changes from now on, which is useless to a session that
+      starts after the fact — and that is the common case, because sessions end
+      and reviews do not. This reads the log instead, so being late costs nothing.
+    */
+    case 'events': {
+      const { since, drain, follow } = await import('../src/events.mjs');
+      const consumer = values.consumer ?? null;
+
+      if (values.follow) {
+        const controller = new AbortController();
+        for (const sig of ['SIGINT', 'SIGTERM']) {
+          process.on(sig, () => {
+            controller.abort();
+            process.exit(0);
+          });
+        }
+        await follow(PROJECT, {
+          consumer,
+          signal: controller.signal,
+          onEvent: (e) => console.log(JSON.stringify(e)),
+        });
+        return;
+      }
+
+      const result = consumer
+        ? await drain(PROJECT, consumer)
+        : await since(PROJECT, { since: values.since ?? 0 });
+
+      if (values.ndjson) {
+        // One line per event, so `events` and `events --follow` pipe the same way.
+        for (const e of result.events) console.log(JSON.stringify(e));
+      } else {
+        console.log(JSON.stringify({ ...result, count: result.events.length }, null, 2));
+      }
+      return;
+    }
+
     case 'watch': {
       // Delivery that outlives any window: the store is the queue.
       const store = await openStore(PROJECT);
@@ -489,8 +533,10 @@ async function main() {
       /*
         .ayna grows with every shot, flow and audit. On a project used for a day it
         was already tens of megabytes, none of it needed once the run is read.
-        Tasks and the login profile are never touched — those are the parts you
-        would miss.
+        Tasks, the database and the login profile are never touched — those are
+        the parts you would miss. Only the named directories below are ever
+        removed, so `ayna.db` sitting alongside them is safe by construction
+        rather than by luck.
       */
       const keep = Number(values.keep ?? 3);
       const kinds = ['runs', 'flows', 'audits', 'qa', 'comments'];
@@ -698,9 +744,21 @@ async function main() {
       await writeFile(path.join(SESSION_DIR, `session-${process.pid}.json`), JSON.stringify(pointer));
       await writeFile(path.join(SESSION_DIR, 'last-comments.json'), JSON.stringify(pointer));
 
+      /*
+        The window writes into the store as comments are made.
+
+        This argument was missing, and its absence was the whole bug: every
+        `if (store)` branch in runAnnotate was dead, so a comment existed only
+        inside the running process until the session ended and a later command
+        scraped the finished manifest. Work was invisible for exactly as long as
+        it was live, which is when somebody wants to see it.
+      */
+      const store = await openStore(PROJECT);
+
       const manifest = await runAnnotate({
         browser,
         context,
+        store,
         // One line of JSON per thing worth waking up for. Run this under a
         // monitor and every round the user sends notifies you — no second
         // process, nothing to re-arm.

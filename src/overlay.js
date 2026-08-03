@@ -59,13 +59,25 @@
       border: 2px solid #3b82f6; background: rgba(59,130,246,.12);
       border-radius: 3px;
     }
+    /*
+      Docked to the top edge, not floating over the bottom.
+
+      This used to be a pill at bottom:20px, centred — directly on top of
+      wherever the app keeps its own controls. On a canvas app that is the zoom
+      and history buttons, so "I can't click anything" was literal: ayna's bar was
+      covering them. It reported that exact fault in someone's UI and then
+      committed it.
+
+      Full width across the top, and the page is moved down to make room, so the
+      bar covers nothing at all rather than covering something less important.
+    */
     .${NS}-bar {
-      position: fixed; z-index: 2147483647; left: 50%; transform: translateX(-50%);
-      bottom: 20px; display: flex; align-items: center; gap: 12px;
-      flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px);
-      background: #111418; color: #f2f4f8; padding: 10px 14px; border-radius: 999px;
+      position: fixed; z-index: 2147483647; left: 0; right: 0; top: 0;
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap; justify-content: center;
+      background: #111418; color: #f2f4f8; padding: 10px 16px;
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
-      box-shadow: 0 8px 30px rgba(0,0,0,.35);
+      box-shadow: 0 2px 18px rgba(0,0,0,.35);
     }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
@@ -330,6 +342,10 @@
   */
   function setPhase(phase) {
     if (!bar) return;
+    // The bar's height changes with its contents — three buttons in review, a
+    // spinner and one while waiting — so the space it needs is re-measured on
+    // every phase, not once at startup.
+    queueMicrotask(reserveForBar);
     const leavingReview = state.phase === 'review' && phase !== 'review';
     if (phase !== 'waiting') clearTimeout(state.waitWarn);
     state.phase = phase;
@@ -1091,10 +1107,92 @@
     return Math.round(window.visualViewport?.width ?? window.innerWidth);
   }
 
-  function barSafeZone() {
-    if (!bar) return 0;
+  /*
+    Reserve the space the bar occupies instead of overlaying it.
+
+    Two layouts need two answers. A page that flows normally moves down with
+    padding on the root. An app pinned to the viewport — `position: fixed`,
+    `height: 100vh`, every canvas editor — ignores that completely, because its
+    root is positioned against the viewport and not against the document. A
+    transform on the root element makes it the containing block for those fixed
+    descendants, which is the only thing that actually moves them.
+
+    The transform is the more invasive of the two, so it is used only where the
+    cheap answer provably does not work.
+  */
+  let reserved = 0;
+  function reserveForBar() {
+    if (!bar) return;
+    const h = Math.round(bar.getBoundingClientRect().height);
+    if (!h || h === reserved) return;
+    reserved = h;
+
+    /*
+      Move the page, not the root.
+
+      Transforming documentElement moved the bar with it — the overlay is
+      appended to documentElement precisely so the app cannot style it — and the
+      app's nav ended up back underneath. Body is the boundary that separates the
+      two: the app lives inside it, the review chrome does not.
+    */
+    const root = document.body;
+    document.documentElement.style.setProperty('--ayna-bar-h', h + 'px');
+
+    /*
+      Padding on the root was the first attempt and it only moves content that
+      flows. Anything `position: fixed` — a sticky header, a canvas app, a toolbar
+      pinned to an edge — is positioned against the viewport and ignores it
+      entirely, so the app's own top bar stayed exactly where the review bar now
+      was. Measured on a page with fixed chrome at all four edges, the app's nav
+      buttons were still unclickable.
+
+      A transform on the root makes it the containing block for its fixed
+      descendants, which is the only thing that moves them. So it is the rule,
+      not the exception.
+    */
+    root.style.setProperty('transform', 'translateY(' + h + 'px)', 'important');
+    /*
+      Viewport units, not percentages.
+
+      `calc(100% - h)` resolves against the root's height, which is `auto` on most
+      pages — so body's padding box came out zero, and a `position: fixed;
+      inset: 0` app sized against it collapsed to nothing. Its controls piled up
+      at the top of the screen, underneath the very bar this is meant to keep
+      clear of them. `100vh` is the window either way.
+    */
+    root.style.setProperty('height', 'calc(100vh - ' + h + 'px)', 'important');
+    root.style.setProperty('min-height', 'calc(100vh - ' + h + 'px)', 'important');
+  }
+
+  /** Put the page back exactly as it was; a review must leave no trace. */
+  function releaseBarSpace() {
+    const root = document.body;
+    document.documentElement.style.removeProperty('--ayna-bar-h');
+    root.style.removeProperty('padding-top');
+    root.style.removeProperty('transform');
+    root.style.removeProperty('height');
+    root.style.removeProperty('min-height');
+    reserved = 0;
+  }
+  window.__aynaReleaseSpace = releaseBarSpace;
+
+  /*
+    The rect the bar owns, in viewport coordinates.
+
+    It was a single number — how much of the *bottom* to keep clear — which
+    stopped meaning anything the moment the bar moved to the top. Floating panels
+    ask this to decide where they fit, and a stale answer put them under the bar.
+  */
+  function barZone() {
+    if (!bar) return { top: 0, bottom: 0, height: 0 };
     const b = bar.getBoundingClientRect();
-    return b.height ? b.height + 28 : 0;
+    if (!b.height) return { top: 0, bottom: 0, height: 0 };
+    return { top: 0, bottom: Math.round(b.bottom) + 12, height: Math.round(b.height) };
+  }
+
+  /** Kept for callers that only care how much vertical room is gone. */
+  function barSafeZone() {
+    return barZone().height ? barZone().height + 28 : 0;
   }
 
   function placeFloating(el, r) {
@@ -1110,7 +1208,7 @@
       panel taller than the viewport used to run off the bottom and take its
       buttons with it — visible, unreachable. Its body scrolls instead.
     */
-    el.style.maxHeight = Math.max(160, vh - safe - 16) + 'px';
+    el.style.maxHeight = Math.max(160, vh - barZone().bottom - 24) + 'px';
 
     const box = el.getBoundingClientRect();
     const w = box.width || 320;
@@ -1119,18 +1217,27 @@
     const x = r.x - window.scrollX;
     const y = r.y - window.scrollY;
 
+    /*
+      The bar is at the top now, so the floor is the window and the ceiling is the
+      bar. When it was at the bottom those were the other way round, and a panel
+      that merely swapped ends would have opened underneath it.
+    */
+    const zone = barZone();
+    const ceiling = zone.bottom + 8;
+    const floor = vh - 8;
+
     let top = y + r.height + 10;
-    if (top + h > vh - safe) top = y - h - 10; // no room below — flip above
-    if (top < 8) top = Math.max(8, vh - safe - h); // nor above — sit above the bar
+    if (top + h > floor) top = y - h - 10; // no room below — flip above
+    if (top < ceiling) top = ceiling; // nor above — sit under the bar
 
     // Last resort: if it fits nowhere, keep the bottom on screen rather than the
     // top. The buttons are at the bottom, and a panel whose buttons you cannot
     // reach is the same as no panel.
-    if (top + h > vh - safe) top = Math.max(8, vh - safe - h);
+    if (top + h > floor) top = Math.max(ceiling, floor - h);
 
     el.style.position = 'fixed';
     el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
-    el.style.top = Math.max(8, top) + 'px';
+    el.style.top = Math.max(barZone().bottom + 8, top) + 'px';
 
     /*
       Place it again when it grows.
@@ -1172,6 +1279,7 @@
     requestAnimationFrame(() => {
       relayoutQueued = false;
       hide(); // the hover highlight is stale the moment anything moves
+      reserveForBar();
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
       if (panel) {

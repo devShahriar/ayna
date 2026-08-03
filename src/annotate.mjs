@@ -340,6 +340,14 @@ export async function runAnnotate({
     if (store) {
       const task = await store.create(
         {
+          /*
+            The same comment is about to be written to comments.json as well, and
+            importLegacy adopts that file later keyed on session#id. Without
+            claiming the key here, every comment made in a live window would be
+            imported a second time and the user would see each of their notes
+            twice.
+          */
+          legacyKey: `${path.basename(outDir)}#${record.id}`,
           url: record.url,
           kind: record.kind,
           comment: record.comment,

@@ -15,6 +15,8 @@ import path from 'node:path';
 
 import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { openStore } from '../src/tasks.mjs';
+import { pending as pendingWork } from '../src/events.mjs';
 import { hasBrowser } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
@@ -378,5 +380,63 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
       await new Promise((r) => setTimeout(r, 3500));
     });
     assert.equal(reached, false, 'writing under .ayna must not be read as an applied fix');
+  });
+});
+
+describe('work is visible while it is still being done', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  test('a comment reaches the store the moment it is made, not when the window closes', async () => {
+    /*
+      `bin/ayna.mjs` built a store and never handed it to `runAnnotate`, so every
+      `if (store)` branch inside was dead. A comment existed only inside the
+      running process until the session ended and some later command scraped the
+      finished manifest — so anything asking "what is owed?" during a review got
+      nothing, which is precisely when somebody wants to know.
+
+      The test is deliberately from the outside: a second store handle, as a
+      different process would open.
+    */
+    const { srv, url } = await pollingServer('<h1 class="title">Hello</h1>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-live-'));
+    try {
+      let seenDuring = [];
+      let owedDuring = 0;
+
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store: await openStore(dir),
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          await page.click('.title');
+          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          await page.fill('.ayna-ov-pop textarea', 'widen this nav bar');
+          await page.click('.ayna-ov-save');
+          await page.waitForTimeout(600);
+
+          // Still open, still commenting — ask from outside.
+          const outside = await openStore(dir);
+          seenDuring = (await outside.list()).map((t) => t.comment);
+          owedDuring = (await pendingWork(dir)).pending;
+
+          await page.close();
+        },
+      });
+
+      assert.deepEqual(seenDuring, ['widen this nav bar'], 'the comment was invisible while the window was open');
+      assert.equal(owedDuring, 1);
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
