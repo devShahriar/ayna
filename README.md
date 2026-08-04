@@ -297,6 +297,12 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**Keyboard users are checked too.** A control whose focus ring was removed and
+never replaced is reported, as is one too faint to see (under 3:1). Both are
+counted faults. This runs only where ayna owns the page — measuring focus means
+moving it, and moving it in a window you are reviewing in would fire your app's
+handlers and take the caret with it.
+
 **Contrast is measured, not guessed.** Text below the WCAG minimum — 4.5:1, or
 3:1 for large text — is a counted fault like any other, because it is arithmetic
 rather than opinion. Where it cannot know (a gradient behind the text, a

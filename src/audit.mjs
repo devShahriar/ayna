@@ -311,6 +311,147 @@ export const CHECKS = `(() => {
   };
 })()`;
 
+/**
+ * Can you see where you are, if you are using a keyboard?
+ *
+ * A control with `outline: none` and nothing put back is invisible to anyone
+ * tabbing through the page — they are somewhere, and there is no way to know
+ * where. It is one of the most common failures in AI-written CSS, because
+ * removing the default outline tidies up a screenshot and the cost only shows up
+ * when you stop using a mouse.
+ *
+ * This is deliberately NOT part of CHECKS, and that is the whole design.
+ * Measuring a focus indicator means moving focus, and moving focus in a window
+ * somebody is using is exactly the sort of thing this tool has spent its life
+ * fixing: it fires the app's own focus handlers, opens menus, and puts the caret
+ * somewhere the user did not ask for. So it runs only where ayna owns the page,
+ * and the live-window audit does without it.
+ *
+ * `:focus-visible` only matches when the browser thinks focus arrived by
+ * keyboard, so the caller presses Tab once first to establish that; programmatic
+ * focus after that matches, and styles written the modern way are seen.
+ */
+export const FOCUS_CHECKS = `(() => {
+  const RGB = new RegExp('rgba?[(]([^)]+)[)]');
+  const SEP = new RegExp('[ ,/]+');
+  const parseRGB = (value) => {
+    const m = RGB.exec(value || '');
+    if (!m) return null;
+    const parts = m[1].split(SEP).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.some(Number.isNaN)) return null;
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+  };
+  const luminance = (c) => {
+    const chan = (v) => {
+      const x = v / 255;
+      return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * chan(c.r) + 0.7152 * chan(c.g) + 0.0722 * chan(c.b);
+  };
+  const ratio = (a, b) => {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  const describe = (el) => {
+    if (el.id) return el.tagName.toLowerCase() + '#' + el.id;
+    const cls = [...el.classList].filter((c) => c.indexOf('ayna-ov') !== 0).slice(0, 2);
+    return el.tagName.toLowerCase() + (cls.length ? '.' + cls.join('.') : '');
+  };
+  const ours = (el) => !!(el.closest && el.closest('[data-ayna]'));
+  const visible = (el) => {
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
+
+  /* Everything that could distinguish focused from not. */
+  const snap = (el) => {
+    const st = getComputedStyle(el);
+    return {
+      outlineStyle: st.outlineStyle,
+      outlineWidth: st.outlineWidth,
+      outlineColor: st.outlineColor,
+      outlineOffset: st.outlineOffset,
+      boxShadow: st.boxShadow,
+      border: st.borderTopWidth + st.borderTopColor + st.borderTopStyle,
+      background: st.backgroundColor,
+      backgroundImage: st.backgroundImage,
+      color: st.color,
+      textDecoration: st.textDecorationLine + st.textDecorationColor,
+      filter: st.filter,
+      transform: st.transform,
+    };
+  };
+
+  const SELECTOR = 'a[href], button, input, select, textarea, [tabindex], [role=button], [contenteditable=true]';
+  const candidates = [...document.querySelectorAll(SELECTOR)]
+    .filter((el) => !ours(el) && visible(el) && !el.disabled && el.tabIndex > -1)
+    .slice(0, 60);
+
+  const restore = document.activeElement;
+  const invisible = [];
+  const faint = [];
+
+  for (const el of candidates) {
+    const before = snap(el);
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      continue;
+    }
+    if (document.activeElement !== el) continue; // it refused focus; not a finding
+    const after = snap(el);
+    try {
+      el.blur();
+    } catch {
+      /* nothing to do; the next focus replaces it anyway */
+    }
+
+    const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
+    const outlined = after.outlineStyle !== 'none' && parseFloat(after.outlineWidth) > 0;
+
+    if (!changed.length && !outlined) {
+      invisible.push({ element: describe(el), label: (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 40) });
+      continue;
+    }
+
+    /*
+      An indicator that exists but cannot be seen is barely better than none.
+      Only judged when the outline is a solid colour over a solid background —
+      a shadow, a gradient or a translucent ring has no single pair of colours to
+      compare, and a made-up number is worse than silence.
+    */
+    if (outlined && changed.length && !after.backgroundImage.includes('gradient')) {
+      const ring = parseRGB(after.outlineColor);
+      const behind = parseRGB(after.background);
+      if (ring && ring.a === 1 && behind && behind.a === 1) {
+        const got = ratio(ring, behind);
+        if (got < 3) {
+          faint.push({
+            element: describe(el),
+            ratio: Math.round(got * 100) / 100,
+            needs: 3,
+            outline: after.outlineColor,
+            against: after.background,
+          });
+        }
+      }
+    }
+  }
+
+  if (restore && restore.focus) {
+    try {
+      restore.focus({ preventScroll: true });
+    } catch {
+      /* the element may have gone; nothing depends on this succeeding */
+    }
+  }
+
+  return { noFocusIndicator: invisible, faintFocusIndicator: faint, focusChecked: candidates.length };
+})()`;
+
 /** Faults worth stopping the loop for, in the order they should be fixed. */
 export const SEVERITY = [
   ['covered', 'critical', 'a control is behind something else and cannot be clicked'],
@@ -318,6 +459,8 @@ export const SEVERITY = [
   ['overlaps', 'major', 'two elements are drawn on top of each other'],
   ['clipped', 'major', 'text is cut off by its container'],
   ['lowContrast', 'major', 'text does not meet the WCAG contrast minimum'],
+  ['noFocusIndicator', 'major', 'a keyboard user cannot see where they are'],
+  ['faintFocusIndicator', 'minor', 'the focus ring is under 3:1 against its background'],
   ['unlabelled', 'minor', 'an icon-only control has no accessible name'],
   ['smallTargets', 'minor', 'a hit target is under 44px'],
   ['tinyText', 'minor', 'text below 12px'],
@@ -368,6 +511,34 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     await settle(page, 2500);
 
     const result = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message.split('\n')[0] }));
+
+    /*
+      Focus is measured here and nowhere else.
+
+      Finding out whether a focus ring exists means putting focus on things, which
+      fires the app's own handlers, opens menus and moves the caret. That is fine
+      on a page ayna has just navigated for the purpose, and unacceptable in a
+      window somebody is reviewing in — the same class of rudeness as resizing it.
+
+      The separation is structural rather than conditional: FOCUS_CHECKS is not
+      part of CHECKS, and the live-window audit in annotate evaluates CHECKS
+      directly, so it cannot run this even by accident. Gating on `context` was
+      the first attempt and was wrong — a context here is usually the saved login
+      profile that ayna opened itself, so that rule quietly switched the check off
+      for every app behind a sign-in.
+
+      The Tab press is not decoration: `:focus-visible` matches only when the
+      browser believes focus arrived from the keyboard, so without it every page
+      that styles focus the modern way reads as having no indicator at all.
+    */
+    let focus = {};
+    if (!result.blocked) {
+      await page.keyboard.press('Tab').catch(() => {});
+      focus = await page
+        .evaluate(FOCUS_CHECKS)
+        .catch((e) => ({ unavailable: e.message.split('\n')[0] }));
+    }
+    Object.assign(result, focus);
     const shot = path.join(outDir, `audit-${vp.name}.png`);
     await page.screenshot({ path: shot }).catch(() => {});
 

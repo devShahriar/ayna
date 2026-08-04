@@ -414,6 +414,11 @@ not at the start of every review.
 flow file, not "just for this run". The window is how a person signs in; that is
 the whole arrangement.
 
+**`audit` also checks what keyboard users get.** `noFocusIndicator` means a
+control's focus ring was removed with nothing put back — invisible to anyone
+tabbing through. `faintFocusIndicator` means it exists but is under 3:1 against
+its background. Both are real faults with a fix, not preferences.
+
 ## The part ayna cannot measure
 
 Layout faults are provable and `audit` chases them to zero. Whether a page looks
