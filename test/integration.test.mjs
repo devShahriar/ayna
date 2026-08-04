@@ -387,7 +387,7 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
       await fixtureSite(site);
       const { page, submissions, cleanup } = await overlayPage(site, 4522);
       try {
-        await page.click('[data-act=mode]');
+        await page.click('[data-act=setmode][data-mode=move]');
         await page.locator('.list').scrollIntoViewIfNeeded();
 
         const order = () => page.evaluate(() => [...document.querySelectorAll('.list li')].map((li) => li.textContent));
@@ -486,21 +486,26 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
             await page.click('.ayna-ov-save');
             await page.waitForTimeout(500);
 
-            // comment -> move -> browse, then follow the link
-            await page.click('[data-act=mode]');
-            await page.click('[data-act=mode]');
+            // Browse mode, then follow the link.
+            await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('.nav');
             await page.waitForLoadState('networkidle');
             await page.waitForTimeout(400);
 
-            // The overlay is rebuilt, but the count and mode must survive.
+            /*
+              The overlay is rebuilt, but the count and mode must survive.
+
+              The count used to sit in its own span beside a Tasks button that
+              also showed it — the same number twice, in two wordings. It lives on
+              the button now, which is the thing that opens the list it counts.
+            */
             assert.match(
-              await page.evaluate(() => document.querySelector('.ayna-ov-count')?.textContent),
-              /1 comment/,
+              await page.evaluate(() => document.querySelector('[data-act=tasks]')?.textContent),
+              /Tasks · 1/,
               'earlier comments are not forgotten across navigation',
             );
 
-            await page.click('[data-act=mode]'); // browse -> comment
+            await page.click('[data-act=setmode][data-mode=comment]');
             await page.click('.about');
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'about heading');
@@ -788,9 +793,10 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
               ['1', '2'],
               'remaining pins are renumbered contiguously',
             );
+            // Same move as above: the count is on the Tasks button now.
             assert.match(
-              await page.evaluate(() => document.querySelector('.ayna-ov-count').textContent),
-              /2 comments/,
+              await page.evaluate(() => document.querySelector('[data-act=tasks]').textContent),
+              /Tasks · 2/,
             );
 
             await page.click('[data-act=send]');
@@ -992,8 +998,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
           viewport: { width: 1100, height: 700 },
           onReady: async (page) => {
             // Browse mode, then navigate using the app's own control.
-            await page.click('[data-act=mode]');
-            await page.click('[data-act=mode]');
+            await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('#go');
             await page.waitForTimeout(350);
 
@@ -1003,7 +1008,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
               'overlay survives client-side navigation',
             );
 
-            await page.click('[data-act=mode]'); // back to comment
+            await page.click('[data-act=setmode][data-mode=comment]');
             await page.click('.panel');
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.fill('.ayna-ov-pop textarea', 'more padding here');
@@ -1108,7 +1113,7 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
               'the login went through',
             );
 
-            await page.click('[data-act=mode]'); // browse -> comment
+            await page.click('[data-act=setmode][data-mode=comment]');
             await page.click('.dash');
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.fill('.ayna-ov-pop textarea', 'heading needs work');

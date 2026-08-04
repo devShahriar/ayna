@@ -79,10 +79,47 @@
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
       box-shadow: 0 2px 18px rgba(0,0,0,.35);
     }
+    /* Left group, mode group, actions: the bar is a layout, not a queue. */
+    .${NS}-bar > .${NS}-barside { display: flex; align-items: center; gap: 10px; flex: 1 1 0; }
+    .${NS}-bar > .${NS}-baractions { justify-content: flex-end; }
+    .${NS}-brand {
+      font-weight: 700; letter-spacing: .02em; opacity: .55; text-transform: lowercase;
+    }
+    .${NS}-hint { opacity: .62; }
+    /* A segmented control: which mode is on is a fact, not something to infer. */
+    .${NS}-modes {
+      display: flex; gap: 2px; background: #23272f; border-radius: 999px; padding: 2px;
+    }
+
+    /* The crop leads the box: on a canvas it is the entire comment. */
+    .${NS}-preview:empty { display: none; }
+    .${NS}-preview {
+      position: relative; margin-bottom: 10px; border-radius: 8px; overflow: hidden;
+      background: #f1f3f7; border: 1px solid #dfe3ea; min-height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; color: #6b7280;
+    }
+    .${NS}-preview img { display: block; width: 100%; max-height: 150px; object-fit: contain; }
+    .${NS}-cap {
+      position: absolute; left: 6px; bottom: 6px; background: rgba(17,20,24,.82);
+      color: #fff; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+    }
+    .${NS}-esc { margin-right: auto; font-size: 11px; color: #9aa2b1; }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
       padding: 6px 14px; cursor: pointer; background: #3b82f6; color: #fff;
     }
+    /*
+      After the generic rule on purpose: same specificity, so source order
+      decides. Written above it, every unselected mode inherited the primary blue,
+      and the bar showed four buttons all claiming to be the main action.
+    */
+    .${NS}-modes button {
+      background: transparent; color: #cbd2df; font-weight: 600;
+      padding: 5px 13px; border-radius: 999px;
+    }
+    .${NS}-modes button:hover { background: #2d323c; color: #fff; }
+    .${NS}-modes button.${NS}-on { background: #f2f4f8; color: #14171c; }
     .${NS}-count { opacity: .7; }
     .${NS}-warn { color: #fbbf24; }
     .${NS}-tag {
@@ -96,7 +133,12 @@
     .${NS}-marquee {
       position: absolute; z-index: 2147483641; pointer-events: none;
       border: 2px dashed #3b82f6; background: rgba(59,130,246,.10); border-radius: 3px;
+      display: flex; align-items: flex-end; justify-content: flex-end; padding: 4px;
+      font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff;
     }
+    /* The readout has to stay legible over whatever is underneath it. */
+    .${NS}-marquee::first-line { color: #fff; }
+    .${NS}-marquee { text-shadow: 0 1px 2px rgba(0,0,0,.6); }
     .${NS}-drop {
       position: absolute; z-index: 2147483642; pointer-events: none;
       background: #f59e0b; border-radius: 2px;
@@ -131,11 +173,16 @@
       border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; background: #fff;
     }
     .${NS}-pop textarea:focus { outline: 2px solid #3b82f6; outline-offset: -1px; }
+    /*
+      A footnote, not a field. Boxed and grey at the top of the panel it read as
+      an input you were meant to fill in, and it occupied the line the crop should
+      have had.
+    */
     .${NS}-sel {
-      font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #5b6070;
-      background: #f4f5f8; padding: 5px 7px; border-radius: 6px; margin-bottom: 9px;
-      word-break: break-all; max-height: 46px; overflow: auto;
+      font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9aa2b1;
+      margin-top: 8px; word-break: break-all; max-height: 30px; overflow: hidden;
     }
+    .${NS}-sel:empty { display: none; }
     .${NS}-hint { color: #6b7280; font-size: 11px; margin: 8px 0; }
     .${NS}-attach { color: #3b82f6; text-decoration: underline; cursor: pointer; }
     .${NS}-pop.${NS}-dragover { outline: 2px dashed #3b82f6; outline-offset: 3px; }
@@ -159,12 +206,21 @@
     }
     .${NS}-save { background: #3b82f6; color: #fff; border: 1px solid #3b82f6; }
     .${NS}-cancel { background: #fff; color: #374151; border: 1px solid #dfe3ea; }
+    /*
+      A comment you have just filed is not a warning.
+
+      This pin was amber, the same colour the review phase uses for work that
+      still needs attention, so a page you had simply annotated looked like a page
+      full of problems. Amber and red stay reserved for the states that mean
+      something is wrong; recording a note is neutral.
+    */
     .${NS}-pin {
       position: absolute; z-index: 2147483645; width: 24px; height: 24px;
-      border-radius: 999px 999px 999px 2px; background: #f59e0b; color: #111;
+      border-radius: 999px 999px 999px 2px; background: #3b82f6; color: #fff;
       font: 700 12px/24px -apple-system, system-ui, sans-serif; text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
+    /* Hover is where it says what clicking will do: remove it. */
     .${NS}-pin:hover { background: #ef4444; color: #fff; }
     .${NS}-rev {
       position: absolute; z-index: 2147483638; pointer-events: none;
@@ -353,8 +409,19 @@
     if (leavingReview) clearReview();
 
     if (phase === 'comment') {
-      // comment → move → browse → comment
-      const NEXT = { comment: 'move', move: 'browse', browse: 'comment' };
+      /*
+        All three modes visible at once.
+
+        It used to be one button showing the *next* mode in a cycle, so the label
+        said "Move mode" while you were in comment mode — you had to know the
+        order to work out where you were, and reaching browse meant clicking
+        through move. A segmented control says which one is on.
+      */
+      const MODES = [
+        { id: 'comment', label: 'Comment', title: 'Click anything to comment on it' },
+        { id: 'move', label: 'Move', title: 'Drag an element to try it somewhere else' },
+        { id: 'browse', label: 'Browse', title: 'Use the app normally — nothing is captured' },
+      ];
       const HINT = {
         comment: 'Click anything to comment',
         move: 'Drag an element to reorder it',
@@ -364,24 +431,50 @@
       };
       const NEXT_LABEL = { comment: 'Move mode', move: 'Browse mode', browse: 'Comment mode' };
 
-      bar.innerHTML =
-        '<span>' + HINT[state.mode] + '</span>' +
-        '<button data-act="mode" class="' + NS + '-ghost">' + NEXT_LABEL[state.mode] + '</button>' +
-        '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
-        '<span class="' + NS + '-count">' + countLabel() + '</span>' +
-        '<button data-act="send"' + (state.seq ? '' : ' disabled') + '>Send to Claude</button>';
+      /*
+        Three groups, not one huddle in the middle.
 
-      bar.querySelector('[data-act=mode]').addEventListener('click', () => {
-        state.mode = NEXT[state.mode];
-        try {
-          sessionStorage.setItem('ayna-mode', state.mode);
-        } catch {
-          // Private mode or a blocked origin — the mode just won't persist.
-        }
-        clearSelection();
-        hide();
-        setPhase('comment');
-      });
+        Everything used to be centred in a full-width strip: the hint, a mode
+        toggle, a panel button, a count and the send button, all the same weight,
+        with a third of the screen empty on either side. Nothing told you which of
+        those changed what you were doing and which merely opened something, and
+        the count appeared twice — once on the Tasks button and once beside it.
+
+        Left says where you are, middle switches how you are working, right is the
+        one action that ends the round.
+      */
+      bar.innerHTML =
+        '<div class="' + NS + '-barside">' +
+          '<span class="' + NS + '-brand">ayna</span>' +
+          '<span class="' + NS + '-hint">' + HINT[state.mode] + '</span>' +
+        '</div>' +
+        '<div class="' + NS + '-modes" role="group" aria-label="Mode">' +
+          MODES.map((m) =>
+            '<button data-act="setmode" data-mode="' + m.id + '"' +
+            (state.mode === m.id ? ' aria-pressed="true" class="' + NS + '-on"' : ' aria-pressed="false"') +
+            ' title="' + m.title + '">' + m.label + '</button>',
+          ).join('') +
+        '</div>' +
+        '<div class="' + NS + '-barside ' + NS + '-baractions">' +
+          '<button data-act="tasks" class="' + NS + '-ghost" title="Everything still owed on this page">Tasks</button>' +
+          '<button data-act="send"' + (state.seq ? '' : ' disabled') +
+            (state.seq ? '' : ' title="Comment on something first"') + '>Send to Claude</button>' +
+        '</div>';
+
+      for (const b of bar.querySelectorAll('[data-act=setmode]')) {
+        b.addEventListener('click', () => {
+          state.mode = b.dataset.mode;
+          try {
+            sessionStorage.setItem('ayna-mode', state.mode);
+          } catch {
+            // Private mode or a blocked origin — the mode just won't persist.
+          }
+          clearSelection();
+          hide();
+          setPhase('comment');
+        });
+      }
+
       bar.querySelector('[data-act=tasks]').addEventListener('click', togglePanel);
       refreshTaskCount();
       bar.querySelector('[data-act=send]').addEventListener('click', () => {
@@ -642,11 +735,17 @@
     tag.innerHTML =
       '<b></b>' +
       (isCanvas
-        ? '<i>drag a box — this is one canvas</i>'
+        ? '<i>drag a box — a canvas is one element</i>'
         : operable
-          ? '<i>⌥click to comment</i>'
+          ? '<i>⌥click to comment on it</i>'
           : canClimb || state.climb
-            ? '<i>↑ ↓ resize · ⇧click adds</i>'
+            /*
+              "resize" was wrong and confusing: the arrow keys do not resize
+              anything, they walk up and down the element tree to change what is
+              selected. Someone reading it reasonably expects to be adjusting a
+              box.
+            */
+            ? '<i>↑↓ select wider · ⇧click to add</i>'
             : '');
     tag.querySelector('b').textContent = describe(el);
     tag.style.display = 'block';
@@ -907,6 +1006,15 @@
       box.style.top = r.y + 'px';
       box.style.width = r.width + 'px';
       box.style.height = r.height + 'px';
+      /*
+        Say how big it is while it is being drawn.
+
+        The size only appeared afterwards, inside the comment box, by which point
+        the choice had been made. Framing a region on a canvas is the one gesture
+        where the pixels are the whole message, and it was the one gesture with no
+        feedback until it was too late to adjust.
+      */
+      box.textContent = Math.round(r.width) + ' × ' + Math.round(r.height);
     },
     true,
   );
@@ -1358,17 +1466,35 @@
     pop = document.createElement('div');
     pop.className = NS + '-pop';
     pop.setAttribute('data-ayna', '1');
+    /*
+      What you are commenting on goes first, as a picture.
+
+      The box opened with a monospace CSS path across the top — the most valuable
+      line in the panel spent on a detail only Claude reads — and the crop of what
+      you had framed appeared as a 48px square below the buttons with an AUTO
+      badge over it, which read as a broken image rather than a preview. On a
+      canvas that crop is the entire comment, so it is now the first thing in the
+      box and big enough to recognise. The selector moved to the footer, where it
+      belongs: useful, not important.
+
+      The two hint lines became one. "The framed region is attached
+      automatically" and "Paste, drop, or choose an image · Esc to cancel" were
+      stacked, saying three different things at the same volume.
+    */
     pop.innerHTML =
       '<div class="' + NS + '-body">' +
-      '<div class="' + NS + '-sel"></div>' +
-      '<textarea placeholder="What should change about this?"></textarea>' +
-      (region ? '<div class="' + NS + '-hint">The framed region is attached automatically.</div>' : '') +
-      '<div class="' + NS + '-hint">Paste, drop, or ' +
-      '<label class="' + NS + '-attach">choose an image<input type="file" accept="image/*" multiple hidden></label>' +
-      ' · Esc to cancel</div>' +
+      '<div class="' + NS + '-preview"></div>' +
+      '<textarea placeholder="' +
+        (region ? 'What should change in this area?' : 'What should change about this?') +
+      '"></textarea>' +
       '<div class="' + NS + '-thumbs"></div>' +
+      '<div class="' + NS + '-hint">Paste or ' +
+      '<label class="' + NS + '-attach">attach an image<input type="file" accept="image/*" multiple hidden></label>' +
+      ' to show what you mean</div>' +
+      '<div class="' + NS + '-sel"></div>' +
       '</div>' +
       '<div class="' + NS + '-row">' +
+      '<span class="' + NS + '-esc">Esc to cancel</span>' +
       '<button class="' + NS + '-cancel">Cancel</button>' +
       '<button class="' + NS + '-save">Add comment</button>' +
       '</div>';
@@ -1393,22 +1519,34 @@
       difference between trusting the tool and hoping.
     */
     if (region && window.__aynaPreview) {
+      const preview = pop.querySelector('.' + NS + '-preview');
+      // Say it is coming. A blank space that fills in silently is
+      // indistinguishable from one that never will.
+      preview.classList.add(NS + '-loading');
+      preview.textContent = 'capturing the area…';
       window.__aynaPreview(r)
         .then((dataUrl) => {
-          if (!dataUrl || !pop) return;
-          const thumbs = pop.querySelector('.' + NS + '-thumbs');
-          const wrap = document.createElement('span');
-          wrap.className = NS + '-auto';
+          if (!pop) return;
+          preview.classList.remove(NS + '-loading');
+          if (!dataUrl) {
+            preview.textContent = 'the area could not be captured — describe it instead';
+            return;
+          }
+          preview.textContent = '';
           const img = document.createElement('img');
           img.src = dataUrl;
-          img.title = 'The region you framed — attached automatically';
-          wrap.appendChild(img);
-          const tagEl = document.createElement('b');
-          tagEl.textContent = 'auto';
-          wrap.appendChild(tagEl);
-          thumbs.prepend(wrap);
+          img.alt = 'The area you framed, attached to this comment';
+          preview.appendChild(img);
+          const tag = document.createElement('span');
+          tag.className = NS + '-cap';
+          tag.textContent = 'attached · ' + Math.round(r.width) + '×' + Math.round(r.height);
+          preview.appendChild(tag);
+          // The box just grew; the observer in placeFloating moves it back into view.
         })
-        .catch(() => {});
+        .catch(() => {
+          preview.classList.remove(NS + '-loading');
+          preview.textContent = 'the area could not be captured — describe it instead';
+        });
     }
 
     const thumbs = pop.querySelector('.' + NS + '-thumbs');
