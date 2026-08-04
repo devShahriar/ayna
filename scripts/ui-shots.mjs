@@ -77,16 +77,27 @@ async function main() {
         await page.waitForTimeout(300);
 
         // A few more comments, so the panel and review markers have content.
-        for (const [x, y, text] of [
-          [700, 620, 'these cards do not line up'],
-          [1100, 300, 'the button has no hover state'],
+        // By selector, not by coordinate: the page moved down when the bar
+        // reserved its space, and fixed coordinates started landing on whatever
+        // had shifted into them.
+        for (const [sel, text] of [
+          ['.eyebrow', 'this label is almost invisible against the background'],
+          ['.hero-sub', 'the sub-heading is longer than the measure it sits in'],
+          ['.feature-grid .feature', 'these cards do not line up with the grid above'],
         ]) {
-          await page.mouse.click(x, y);
-          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          const el = await page.$(sel);
+          if (!el) continue;
+          await el.scrollIntoViewIfNeeded();
+          await page.waitForTimeout(250);
+          await el.click();
+          const box = await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 }).catch(() => null);
+          if (!box) continue;
           await page.fill('.ayna-ov-pop textarea', text);
           await page.click('.ayna-ov-save');
           await page.waitForTimeout(400);
         }
+        await page.evaluate(() => scrollTo(0, 0));
+        await page.waitForTimeout(300);
         await shoot(page, '08-three-comments');
 
         // The task panel.

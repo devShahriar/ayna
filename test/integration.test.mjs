@@ -910,7 +910,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
             );
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent),
-              /0 of 2 resolved/,
+              /2 left to judge/,
             );
 
             // Approve the first, send the second back.
@@ -924,9 +924,15 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
               ['approved', 'rejected'],
             );
+            /*
+              The bar counts down what is left rather than up what is done:
+              "0 of 3 resolved" made the reader subtract to find out whether they
+              could leave. A rejected comment is still outstanding, so with one
+              approved and one rejected there is one left.
+            */
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent),
-              /1 of 2 resolved/,
+              /1 left to judge/,
             );
 
             // A resolved comment stays readable — the record of what changed.

@@ -105,6 +105,11 @@
       color: #fff; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
     }
     .${NS}-esc { margin-right: auto; font-size: 11px; color: #9aa2b1; }
+    /* The verdict buttons appear at two sizes; the card is the comfortable one. */
+    .${NS}-card .${NS}-ok, .${NS}-card .${NS}-no {
+      height: auto; padding: 7px 14px; border-radius: 8px;
+      font: 600 13px/1 -apple-system, system-ui, sans-serif;
+    }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
       padding: 6px 14px; cursor: pointer; background: #3b82f6; color: #fff;
@@ -121,6 +126,8 @@
     .${NS}-modes button:hover { background: #2d323c; color: #fff; }
     .${NS}-modes button.${NS}-on { background: #f2f4f8; color: #14171c; }
     .${NS}-count { opacity: .7; }
+    .${NS}-progress { font-weight: 600; opacity: .8; }
+    .${NS}-progress.${NS}-done { color: #4ade80; opacity: 1; }
     .${NS}-warn { color: #fbbf24; }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
@@ -224,7 +231,15 @@
     .${NS}-pin:hover { background: #ef4444; color: #fff; }
     .${NS}-rev {
       position: absolute; z-index: 2147483638; pointer-events: none;
-      border: 2px solid #f59e0b; background: rgba(245,158,11,.10);
+      /*
+        Awaiting a verdict is not a warning.
+
+        Every marker was amber — border and wash — so a page where three changes
+        were simply waiting to be looked at read as a page with three problems,
+        and the colour carried no information because everything had it. Amber and
+        red now mean what they say. Blue means "your turn".
+      */
+      border: 2px solid #3b82f6; background: rgba(59,130,246,.07);
       border-radius: 4px; transition: border-color .2s, background-color .2s;
     }
     .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
@@ -239,7 +254,7 @@
     }
     .${NS}-revpin {
       min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px;
-      background: #f59e0b; color: #111; display: flex; align-items: center;
+      background: #3b82f6; color: #fff; display: flex; align-items: center;
       justify-content: center; cursor: pointer; white-space: nowrap;
     }
     .${NS}-revpin[data-status=resolved] { background: #16a34a; color: #fff; }
@@ -248,12 +263,17 @@
       border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
       font: inherit; white-space: nowrap;
     }
+    /*
+      One colour per meaning. "Looks right" was green on the inline bar and blue
+      in the card that opens from it — the same decision painted two ways
+      depending on where you happened to click.
+    */
     .${NS}-ok { background: #16a34a; color: #fff; }
     .${NS}-no { background: #2b313d; color: #e5e7eb; }
     .${NS}-ok:hover { background: #15803d; }
     .${NS}-no:hover { background: #ef4444; color: #fff; }
     .${NS}-panel {
-      position: fixed; z-index: 2147483646; right: 16px; top: 16px; width: 330px;
+      position: fixed; z-index: 2147483646; right: 16px; width: 340px;
       max-width: calc(100vw - 32px);
       background: #111418; color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
       box-shadow: 0 18px 50px rgba(0,0,0,.45); display: flex; flex-direction: column;
@@ -278,7 +298,7 @@
     }
     .${NS}-task:hover { background: #171b22; }
     .${NS}-dot {
-      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #f59e0b;
+      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #3b82f6;
     }
     .${NS}-task[data-status=approved] .${NS}-dot { background: #16a34a; }
     .${NS}-task[data-status=in_progress] .${NS}-dot { background: #38bdf8; }
@@ -521,15 +541,32 @@
       return;
     }
 
-    // review — three separate actions, none of which is a side effect of another
+    /*
+      Review — three separate actions, none a side effect of another, and the same
+      three-group layout as commenting so the bar does not rearrange itself under
+      the user between phases.
+
+      Close was the primary blue button, which made ending the review the most
+      eye-catching thing on a screen whose entire purpose is judging what changed.
+      The verdicts live out on the page, so nothing in this bar deserves primary
+      until there is nothing left to judge — at which point Close is exactly what
+      you want, and updateReviewBar promotes it.
+    */
     bar.innerHTML =
-      '<span>Changes are live — judge each one</span>' +
-      '<span class="' + NS + '-progress ' + NS + '-count"></span>' +
-      '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
-      '<button data-act="more" class="' + NS + '-ghost">Comment more</button>' +
-      '<button data-act="approve-all" class="' + NS + '-ghost" ' +
-      'title="Marks every pending change approved">Approve all</button>' +
-      '<button data-act="close" title="Ends the review — anything unjudged stays pending">Close</button>';
+      '<div class="' + NS + '-barside">' +
+        '<span class="' + NS + '-brand">ayna</span>' +
+        '<span class="' + NS + '-hint">Changes are live — judge each one</span>' +
+      '</div>' +
+      '<div class="' + NS + '-progress ' + NS + '-count"></div>' +
+      '<div class="' + NS + '-barside ' + NS + '-baractions">' +
+        '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
+        '<button data-act="more" class="' + NS + '-ghost" ' +
+        'title="Go back to commenting without ending the review">Comment more</button>' +
+        '<button data-act="approve-all" class="' + NS + '-ghost" ' +
+        'title="Marks every pending change approved">Approve all</button>' +
+        '<button data-act="close" class="' + NS + '-ghost" ' +
+        'title="Ends the review — anything unjudged stays pending">Close</button>' +
+      '</div>';
 
     // Re-anchor every comment on the changed page so each one can be judged
     // where it actually happened, not from memory.
@@ -1690,7 +1727,42 @@
     Positions are all that can change during a resize. The comments have not moved,
     only their elements have, so re-derive rects from the nodes we already built.
   */
+  /*
+    Where a verdict bar goes without landing on somebody else's element.
+
+    It always sat 28px above its own element, which on a stacked layout is inside
+    the element above — the bar for the sub-heading was drawn across the bottom of
+    the headline, over the very text that headline's own comment was about. When
+    the space above belongs to something else that is also under review, the bar
+    goes inside its own element instead, where it can only cover what it refers to.
+  */
+  function barTopFor(c, r, others) {
+    const rects = others
+      .filter((o) => o !== c)
+      .map(anchorFor)
+      .filter((q) => q && q.width);
+
+    const free = (y) => {
+      const band = { x: r.x, y, w: r.width, h: 26 };
+      return !rects.some(
+        (q) =>
+          band.x < q.x + q.width &&
+          band.x + band.w > q.x &&
+          band.y < q.y + q.height &&
+          band.y + band.h > q.y,
+      );
+    };
+
+    // Above is the natural place. Below is the fallback, and only if both are
+    // taken does the bar go inside — covering the very text it is asking about
+    // is the worst of the three, so it is the one that has to be earned.
+    if (r.y - 28 >= 0 && free(r.y - 28)) return r.y - 28;
+    if (free(r.y + r.height + 4)) return r.y + r.height + 4;
+    return Math.max(0, r.y + 4);
+  }
+
   function repositionReview() {
+    const all = reviewNodes.map((n) => n.__aynaFor).filter(Boolean);
     for (const n of reviewNodes) {
       const c = n.__aynaFor;
       if (!c) continue;
@@ -1698,7 +1770,7 @@
       if (!r || !r.width) continue;
       n.style.left = r.x + 'px';
       if (n.__aynaKind === 'bar') {
-        n.style.top = Math.max(0, r.y - 28) + 'px';
+        n.style.top = barTopFor(c, r, all) + 'px';
       } else {
         n.style.top = r.y + 'px';
         n.style.width = r.width + 'px';
@@ -1739,7 +1811,7 @@
       barEl.className = NS + '-revbar';
       barEl.setAttribute('data-ayna', '1');
       barEl.style.left = r.x + 'px';
-      barEl.style.top = Math.max(0, r.y - 28) + 'px';
+      barEl.style.top = barTopFor(c, r, here) + 'px';
 
       const pin = document.createElement('div');
       pin.className = NS + '-revpin';
@@ -1837,8 +1909,13 @@
           '<button class="' + NS + '-save" data-act="go">Go ahead</button>'
         : done
           ? '<button class="' + NS + '-cancel" data-act="reopen">Reopen</button>'
-          : '<button class="' + NS + '-cancel" data-act="reject">Needs work</button>' +
-            '<button class="' + NS + '-save" data-act="resolve">Looks right</button>') +
+          /*
+            Same colours as the inline bar. "Looks right" was the generic blue
+            primary here and green out on the page, so one decision looked like
+            two different ones depending on where you happened to click it.
+          */
+          : '<button class="' + NS + '-no" data-act="reject">Needs work</button>' +
+            '<button class="' + NS + '-ok" data-act="resolve">Looks right</button>') +
       '</div>';
     if (proposal && c.fix) card.querySelector('.' + NS + '-fix').textContent = c.fix;
 
@@ -1892,7 +1969,29 @@
     const comments = await window.__aynaList().catch(() => []);
     const resolved = comments.filter((c) => c.status === 'approved').length;
     const label = bar.querySelector('.' + NS + '-progress');
-    if (label) label.textContent = resolved + ' of ' + comments.length + ' resolved';
+    const left = comments.length - resolved;
+    if (label) {
+      // Say what is left to do, not what has been done. "0 of 3 resolved" makes
+      // the reader do the subtraction to find out whether they can leave.
+      label.textContent = left
+        ? left + (left === 1 ? ' left to judge' : ' left to judge')
+        : 'all ' + comments.length + ' judged';
+      label.classList.toggle(NS + '-done', left === 0);
+    }
+
+    /*
+      Promote Close only when there is nothing left.
+
+      While verdicts are outstanding the important actions are out on the page, so
+      a filled button up here would just be the easiest way to leave without
+      finishing. Once everything is judged, leaving is the right next step and the
+      bar should say so.
+    */
+    const close = bar.querySelector('[data-act=close]');
+    if (close) {
+      close.classList.toggle(NS + '-ghost', left > 0);
+      close.textContent = left ? 'Close' : 'Done';
+    }
   }
 
   /*
@@ -1925,7 +2024,16 @@
     panel = document.createElement('div');
     panel.className = NS + '-panel';
     panel.setAttribute('data-ayna', '1');
-    panel.style.maxHeight = Math.max(200, viewportH() - barSafeZone() - 32) + 'px';
+    /*
+      Below the bar, not behind it.
+
+      The panel opened at top:16px while the bar occupies the first 52, so its
+      header — the title, the count and the only close button — was hidden
+      underneath. The list appeared to start with a stray URL and to have no way
+      out of it.
+    */
+    panel.style.top = barZone().bottom + 8 + 'px';
+    panel.style.maxHeight = Math.max(200, viewportH() - barZone().bottom - 24) + 'px';
 
     const pending = tasks.filter((t) => t.status !== 'approved').length;
     panel.innerHTML =
@@ -1959,7 +2067,8 @@
       } catch {
         label = key;
       }
-      head.textContent = samePage(key) ? label + '  · this page' : label;
+      head.textContent = samePage(key) ? 'On this page' : label;
+      head.title = key;
       list.appendChild(head);
 
       for (const t of groups.get(key)) {
@@ -1973,11 +2082,22 @@
           (t.status === 'approved'
             ? ''
             : '<span class="' + NS + '-task-acts">' +
-              '<button data-act="ok" title="Looks right">✓</button>' +
-              '<button data-act="no" class="' + NS + '-no" title="Needs work">↺</button></span>');
+              '<button data-act="ok" title="Looks right" aria-label="Looks right">✓</button>' +
+              // ↺ reads as undo or reopen, which is a different thing entirely
+              // from "this still needs work".
+              '<button data-act="no" class="' + NS + '-no" title="Needs work" ' +
+              'aria-label="Needs work">✕</button></span>');
         row.querySelector('.' + NS + '-t').textContent = t.comment || '(no text)';
-        row.querySelector('.' + NS + '-task-meta').textContent =
-          t.status + (t.kind && t.kind !== 'comment' ? ' · ' + t.kind : '');
+        /*
+          Only say the status when it is worth saying. Every row read "open"
+          underneath it, which is what being in a list of outstanding work already
+          means — three identical grey labels carrying nothing.
+        */
+        const notable = t.status !== 'open';
+        row.querySelector('.' + NS + '-task-meta').textContent = [
+          notable ? t.status.replace(/_/g, ' ') : '',
+          t.kind && t.kind !== 'comment' ? t.kind : '',
+        ].filter(Boolean).join(' · ');
         list.appendChild(row);
 
         row.addEventListener('click', () => {
