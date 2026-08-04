@@ -39,6 +39,7 @@ ${bold('TASKS')}
   tasks       Every comment ever made here and where it stands
   task        Show one, or move it: ayna task task-0003 --status in_progress
   propose     Put a change in front of the user before making it
+  events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
 
 ${bold('REVIEW')} — you point, Claude fixes
@@ -51,6 +52,7 @@ ${bold('REVIEW')} — you point, Claude fixes
 ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
+  taste       Design anti-patterns via impeccable, if installed (--propose to raise them)
   audit       Find layout faults the page can prove: covered, cut off, overlapping
               (--flow steps.json to audit a state you have to click into)
   qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
@@ -118,6 +120,7 @@ const { values, positionals } = parseArgs({
     since: { type: 'string' },
     consumer: { type: 'string' },
     follow: { type: 'boolean' },
+    propose: { type: 'boolean' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
     dir: { type: 'string' },
@@ -487,6 +490,39 @@ async function main() {
         for (const e of result.events) console.log(JSON.stringify(e));
       } else {
         console.log(JSON.stringify({ ...result, count: result.events.length }, null, 2));
+      }
+      return;
+    }
+
+    /*
+      What ayna cannot measure.
+
+      Layout faults are provable and ayna chases them to zero. Whether a page
+      looks like every other page a model has produced is not provable, and the
+      README has always said so. Impeccable's detectors cover exactly that gap, so
+      this hands them the same URL and keeps their findings clearly separate from
+      the measurements.
+    */
+    case 'taste': {
+      const { judgeTaste, proposeTaste, summarizeTaste } = await import('../src/taste.mjs');
+      const cfg = await loadConfig(PROJECT);
+      const target = values.url ?? values.root ?? (await startTarget(cfg).then((s) => s.url).catch(() => null));
+      if (!target) throw new Error('nothing to look at — pass --url or --root');
+
+      const result = await judgeTaste(target, { cwd: PROJECT });
+
+      let raised = { proposed: 0 };
+      if (values.propose && result.available) {
+        const store = await openStore(PROJECT);
+        raised = await proposeTaste(store, result, { url: target });
+      }
+
+      if (values.json) {
+        console.log(JSON.stringify({ ...result, ...raised }, null, 2));
+      } else {
+        banner('ayna taste');
+        console.log(summarizeTaste(result));
+        if (raised.proposed) ok(`${raised.proposed} raised as proposals — approve them with \`ayna task <id> --status open\``);
       }
       return;
     }

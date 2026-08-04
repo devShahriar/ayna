@@ -297,6 +297,21 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**Contrast is measured, not guessed.** Text below the WCAG minimum — 4.5:1, or
+3:1 for large text — is a counted fault like any other, because it is arithmetic
+rather than opinion. Where it cannot know (a gradient behind the text, a
+translucent colour) it says nothing rather than inventing a number.
+
+**It only knows what it can measure** — but it can borrow taste. Layout faults are
+provable; "this looks generic" is not.
+[Impeccable](https://github.com/pbakaus/impeccable) (Apache-2.0) detects the
+patterns every AI-built page shares, and `ayna taste --url <page> --propose`
+raises each as a proposal you approve or dismiss. It is spawned, never depended
+on: ayna still installs nothing but `playwright-core`, and a machine without
+impeccable simply skips the check. Its findings never affect whether an audit is
+clean, because a fixing loop needs a condition under which it is finished and
+taste does not have one.
+
 **It only knows what it can measure.** "This control cannot be clicked" is a fact.
 "This looks wrong" is not, and ayna will not tell you. Taste is still yours.
 

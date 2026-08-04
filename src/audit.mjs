@@ -194,6 +194,95 @@ export const CHECKS = `(() => {
     .map((el) => ({ element: describe(el), rect: box(el) }));
 
   /*
+    6. Text nobody can read.
+
+    Contrast is the one piece of visual taste that is not taste: WCAG puts a
+    number on it, and the page can prove whether it meets it. 4.5:1 for body
+    text, 3:1 for large text (24px, or 18.66px when bold).
+
+    Two deliberate refusals to guess. A translucent foreground is composited over
+    whatever is behind it, and a background image or gradient has no single
+    colour to compare against — in both cases the honest answer is that this
+    cannot be measured here, so the element is skipped rather than reported on a
+    number that was invented.
+  */
+  /*
+    Built from strings, for the same reason AUTH_PATH above is.
+
+    This whole script lives in a template literal, which eats a backslash before
+    it ever reaches the browser. Written as regex literals these matched nothing,
+    every colour parsed as null, and the contrast check reported zero problems on
+    a page of grey-on-white text — a perfect score because it never ran. Escaping
+    harder just moves the problem: the fix is to need no backslashes at all, so
+    [(] rather than \\(, and an explicit separator class rather than \\s.
+  */
+  const RGB = new RegExp('rgba?[(]([^)]+)[)]');
+  const SEP = new RegExp('[ ,/]+');
+
+  const parseRGB = (value) => {
+    const m = RGB.exec(value || '');
+    if (!m) return null;
+    const parts = m[1].split(SEP).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.some(Number.isNaN)) return null;
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+  };
+
+  const luminance = (c) => {
+    const chan = (v) => {
+      const x = v / 255;
+      return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * chan(c.r) + 0.7152 * chan(c.g) + 0.0722 * chan(c.b);
+  };
+
+  const ratio = (a, b) => {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  /** The first ancestor that actually paints something behind this text. */
+  const backdrop = (el) => {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const st = getComputedStyle(n);
+      if (st.backgroundImage && st.backgroundImage !== 'none') return null; // unmeasurable
+      const bg = parseRGB(st.backgroundColor);
+      if (bg && bg.a === 1) return bg;
+      if (bg && bg.a > 0) return null; // partly transparent: composited, so skip
+    }
+    const body = parseRGB(getComputedStyle(document.body).backgroundColor);
+    return body && body.a === 1 ? body : { r: 255, g: 255, b: 255 };
+  };
+
+  const lowContrast = [];
+  for (const el of all) {
+    if (lowContrast.length >= 30) break;
+    if (!ownText(el)) continue;
+    const st = getComputedStyle(el);
+    const fg = parseRGB(st.color);
+    if (!fg || fg.a < 1) continue;
+    const bg = backdrop(el);
+    if (!bg) continue;
+
+    const size = parseFloat(st.fontSize) || 16;
+    const weight = Number(st.fontWeight) || 400;
+    const large = size >= 24 || (size >= 18.66 && weight >= 700);
+    const need = large ? 3 : 4.5;
+    const got = ratio(fg, bg);
+    if (got >= need) continue;
+
+    lowContrast.push({
+      element: describe(el),
+      label: label(el),
+      ratio: Math.round(got * 100) / 100,
+      needs: need,
+      size: Math.round(size),
+      color: st.color,
+      background: 'rgb(' + bg.r + ', ' + bg.g + ', ' + bg.b + ')',
+    });
+  }
+
+  /*
     A sign-in wall is not a layout report.
 
     Auditing a login screen produces findings about a login screen — technically
@@ -218,6 +307,7 @@ export const CHECKS = `(() => {
     tinyText,
     smallTargets,
     unlabelled,
+    lowContrast,
   };
 })()`;
 
@@ -227,6 +317,7 @@ export const SEVERITY = [
   ['offscreen', 'critical', 'content is cut off by the window edge'],
   ['overlaps', 'major', 'two elements are drawn on top of each other'],
   ['clipped', 'major', 'text is cut off by its container'],
+  ['lowContrast', 'major', 'text does not meet the WCAG contrast minimum'],
   ['unlabelled', 'minor', 'an icon-only control has no accessible name'],
   ['smallTargets', 'minor', 'a hit target is under 44px'],
   ['tinyText', 'minor', 'text below 12px'],

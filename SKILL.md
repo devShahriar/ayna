@@ -414,6 +414,27 @@ not at the start of every review.
 flow file, not "just for this run". The window is how a person signs in; that is
 the whole arrangement.
 
+## The part ayna cannot measure
+
+Layout faults are provable and `audit` chases them to zero. Whether a page looks
+like every other page a model has produced is not provable, and ayna will not
+tell you. [Impeccable](https://github.com/pbakaus/impeccable) detects exactly
+that — the icon-tile feature card, the hairline border with the wide shadow, the
+font every generator picks — with no model and no API key:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" taste --url <page> --propose
+```
+
+It is optional. Not installed means the check is skipped and said so, never an
+error. `--propose` files each rule as a **proposal**, so nothing is edited until
+the user answers it.
+
+**Its findings never make an audit unclean.** `clean` means "nothing the page can
+prove is wrong", which is what gives a fixing loop a condition under which it is
+finished. Taste has no such condition. Report the two separately and never let one
+stand in for the other.
+
 ## Fixing things you found yourself
 
 When you find a fault the user did not ask about — from `audit`, or just from
