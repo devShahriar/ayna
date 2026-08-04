@@ -297,6 +297,12 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**ayna is held to its own standards.** `scripts/self-taste.mjs` renders the review
+chrome to a standalone page and runs impeccable's detectors over it. It found 53
+things the first time — including white-on-blue buttons at 3.68:1, which is ayna
+failing the contrast rule it enforces on everyone else. It is at zero now, and
+the script is how it stays there.
+
 **Keyboard users are checked too.** A control whose focus ring was removed and
 never replaced is reported, as is one too faint to see (under 3:1). Both are
 counted faults. This runs only where ayna owns the page — measuring focus means

@@ -56,7 +56,7 @@
   css.textContent = `
     .${NS}-hl {
       position: absolute; pointer-events: none; z-index: 2147483640;
-      border: 2px solid #3b82f6; background: rgba(59,130,246,.12);
+      border: 2px solid #2563eb; background: rgba(59,130,246,.12);
       border-radius: 3px;
     }
     /*
@@ -97,14 +97,14 @@
       position: relative; margin-bottom: 10px; border-radius: 8px; overflow: hidden;
       background: #f1f3f7; border: 1px solid #dfe3ea; min-height: 34px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; color: #6b7280;
+      font-size: 12px; color: #5b6472;
     }
     .${NS}-preview img { display: block; width: 100%; max-height: 150px; object-fit: contain; }
     .${NS}-cap {
       position: absolute; left: 6px; bottom: 6px; background: rgba(17,20,24,.82);
-      color: #fff; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
     }
-    .${NS}-esc { margin-right: auto; font-size: 11px; color: #9aa2b1; }
+    .${NS}-esc { margin-right: auto; font-size: 12px; color: #6b7280; }
     /* The verdict buttons appear at two sizes; the card is the comfortable one. */
     .${NS}-card .${NS}-ok, .${NS}-card .${NS}-no {
       height: auto; padding: 7px 14px; border-radius: 8px;
@@ -112,7 +112,7 @@
     }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
-      padding: 6px 14px; cursor: pointer; background: #3b82f6; color: #fff;
+      padding: 6px 14px; cursor: pointer; background: #2563eb; color: #fff;
     }
     /*
       After the generic rule on purpose: same specificity, so source order
@@ -131,15 +131,15 @@
     .${NS}-warn { color: #fbbf24; }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      background: #3b82f6; color: #fff; border-radius: 4px; padding: 2px 7px;
-      font: 500 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #2563eb; color: #fff; border-radius: 4px; padding: 2px 7px;
+      font: 500 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.2);
     }
     .${NS}-tag b { font-weight: 700; }
     .${NS}-tag i { font-style: normal; opacity: .75; margin-left: 8px; }
     .${NS}-marquee {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      border: 2px dashed #3b82f6; background: rgba(59,130,246,.10); border-radius: 3px;
+      border: 2px dashed #2563eb; background: rgba(59,130,246,.10); border-radius: 3px;
       display: flex; align-items: flex-end; justify-content: flex-end; padding: 4px;
       font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff;
     }
@@ -168,7 +168,7 @@
     .${NS}-pop {
       position: fixed; z-index: 2147483646; width: 320px; max-width: calc(100vw - 16px);
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
-      box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
+      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid #c9cfd9;
       font: 13px/1.5 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column; gap: 0;
     }
@@ -179,26 +179,26 @@
       width: 100%; min-height: 78px; resize: vertical; padding: 9px; color: #111;
       border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; background: #fff;
     }
-    .${NS}-pop textarea:focus { outline: 2px solid #3b82f6; outline-offset: -1px; }
+    .${NS}-pop textarea:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
     /*
       A footnote, not a field. Boxed and grey at the top of the panel it read as
       an input you were meant to fill in, and it occupied the line the crop should
       have had.
     */
     .${NS}-sel {
-      font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9aa2b1;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #6b7280;
       margin-top: 8px; word-break: break-all; max-height: 30px; overflow: hidden;
     }
     .${NS}-sel:empty { display: none; }
-    .${NS}-hint { color: #6b7280; font-size: 11px; margin: 8px 0; }
-    .${NS}-attach { color: #3b82f6; text-decoration: underline; cursor: pointer; }
-    .${NS}-pop.${NS}-dragover { outline: 2px dashed #3b82f6; outline-offset: 3px; }
+    .${NS}-hint { color: #5b6472; font-size: 12px; margin: 8px 0; }
+    .${NS}-attach { color: #2563eb; text-decoration: underline; cursor: pointer; }
+    .${NS}-pop.${NS}-dragover { outline: 2px dashed #2563eb; outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     .${NS}-auto { position: relative; display: inline-flex; }
     .${NS}-auto b {
       position: absolute; left: 2px; bottom: 2px; font-size: 8px; font-weight: 700;
       letter-spacing: .06em; text-transform: uppercase; color: #fff;
-      background: #16a34a; border-radius: 3px; padding: 1px 3px;
+      background: #15803d; border-radius: 3px; padding: 1px 3px;
     }
     .${NS}-thumbs img {
       width: 48px; height: 48px; object-fit: cover;
@@ -211,7 +211,7 @@
     .${NS}-row button {
       font: inherit; font-weight: 600; border-radius: 8px; padding: 7px 13px; cursor: pointer;
     }
-    .${NS}-save { background: #3b82f6; color: #fff; border: 1px solid #3b82f6; }
+    .${NS}-save { background: #2563eb; color: #fff; border: 1px solid #2563eb; }
     .${NS}-cancel { background: #fff; color: #374151; border: 1px solid #dfe3ea; }
     /*
       A comment you have just filed is not a warning.
@@ -223,12 +223,12 @@
     */
     .${NS}-pin {
       position: absolute; z-index: 2147483645; width: 24px; height: 24px;
-      border-radius: 999px 999px 999px 2px; background: #3b82f6; color: #fff;
+      border-radius: 999px 999px 999px 2px; background: #2563eb; color: #fff;
       font: 700 12px/24px -apple-system, system-ui, sans-serif; text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
     /* Hover is where it says what clicking will do: remove it. */
-    .${NS}-pin:hover { background: #ef4444; color: #fff; }
+    .${NS}-pin:hover { background: #dc2626; color: #fff; }
     .${NS}-rev {
       position: absolute; z-index: 2147483638; pointer-events: none;
       /*
@@ -239,7 +239,7 @@
         and the colour carried no information because everything had it. Amber and
         red now mean what they say. Blue means "your turn".
       */
-      border: 2px solid #3b82f6; background: rgba(59,130,246,.07);
+      border: 2px solid #2563eb; background: rgba(59,130,246,.07);
       border-radius: 4px; transition: border-color .2s, background-color .2s;
     }
     .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
@@ -254,11 +254,11 @@
     }
     .${NS}-revpin {
       min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px;
-      background: #3b82f6; color: #fff; display: flex; align-items: center;
+      background: #2563eb; color: #fff; display: flex; align-items: center;
       justify-content: center; cursor: pointer; white-space: nowrap;
     }
-    .${NS}-revpin[data-status=resolved] { background: #16a34a; color: #fff; }
-    .${NS}-revpin[data-status=rejected] { background: #ef4444; color: #fff; }
+    .${NS}-revpin[data-status=resolved] { background: #15803d; color: #fff; }
+    .${NS}-revpin[data-status=rejected] { background: #dc2626; color: #fff; }
     .${NS}-revbar button {
       border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
       font: inherit; white-space: nowrap;
@@ -268,15 +268,15 @@
       in the card that opens from it — the same decision painted two ways
       depending on where you happened to click.
     */
-    .${NS}-ok { background: #16a34a; color: #fff; }
+    .${NS}-ok { background: #15803d; color: #fff; }
     .${NS}-no { background: #2b313d; color: #e5e7eb; }
-    .${NS}-ok:hover { background: #15803d; }
-    .${NS}-no:hover { background: #ef4444; color: #fff; }
+    .${NS}-ok:hover { background: #166534; }
+    .${NS}-no:hover { background: #dc2626; color: #fff; }
     .${NS}-panel {
       position: fixed; z-index: 2147483646; right: 16px; width: 340px;
       max-width: calc(100vw - 32px);
       background: #111418; color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
-      box-shadow: 0 18px 50px rgba(0,0,0,.45); display: flex; flex-direction: column;
+      box-shadow: 0 3px 8px rgba(0,0,0,.30); display: flex; flex-direction: column;
       font: 13px/1.5 -apple-system, system-ui, sans-serif; overflow: hidden;
     }
     .${NS}-panel-head {
@@ -289,7 +289,7 @@
     }
     .${NS}-panel-list { overflow: auto; min-height: 0; }
     .${NS}-group {
-      padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: #6f7889;
+      padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: #7d8697;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .${NS}-task {
@@ -298,38 +298,40 @@
     }
     .${NS}-task:hover { background: #171b22; }
     .${NS}-dot {
-      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #3b82f6;
+      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #2563eb;
     }
-    .${NS}-task[data-status=approved] .${NS}-dot { background: #16a34a; }
+    .${NS}-task[data-status=approved] .${NS}-dot { background: #15803d; }
     .${NS}-task[data-status=in_progress] .${NS}-dot { background: #38bdf8; }
     .${NS}-task[data-status=proposed] .${NS}-dot { background: #a78bfa; }
-    .${NS}-task[data-status=rejected] .${NS}-dot { background: #ef4444; }
-    .${NS}-task[data-status=approved] .${NS}-task-text { color: #6f7889; text-decoration: line-through; }
+    .${NS}-task[data-status=rejected] .${NS}-dot { background: #dc2626; }
+    .${NS}-task[data-status=approved] .${NS}-task-text { color: #7d8697; text-decoration: line-through; }
     .${NS}-task-text { flex: 1; min-width: 0; }
-    .${NS}-task-meta { font-size: 11px; color: #6f7889; margin-top: 2px; }
+    .${NS}-task-meta { font-size: 11px; color: #7d8697; margin-top: 2px; }
     .${NS}-task-acts { display: flex; gap: 4px; flex: none; }
     .${NS}-task-acts button {
       border: 0; border-radius: 6px; padding: 2px 7px; font: 600 11px/1.6 inherit; cursor: pointer;
       background: #232a36; color: #cdd3e0;
     }
-    .${NS}-task-acts button:hover { background: #16a34a; color: #fff; }
-    .${NS}-task-acts button.${NS}-no:hover { background: #ef4444; }
-    .${NS}-empty { padding: 18px 14px; color: #6f7889; }
+    .${NS}-task-acts button:hover { background: #15803d; color: #fff; }
+    .${NS}-task-acts button.${NS}-no:hover { background: #dc2626; }
+    .${NS}-empty { padding: 18px 14px; color: #7d8697; }
     .${NS}-flash { animation: ${NS}-flash 1.1s ease-out 2; }
     @keyframes ${NS}-flash {
       0%, 100% { box-shadow: none; }
-      40% { box-shadow: 0 0 0 3px #f59e0b, 0 0 22px rgba(245,158,11,.6); }
+      40% { box-shadow: 0 0 0 3px #f59e0b; }
     }
     .${NS}-card {
       position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
       background: #fff; color: #111; border-radius: 12px; padding: 14px;
-      box-shadow: 0 12px 40px rgba(0,0,0,.28); border: 1px solid #dfe3ea;
+      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid #c9cfd9;
       font: 13px/1.55 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column;
     }
     .${NS}-card .${NS}-badge {
-      display: inline-block; font-size: 10px; text-transform: uppercase;
-      letter-spacing: .08em; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+      /* 11px is the floor for anything functional; "COMMENT 1" is a label the
+         reader needs, not decoration. */
+      display: inline-block; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .08em; font-weight: 700; padding: 3px 9px; border-radius: 999px;
       background: #fef3c7; color: #92400e; margin-bottom: 8px;
     }
     .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
@@ -344,7 +346,9 @@
       font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151;
     }
     .${NS}-card p { margin: 0 0 10px; }
-    .${NS}-card .${NS}-when { color: #6b7280; font-size: 11px; margin-bottom: 10px; }
+    /* The selector under a comment is a line of prose to the reader, whatever it
+       is to the machine — it gets the same floor as the rest. */
+    .${NS}-card .${NS}-when { color: #6b7280; font-size: 12px; margin-bottom: 10px; }
     .${NS}-pin i { font-style: normal; display: none; }
     .${NS}-pin:hover b { display: none; }
     .${NS}-pin:hover i { display: inline; }
