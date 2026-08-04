@@ -418,10 +418,9 @@
   */
   function setPhase(phase) {
     if (!bar) return;
-    // The bar's height changes with its contents — three buttons in review, a
-    // spinner and one while waiting — so the space it needs is re-measured on
-    // every phase, not once at startup.
-    queueMicrotask(reserveForBar);
+    // The space the bar needs is re-measured whenever it changes; see the
+    // observer in reserveForBar, which is what actually catches it.
+    requestAnimationFrame(reserveForBar);
     const leavingReview = state.phase === 'review' && phase !== 'review';
     if (phase !== 'waiting') clearTimeout(state.waitWarn);
     state.phase = phase;
@@ -585,9 +584,36 @@
       await renderReview();
       updateReviewBar();
     });
+    /*
+      Closing takes a moment you can take back.
+
+      One click used to end the review and take the window with it, with nothing
+      in between — and the only undo was to start again and re-judge everything.
+      A second and a half of "this is about to close, unless you say otherwise"
+      costs nothing and makes an accidental ending recoverable.
+    */
     bar.querySelector('[data-act=close]').addEventListener('click', () => {
-      cleanup();
-      window.__aynaApprove();
+      if (closing) return;
+      closing = true;
+      bar.innerHTML =
+        '<div class="' + NS + '-barside">' +
+          '<span class="' + NS + '-brand">ayna</span>' +
+          '<span class="' + NS + '-hint">Closing the review — anything unjudged stays waiting</span>' +
+        '</div>' +
+        '<div class="' + NS + '-barside ' + NS + '-baractions">' +
+          '<button data-act="stay">Stay open</button>' +
+        '</div>';
+
+      const end = setTimeout(() => {
+        cleanup();
+        window.__aynaApprove();
+      }, 1500);
+
+      bar.querySelector('[data-act=stay]').addEventListener('click', () => {
+        clearTimeout(end);
+        closing = false;
+        setPhase('review');
+      });
     });
   }
 
@@ -1268,6 +1294,22 @@
   let reserved = 0;
   function reserveForBar() {
     if (!bar) return;
+
+    /*
+      Re-measure whenever the bar changes shape, not when we think it might have.
+
+      This was re-run on phase change from a microtask, which is before the
+      browser has laid the new bar out — so it measured the height of the bar that
+      had just been replaced. Review has more buttons than commenting and wraps to
+      70px where the old one was 52, and the page stayed pushed down by 52: the
+      app's own fixed header sat in the 18px difference, underneath ayna's bar,
+      with its buttons unclickable. An observer cannot be early.
+    */
+    if (!bar.__aynaRO && typeof ResizeObserver === 'function') {
+      bar.__aynaRO = new ResizeObserver(() => reserveForBar());
+      bar.__aynaRO.observe(bar);
+    }
+
     const h = Math.round(bar.getBoundingClientRect().height);
     if (!h || h === reserved) return;
     reserved = h;
@@ -1417,6 +1459,9 @@
   */
   let relayoutQueued = false;
   let reviewSettleTimer = 0;
+  // True between pressing Close and the window actually going, so the bar is not
+  // rebuilt out from under the one button that can call it off.
+  let closing = false;
 
   function relayout() {
     if (relayoutQueued) return;
@@ -1753,12 +1798,21 @@
       );
     };
 
-    // Above is the natural place. Below is the fallback, and only if both are
-    // taken does the bar go inside — covering the very text it is asking about
-    // is the worst of the three, so it is the one that has to be earned.
-    if (r.y - 28 >= 0 && free(r.y - 28)) return r.y - 28;
+    /*
+      Above is the natural place, below is the fallback, and only if both are
+      taken does the bar go inside — covering the very text it is asking about is
+      the worst of the three, so it has to be earned.
+
+      The ceiling is the review bar, not the top of the window. Clamping to 0 put
+      the verdict buttons for anything near the top of the page underneath ayna's
+      own bar, where they could be seen and not clicked: the exact fault this tool
+      reports in other people's UIs, committed in the one phase whose whole
+      purpose is pressing those buttons.
+    */
+    const ceiling = barZone().bottom + 4;
+    if (r.y - 28 >= ceiling && free(r.y - 28)) return r.y - 28;
     if (free(r.y + r.height + 4)) return r.y + r.height + 4;
-    return Math.max(0, r.y + 4);
+    return Math.max(ceiling, r.y + 4);
   }
 
   function repositionReview() {
@@ -1973,25 +2027,28 @@
     if (label) {
       // Say what is left to do, not what has been done. "0 of 3 resolved" makes
       // the reader do the subtraction to find out whether they can leave.
+      // The sentence carries the change of state, not the button.
       label.textContent = left
-        ? left + (left === 1 ? ' left to judge' : ' left to judge')
-        : 'all ' + comments.length + ' judged';
+        ? left + ' left to judge'
+        : 'All ' + comments.length + ' judged — nothing left to do';
       label.classList.toggle(NS + '-done', left === 0);
     }
 
     /*
-      Promote Close only when there is nothing left.
+      Say what the button does, and never dress it up as an acknowledgement.
 
-      While verdicts are outstanding the important actions are out on the page, so
-      a filled button up here would just be the easiest way to leave without
-      finishing. Once everything is judged, leaving is the right next step and the
-      bar should say so.
+      This relabelled itself "Done" and turned primary the moment everything was
+      judged. "Done" reads as "I have finished looking" — a thing you say, not a
+      thing that ends the session — so the natural response to judging the last
+      comment was to press it, and the window vanished. The user's report was
+      exactly that: everything done, and the UI closes immediately.
+
+      Ending a review is always the same act and always says so. What changes when
+      the work is finished is the sentence on the left, not the promise on the
+      button.
     */
     const close = bar.querySelector('[data-act=close]');
-    if (close) {
-      close.classList.toggle(NS + '-ghost', left > 0);
-      close.textContent = left ? 'Close' : 'Done';
-    }
+    if (close && !closing) close.textContent = 'Close window';
   }
 
   /*

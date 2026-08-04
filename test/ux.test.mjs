@@ -440,3 +440,120 @@ describe('work is visible while it is still being done', { skip: !hasBrowser && 
     }
   });
 });
+
+describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  /** Two comments, sent, applied, and left sitting in the review phase. */
+  async function reviewing(run) {
+    const { srv, url } = await pollingServer('<h1 class="a">Right at the top</h1><p class="b">Two</p>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-end-'));
+    try {
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          for (const [sel, text] of [['.a', 'first'], ['.b', 'second']]) {
+            await page.click(sel);
+            await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+            await page.fill('.ayna-ov-pop textarea', text);
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(250);
+          }
+          await page.click('[data-act=send]');
+          await page.waitForTimeout(300);
+          await writeFile(path.join(dir, 'out', 'applied'), '1');
+          await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            timeout: 20000,
+          });
+          await page.waitForTimeout(500);
+          await run(page);
+          if (!page.isClosed()) {
+            await page.click('[data-act=close]');
+            await page.waitForTimeout(2000);
+          }
+        },
+      });
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('every verdict is clickable, including for elements at the top of the page', async () => {
+    /*
+      Verdict bars sit above their element and were clamped to the top of the
+      window, which put the ones for anything near the top underneath ayna's own
+      bar — visible and unclickable. The review phase exists to press those
+      buttons, so it was the worst possible place to commit the fault this tool
+      reports in other people's UIs.
+    */
+    let hidden = null;
+    let clicked = 0;
+    await reviewing(async (page) => {
+      hidden = await page.evaluate(() => {
+        const bar = document.querySelector('.ayna-ov-bar').getBoundingClientRect();
+        return [...document.querySelectorAll('.ayna-ov-revbar')]
+          .map((b) => b.getBoundingClientRect())
+          .filter((r) => r.top < bar.bottom).length;
+      });
+      for (const bar of await page.$$('.ayna-ov-revbar')) {
+        const ok = await bar.$('.ayna-ov-ok');
+        if (!ok) continue;
+        await ok.click({ timeout: 5000 });
+        clicked += 1;
+        await page.waitForTimeout(300);
+      }
+    });
+    assert.equal(hidden, 0, 'a verdict bar was behind the review bar');
+    assert.equal(clicked, 2, 'not every verdict could be pressed');
+  });
+
+  test('the button says what it does, however much is left', async () => {
+    /*
+      It used to relabel itself "Done" and turn primary once everything was
+      judged. "Done" reads as "I have finished looking" — something you say, not
+      something that ends the session — so the natural response to judging the
+      last comment was to press it, and the window vanished. Reported exactly
+      that way: everything done, and the UI closes immediately.
+    */
+    const labels = [];
+    await reviewing(async (page) => {
+      labels.push(await page.evaluate(() => document.querySelector('[data-act=close]').textContent));
+      for (const bar of await page.$$('.ayna-ov-revbar')) {
+        await bar.$('.ayna-ov-ok').then((b) => b?.click());
+        await page.waitForTimeout(300);
+      }
+      labels.push(await page.evaluate(() => document.querySelector('[data-act=close]').textContent));
+      labels.push(await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent));
+    });
+    assert.deepEqual(labels.slice(0, 2), ['Close window', 'Close window'], 'the promise must not change');
+    assert.match(labels[2], /nothing left to do/, 'the sentence carries the state, not the button');
+  });
+
+  test('closing can be taken back', async () => {
+    // One click used to end the review and take the window with it, and the only
+    // undo was to start again and re-judge everything.
+    let stillOpen = null;
+    let midway = null;
+    await reviewing(async (page) => {
+      await page.click('[data-act=close]');
+      await page.waitForTimeout(400);
+      midway = await page.evaluate(() => document.querySelector('.ayna-ov-hint')?.textContent);
+      await page.click('[data-act=stay]');
+      await page.waitForTimeout(600);
+      stillOpen = !page.isClosed();
+    });
+    assert.match(midway, /Closing the review/);
+    assert.equal(stillOpen, true, 'Stay open did not keep the window');
+  });
+});
