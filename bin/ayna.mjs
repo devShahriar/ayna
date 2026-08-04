@@ -165,7 +165,16 @@ async function main() {
     hint that it isn't your app. Fail loudly instead.
   */
   const NEEDS_TARGET = new Set(['shot', 'critique', 'annotate', 'loop', 'serve']);
-  if (NEEDS_TARGET.has(command) && !hasLocalConfig && !values.url && PROJECT !== ROOT) {
+  /*
+    `--root` answers the question as well as `--url` does.
+
+    The guard only accepted `--url`, so `ayna shot --root .` in a fresh project
+    was refused for not knowing what to look at while `ayna audit --root .` in the
+    same directory worked — the same argument, honoured by one command and
+    ignored by the next.
+  */
+  const told = values.url || values.root;
+  if (NEEDS_TARGET.has(command) && !hasLocalConfig && !told && PROJECT !== ROOT) {
     throw new Error(
       `no target for ${path.basename(PROJECT)}/ — ayna does not know what to look at.\n` +
         '  Point it at a running app:  ayna ' + command + ' --url http://localhost:3000\n' +
@@ -650,8 +659,15 @@ async function main() {
       const outDir = path.join(PROJECT, '.ayna', 'audits', stamp);
       const server = await startTarget(cfg);
       const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
+      // An audit reports sizes, so it needs a viewport it can set — not one that
+      // tracks whatever the window happens to be.
       const context = profileDir
-        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        ? await openPersistentContext({
+            profileDir,
+            headless: headlessMode(cfg),
+            viewport: cfg.viewports[0],
+            followWindow: false,
+          })
         : null;
       const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
 

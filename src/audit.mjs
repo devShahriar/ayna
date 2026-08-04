@@ -494,6 +494,25 @@ export async function auditPage({ browser, context, url, viewports, outDir, step
     */
 
     const page = ctx.pages()[0] ?? (await ctx.newPage());
+
+    /*
+      Resize a fixed-viewport page; never resize a window-following one.
+
+      Refusing to resize anything was the previous rule, written to stop an audit
+      pinning someone's live review window to a fixed size. It also stopped a
+      reused context being resized between viewports, so every viewport after the
+      first was measured at the first one's dimensions — a run reported "mobile"
+      findings taken at 1440px wide. Wrong measurements labelled as the right ones
+      is worse than the rudeness it was avoiding.
+
+      `viewportSize()` is null exactly when the page follows the OS window, which
+      is exactly the case that must be left alone. Anything else is a context
+      opened for measuring, and measuring at the asked-for size is the point.
+    */
+    if (page.viewportSize()) {
+      await page.setViewportSize({ width: vp.width, height: vp.height }).catch(() => {});
+    }
+
     await gotoSettled(page, url, { settleMs: 2500 }).catch(() => {});
     await page.waitForTimeout(700);
 

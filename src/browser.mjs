@@ -147,7 +147,7 @@ export async function capture({ browser, url, viewports, outDir, label }) {
  * exactly like a normal browser profile. Ayna never sees or stores the
  * credentials themselves; the user types them into their own app.
  */
-export async function openPersistentContext({ profileDir, headless = false, viewport }) {
+export async function openPersistentContext({ profileDir, headless = false, viewport, followWindow }) {
   await mkdir(profileDir, { recursive: true });
   const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
   if (process.env.CI) args.push('--no-sandbox', '--disable-dev-shm-usage');
@@ -167,11 +167,21 @@ export async function openPersistentContext({ profileDir, headless = false, view
       what a person resizing it expects. Headless keeps a fixed viewport, because
       a screenshot has to be the same size every time to be comparable.
     */
-    viewport: headless ? size : null,
+    /*
+      A review window follows the OS window; a measurement does not.
+
+      Following is right for annotate — the user resizes it and the page should
+      keep up. It is wrong for anything that reports a number, because a
+      window-following page cannot be set to a viewport, so a headed audit
+      measured every viewport at whatever size the window happened to be and
+      labelled the results "mobile" and "desktop" regardless. Callers that
+      measure pass followWindow: false and get the size they asked for.
+    */
+    viewport: (followWindow ?? !headless) ? null : size,
     // Playwright refuses deviceScaleFactor alongside a null viewport, and a null
     // viewport is the whole point of a window the user can resize — so it only
     // applies to the fixed-size headless case.
-    ...(headless ? { deviceScaleFactor: 1 } : {}),
+    ...((followWindow ?? !headless) ? {} : { deviceScaleFactor: 1 }),
     args,
   });
 }
