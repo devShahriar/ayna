@@ -432,6 +432,12 @@ Anything they type back arrives as a `message` event on the stream, with
 `action: "read-and-reply"`. Treat it as a comment: act on it and say what you
 did. It is the same event log as everything else, so it survives the session.
 
+**A `gate` event follows every `applied`.** The moment your changes land, ayna
+re-measures the page and says whether the faults are actually gone — `clean:
+true`, or the counts that remain. "Done" is a prediction until something looks.
+It stops nothing: the user still decides. But do not claim a fix the gate
+contradicts.
+
 ## The part ayna cannot measure
 
 Layout faults are provable and `audit` chases them to zero. Whether a page looks

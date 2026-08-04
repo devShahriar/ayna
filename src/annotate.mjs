@@ -455,8 +455,28 @@ export async function runAnnotate({
     feed.push({ seq: feed.length + 1, at: Date.now(), ...e });
     if (feed.length > 500) feed.shift();
   };
+  /*
+    One data path.
+
+    The console reads the database, and this wrote only to stdout and the local
+    mirror — so a round, a landed change or a gate result reached the terminal
+    and never the window. The panel showed messages and task changes, because
+    those happen to be written by the store, and silently showed nothing else.
+    Everything worth seeing goes to the same table, and readers poll that table.
+
+    Task changes are the exception: the store already logs them as it makes them,
+    and writing them twice would say everything twice.
+  */
   const emit = (e) => {
     pushFeed(e);
+    if (store?.db && e.event !== 'task') {
+      import('./db.mjs')
+        .then(({ appendEvent }) => appendEvent(store.db, e))
+        .catch(() => {
+          // The mirror and stdout still carry it; a log write must not take the
+          // window down.
+        });
+    }
     onEvent(e);
   };
 
@@ -538,14 +558,9 @@ export async function runAnnotate({
   await page.exposeFunction('__aynaSay', async (text) => {
     const said = String(text ?? '').trim();
     if (!said) return { ok: false };
-    if (store?.db) {
-      try {
-        const { appendEvent } = await import('./db.mjs');
-        appendEvent(store.db, { event: 'message', from: 'user', text: said });
-      } catch {
-        // The mirror below still carries it to anything watching this session.
-      }
-    }
+    // Just emit: that writes to the log, the mirror and the stream. Writing here
+    // as well was a second data path, and it showed — every line the user typed
+    // appeared twice in the panel they typed it into.
     emit({ event: 'message', from: 'user', text: said, action: 'read-and-reply' });
     return { ok: true };
   });
@@ -740,11 +755,29 @@ export async function runAnnotate({
       in, not the one they had clicked into. Measuring in place solves both: it is
       the same window, in its current state, whatever they navigated to.
     */
+    /*
+      Measure the page as the user's app, not as the app with ayna on it.
+
+      The overlay reserves space at both edges, so anything measured while it is
+      open describes a page a couple of hundred pixels shorter than the one that
+      ships. A collision can stop reproducing purely because a review is in
+      progress. The space goes back for the length of the measurement.
+    */
+    const measureApp = async (script) => {
+      await page.evaluate(() => window.__aynaReleaseSpace && window.__aynaReleaseSpace()).catch(() => {});
+      await page.waitForTimeout(120);
+      try {
+        return await page.evaluate(script);
+      } finally {
+        await page.evaluate(() => window.__aynaReserveSpace && window.__aynaReserveSpace()).catch(() => {});
+      }
+    };
+
     if (existsSync(auditRequest)) {
       await rm(auditRequest, { force: true });
       try {
         const { CHECKS, scoreFindings } = await import('./audit.mjs');
-        const raw = await page.evaluate(CHECKS);
+        const raw = await measureApp(CHECKS);
         const shot = path.join(outDir, 'audit-live.png');
         await page.screenshot({ path: shot }).catch(() => {});
         const report = scoreFindings(page.url(), [
@@ -792,6 +825,42 @@ export async function runAnnotate({
         await injectOverlay();
         await page.evaluate(() => window.__aynaReview && window.__aynaReview());
         phase = 'reviewing';
+        // Published the moment it changes. The gate below takes a beat, and
+        // anything asking what phase this window is in was being told the old
+        // answer for as long as the measurement ran.
+        await writeStatus();
+
+        /*
+          Check the claim before the user is asked to judge it.
+
+          "Done" is a prediction until something looks. ayna has had the
+          apparatus to look since the audit existed and never pointed it at this
+          moment — the one moment where somebody has just asserted that a UI
+          problem is fixed. So the measurable checks run the instant changes
+          land, and the answer goes on the page next to the changes themselves.
+
+          It gates nothing shut. The verdict is still the user's, and a fault
+          that remains is information they should have before giving it, not a
+          reason to refuse them the choice.
+        */
+        try {
+          const { CHECKS: GATE, SEVERITY: RANK } = await import('./audit.mjs');
+          const measured = await measureApp(GATE);
+          const counts = {};
+          for (const [key] of RANK) counts[key] = measured?.[key]?.length ?? 0;
+          const serious = RANK.filter(([, sev]) => sev !== 'minor').reduce((n, [k]) => n + counts[k], 0);
+          emit({
+            event: 'gate',
+            round,
+            clean: !measured?.unavailable && serious === 0,
+            counts,
+            unavailable: measured?.unavailable ?? null,
+          });
+        } catch (err) {
+          // A gate that cannot run says so. Reporting it as clean would be the
+          // one failure worse than not having it.
+          emit({ event: 'gate', round, clean: false, unavailable: err.message.split('\n')[0] });
+        }
       } catch {
         // A reload failure shouldn't strand the user — let them keep commenting.
         phase = 'commenting';

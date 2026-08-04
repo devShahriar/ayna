@@ -1870,11 +1870,17 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
         const kinds = events.map((e) => e.event);
         // `applied` reports that the window left the waiting phase, and says which
         // of the three signals ended it — the marker, a file change, or the user.
+        /*
+          `gate` follows `applied`: the measurable checks run the moment changes
+          land, so the user is told whether the fault is actually gone before
+          being asked to judge it. "Done" is a prediction until something looks.
+        */
         assert.deepEqual(
           kinds,
-          ['round', 'applied', 'rejected', 'round', 'closed'],
+          ['round', 'applied', 'gate', 'rejected', 'round', 'closed'],
           kinds.join(','),
         );
+        assert.equal(typeof events.find((e) => e.event === 'gate').clean, 'boolean');
         assert.equal(events.find((e) => e.event === 'applied').via, 'marker');
         assert.deepEqual(
           events.filter((e) => e.event === 'round').map((e) => e.round),

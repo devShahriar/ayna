@@ -297,6 +297,13 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**Claims are checked, not taken.** When changes land, ayna re-measures before you
+are asked to judge — the console says "no measurable faults left" or names what is
+still there. Borrowed from
+[super-simple-software-factory](https://github.com/disler/super-simple-software-factory),
+whose rule is that gates verify claims and never predictions, and check after the
+agent finishes.
+
 **The terminal comes to you.** A console sits under the app in the review window:
 Claude's progress, every event, and a box to type an instruction back — so a
 review no longer means watching a window and a terminal at once. It minimises to

@@ -143,14 +143,29 @@
     .${NS}-console-lines {
       overflow-y: auto; padding: 8px 14px; flex: 1 1 auto; min-height: 0;
     }
-    .${NS}-line { display: flex; gap: 10px; padding: 2px 0; }
-    .${NS}-line b { flex: none; color: #6b7686; font-weight: 500; min-width: 52px; }
+    .${NS}-line { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
+    .${NS}-at { flex: none; color: #4a5262; font-style: normal; min-width: 40px; }
+    .${NS}-line b {
+      flex: none; font-weight: 600; min-width: 54px; text-align: right;
+    }
+    .${NS}-line[data-lane=you] b { color: #60a5fa; }
+    .${NS}-line[data-lane=claude] b { color: #c4b5fd; }
+    .${NS}-line[data-lane=ayna] b { color: #6ee7b7; }
+    .${NS}-phase {
+      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #1c222b;
+      color: #8a93a3; font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    .${NS}-phase:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
     .${NS}-line span { min-width: 0; word-break: break-word; }
     .${NS}-line[data-kind=message] span { color: #fff; }
     .${NS}-line[data-kind=you] b { color: #60a5fa; }
     .${NS}-line[data-kind=you] span { color: #cfe0ff; }
     .${NS}-line[data-kind=applied] span { color: #4ade80; }
     .${NS}-line[data-kind=audit] span { color: #fbbf24; }
+    /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
+    .${NS}-line[data-kind=gate] b { color: #a78bfa; }
+    .${NS}-line[data-kind=gate] span { color: #ddd6fe; }
     .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #1c222b; flex: none; }
     .${NS}-console-say input {
       flex: 1; background: #171b21; border: 1px solid #2a323d; border-radius: 8px;
@@ -1455,6 +1470,18 @@
     reserved = '';
   }
   window.__aynaReleaseSpace = releaseBarSpace;
+  /*
+    Give the page its full height back for the length of a measurement.
+
+    ayna reserves space at both edges, so a live audit was describing a page a
+    couple of hundred pixels shorter than the one the user actually ships — a
+    real collision could stop reproducing simply because ayna was open. The
+    person cares about their app, not their app with a review panel attached.
+  */
+  window.__aynaReserveSpace = () => {
+    reserved = '';
+    reserveForBar();
+  };
 
   /*
     The rect the bar owns, in viewport coordinates.
@@ -1504,7 +1531,10 @@
     */
     const zone = barZone();
     const ceiling = zone.bottom + 8;
-    const floor = vh - 8;
+    // The console owns the bottom now, so the floor is its top edge — not the
+    // window's. Without this the comment box opened underneath it.
+    const consoleTop = consoleEl ? Math.round(consoleEl.getBoundingClientRect().top) : vh;
+    const floor = Math.min(vh, consoleTop) - 8;
 
     let top = y + r.height + 10;
     if (top + h > floor) top = y - h - 10; // no room below — flip above
@@ -2164,7 +2194,7 @@
   }
 
   const WORDING = {
-    round: (e) => ['sent', `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Claude`],
+    round: (e) => ['sent', e.comments ? `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Claude` : 'sent to Claude'],
     applied: (e) => ['applied', `changes landed${e.via && e.via !== 'marker' ? ` (noticed by ${e.via.replace('-', ' ')})` : ''}`],
     task: (e) => ['task', `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}${e.comment ? ' — ' + e.comment : ''}`.trim()],
     rejected: (e) => ['back', `sent back: ${e.comment ?? ''}`],
@@ -2173,6 +2203,40 @@
     claimed: (e) => ['claimed', `${e.taskId ?? ''} taken by ${e.by ?? 'someone'}`],
     message: (e) => (e.from === 'user' ? ['you', e.text] : ['claude', e.text]),
     ready: (e) => ['owed', `${e.pending} still waiting`],
+    gate: (e) => [
+      'checked',
+      e.unavailable
+        ? `could not measure the page — ${e.unavailable}`
+        : e.clean
+          ? 'no measurable faults left'
+          : Object.entries(e.counts ?? {})
+              .filter(([, n]) => n > 0)
+              .map(([k, n]) => `${n} ${k}`)
+              .join(' · ') + ' still there',
+    ],
+  };
+
+  /*
+    Who did it, borrowed from the trace viewer in disler/super-simple-software-
+    factory: lanes for each actor and blocks on a time axis, rather than a flat
+    log where a machine measurement and a person's instruction look the same.
+
+    Three lanes is the honest count here. The user, Claude, and ayna — which is
+    neither of them and is the only one making claims that can be checked.
+  */
+  const LANE = {
+    round: 'you', message: 'you', closed: 'you',
+    task: 'claude', applied: 'claude', rejected: 'claude',
+    gate: 'ayna', audit: 'ayna', ready: 'ayna', claimed: 'ayna',
+  };
+
+  let consoleStart = 0;
+  let consoleRound = null;
+
+  const clock = (at) => {
+    if (!consoleStart) consoleStart = at;
+    const secs = Math.max(0, Math.round((at - consoleStart) / 1000));
+    return String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
   };
 
   function consoleLine(e) {
@@ -2180,16 +2244,37 @@
     if (!wording) return null;
     const [who, text] = wording(e);
     if (!text) return null;
+
+    const lane = e.event === 'message' && e.from !== 'user' ? 'claude' : LANE[e.event] ?? 'ayna';
     const row = document.createElement('div');
     row.className = NS + '-line';
     row.dataset.kind = e.event === 'message' ? (e.from === 'user' ? 'you' : 'message') : e.event;
+    row.dataset.lane = lane;
+
+    const t = document.createElement('i');
+    t.className = NS + '-at';
+    t.textContent = clock(e.at ?? Date.now());
+
     const b = document.createElement('b');
-    b.textContent = who;
+    b.textContent = lane;
+    b.title = who;
+
     const span = document.createElement('span');
     span.textContent = text;
+
+    row.appendChild(t);
     row.appendChild(b);
     row.appendChild(span);
     return row;
+  }
+
+  /** A round is a phase; saying so makes the rest read as belonging to something. */
+  function roundHeader(e) {
+    const head = document.createElement('div');
+    head.className = NS + '-phase';
+    head.textContent = 'round ' + (e.round ?? '') +
+      (e.comments ? ' · ' + e.comments + ' comment' + (e.comments === 1 ? '' : 's') : '');
+    return head;
   }
 
   function setConsoleMinimised(min) {
@@ -2216,6 +2301,10 @@
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 40;
     for (const e of events) {
       consoleSeq = Math.max(consoleSeq, e.seq ?? 0);
+      if (e.event === 'round' && e.round !== consoleRound) {
+        consoleRound = e.round;
+        lines.appendChild(roundHeader(e));
+      }
       const row = consoleLine(e);
       if (row) lines.appendChild(row);
     }
