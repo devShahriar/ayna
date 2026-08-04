@@ -119,61 +119,84 @@
       space for the same reason the bar does: a panel that covers the thing you
       are reviewing is not a panel, it is an obstruction.
     */
+    /*
+      The palette is lifted from the trace viewer in
+      disler/super-simple-software-factory: a near-black canvas, hairline grid,
+      and one saturated colour per actor. It reads as an instrument rather than a
+      chat window, which is what this is — and it matches the terminals this sits
+      next to instead of fighting them.
+    */
     .${NS}-console {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
-      background: #0f1216; color: #dfe3ea; border-top: 1px solid #262c36;
+      background: #0b0f14; color: #e6e9ef; border-top: 1px solid #1b2431;
       display: flex; flex-direction: column;
       font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
       max-height: 46vh;
     }
     .${NS}-console-head {
       display: flex; align-items: center; gap: 10px; padding: 7px 14px;
-      border-bottom: 1px solid #1c222b; flex: none;
+      border-bottom: 1px solid #161e29; flex: none;
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
     .${NS}-console-head .${NS}-dotlive {
-      width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex: none;
+      width: 7px; height: 7px; border-radius: 50%; background: #34d399; flex: none;
     }
     .${NS}-console-head button {
-      background: transparent; border: 0; color: #8a93a3; cursor: pointer;
+      background: transparent; border: 0; color: #9aa4b2; cursor: pointer;
       font: inherit; padding: 2px 8px; border-radius: 6px;
     }
-    .${NS}-console-head button:hover { background: #1c222b; color: #fff; }
+    .${NS}-console-head button:hover { background: #161e29; color: #e6e9ef; }
     .${NS}-console-head .${NS}-spacer { margin-left: auto; }
+    .${NS}-agents { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .${NS}-agent {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid #2a3444; border-radius: 999px; padding: 2px 9px;
+      font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9aa4b2;
+    }
+    .${NS}-agent i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+    .${NS}-agent b { color: #cfd6e0; font-weight: 600; }
+    /* Running gets the pulse; idle is just outlined. Straight from the legend:
+       queued, running, done are three readable states, not one. */
+    .${NS}-agent.${NS}-busy { border-color: #22d3ee; }
+    .${NS}-agent.${NS}-busy i { animation: ${NS}-pulse 2.4s ease-in-out infinite; }
+    @keyframes ${NS}-pulse {
+      0%, 100% { box-shadow: 0 0 2px rgba(34,211,238,.30); }
+      50% { box-shadow: 0 0 9px rgba(34,211,238,.75); }
+    }
     .${NS}-console-lines {
       overflow-y: auto; padding: 8px 14px; flex: 1 1 auto; min-height: 0;
     }
     .${NS}-line { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
-    .${NS}-at { flex: none; color: #4a5262; font-style: normal; min-width: 40px; }
+    .${NS}-at { flex: none; color: #55606f; font-style: normal; min-width: 40px; }
     .${NS}-line b {
       flex: none; font-weight: 600; min-width: 54px; text-align: right;
     }
-    .${NS}-line[data-lane=you] b { color: #60a5fa; }
-    .${NS}-line[data-lane=claude] b { color: #c4b5fd; }
-    .${NS}-line[data-lane=ayna] b { color: #6ee7b7; }
+    .${NS}-line[data-lane=you] b { color: #38bdf8; }
+    .${NS}-line[data-lane=claude] b { color: #a78bfa; }
+    .${NS}-line[data-lane=ayna] b { color: #2dd4bf; }
     .${NS}-phase {
-      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #1c222b;
-      color: #8a93a3; font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
+      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #161e29;
+      color: #7c8798; font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
       text-transform: uppercase; letter-spacing: .06em;
     }
     .${NS}-phase:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
     .${NS}-line span { min-width: 0; word-break: break-word; }
     .${NS}-line[data-kind=message] span { color: #fff; }
     .${NS}-line[data-kind=you] b { color: #60a5fa; }
-    .${NS}-line[data-kind=you] span { color: #cfe0ff; }
-    .${NS}-line[data-kind=applied] span { color: #4ade80; }
-    .${NS}-line[data-kind=audit] span { color: #fbbf24; }
+    .${NS}-line[data-kind=you] span { color: #cfd6e0; }
+    .${NS}-line[data-kind=applied] span { color: #34d399; }
+    .${NS}-line[data-kind=audit] span { color: #f59e0b; }
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
-    .${NS}-line[data-kind=gate] b { color: #a78bfa; }
-    .${NS}-line[data-kind=gate] span { color: #ddd6fe; }
-    .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #1c222b; flex: none; }
+    .${NS}-line[data-kind=gate] b { color: #22d3ee; }
+    .${NS}-line[data-kind=gate] span { color: #a5f3fc; }
+    .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #161e29; flex: none; }
     .${NS}-console-say input {
-      flex: 1; background: #171b21; border: 1px solid #2a323d; border-radius: 8px;
-      color: #f2f4f8; padding: 8px 11px; font: inherit; outline: none;
+      flex: 1; background: #0f151c; border: 1px solid #2a3444; border-radius: 8px;
+      color: #e6e9ef; padding: 8px 11px; font: inherit; outline: none;
     }
-    .${NS}-console-say input:focus { border-color: #2563eb; }
+    .${NS}-console-say input:focus { border-color: #38bdf8; }
     .${NS}-console-say button {
-      background: #2563eb; color: #fff; border: 0; border-radius: 8px;
+      background: #1f6feb; color: #fff; border: 0; border-radius: 8px;
       padding: 8px 14px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
@@ -2290,6 +2313,49 @@
     reserveForBar();
   }
 
+  /*
+    Colour is how you tell one agent from another at a glance, so it has to be
+    the same colour every time for the same name. Hashing the name gives that for
+    free and needs no registry of who exists.
+  */
+  const AGENT_COLOURS = ['#a78bfa', '#4795c4', '#2dd4bf', '#f59e0b', '#38bdf8', '#f0561f'];
+  const agentColour = (name) => {
+    let n = 0;
+    for (let i = 0; i < name.length; i++) n = (n * 31 + name.charCodeAt(i)) >>> 0;
+    return AGENT_COLOURS[n % AGENT_COLOURS.length];
+  };
+
+  async function pumpAgents() {
+    if (!consoleEl || !window.__aynaAgents) return;
+    const agents = await window.__aynaAgents().catch(() => []);
+    const strip = consoleEl.querySelector('.' + NS + '-agents');
+    if (!strip) return;
+
+    if (!agents.length) {
+      strip.textContent = '';
+      return;
+    }
+    strip.textContent = '';
+    for (const a of agents) {
+      const chip = document.createElement('span');
+      chip.className = NS + '-agent';
+      if (a.working || a.tasks.length) chip.classList.add(NS + '-busy');
+      const dot = document.createElement('i');
+      dot.style.background = agentColour(a.agent);
+      const name = document.createElement('b');
+      name.textContent = a.agent;
+      const what = document.createElement('span');
+      what.textContent = a.tasks.length
+        ? a.tasks.map((t) => t.id).join(', ')
+        : 'working';
+      chip.title = a.tasks.map((t) => `${t.id}: ${t.comment ?? ''}`).join('\n') || 'working on this round';
+      chip.appendChild(dot);
+      chip.appendChild(name);
+      chip.appendChild(what);
+      strip.appendChild(chip);
+    }
+  }
+
   async function pumpConsole() {
     if (!consoleEl || !window.__aynaFeed) return;
     const events = await window.__aynaFeed(consoleSeq).catch(() => []);
@@ -2319,7 +2385,8 @@
     consoleEl.setAttribute('data-ayna', '1');
     consoleEl.innerHTML =
       '<div class="' + NS + '-console-head">' +
-        '<span class="' + NS + '-dotlive"></span><span>Claude</span>' +
+        '<span class="' + NS + '-dotlive"></span><span>Activity</span>' +
+        '<span class="' + NS + '-agents"></span>' +
         '<span class="' + NS + '-spacer"></span>' +
         '<button data-act="fold">Hide</button>' +
       '</div>' +
@@ -2362,7 +2429,11 @@
     setConsoleMinimised(consoleMin);
     pumpConsole();
     clearInterval(consoleTimer);
-    consoleTimer = setInterval(pumpConsole, 1000);
+    consoleTimer = setInterval(() => {
+      pumpConsole();
+      pumpAgents();
+    }, 1000);
+    pumpAgents();
   }
 
   /*

@@ -658,3 +658,64 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     assert.equal(comments, 0, 'typing in the console disturbed the review');
   });
 });
+
+describe('what everyone else is doing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  test('agents holding work are named in the window, with what they hold', async () => {
+    /*
+      A review is no longer one person and one Claude. Another session, a worker,
+      or a different tool can be holding a task while you are looking at the page
+      it belongs to, and the alternative to showing that is two of you doing the
+      same job. Nothing new is tracked for this: a task already records who
+      claimed it and when that claim runs out.
+    */
+    const { srv, url } = await pollingServer('<h1 class="t">Heading</h1>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-agents-'));
+    try {
+      const store = await openStore(dir);
+      let chips = [];
+      let afterExpiry = [];
+
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store,
+        viewport: { width: 1280, height: 800 },
+        onReady: async (page) => {
+          const a = await store.create({ comment: 'widen the nav', url });
+          const b = await store.create({ comment: 'resize the logo', url });
+          await store.claim(a.id, 'cursor-2');
+          await store.claim(b.id, 'worker-1');
+          await page.waitForTimeout(1600);
+          chips = await page.evaluate(() =>
+            [...document.querySelectorAll('.ayna-ov-agent')].map((c) => c.textContent),
+          );
+
+          // A worker that died must not appear to still be holding the task.
+          await store.claim(b.id, 'crashed', { leaseMs: -1 });
+          await store.release(b.id);
+          await page.waitForTimeout(1600);
+          afterExpiry = await page.evaluate(() =>
+            [...document.querySelectorAll('.ayna-ov-agent')].map((c) => c.textContent),
+          );
+          await page.close();
+        },
+      });
+
+      assert.deepEqual(chips.sort(), ['cursor-2task-0001', 'worker-1task-0002']);
+      assert.deepEqual(afterExpiry, ['cursor-2task-0001'], 'a released task still showed an owner');
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

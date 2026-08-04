@@ -297,6 +297,11 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**You can see who else is working.** Another Claude session, a worker, or a
+different tool entirely can be holding a task while you are looking at the page it
+belongs to. The console names them and says what they hold, so two of you do not
+do the same job. A claim that expires drops off by itself.
+
 **Claims are checked, not taken.** When changes land, ayna re-measures before you
 are asked to judge — the console says "no measurable faults left" or names what is
 still there. Borrowed from

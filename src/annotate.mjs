@@ -555,6 +555,35 @@ export async function runAnnotate({
     return feed.filter((e) => e.seq > (Number(since) || 0));
   });
 
+  /*
+    Who else is working on this, and on what.
+
+    A task carries the name of whoever claimed it and when the claim expires, so
+    the window can say "worker-1 has task-0003" without anything new being
+    tracked. It matters because a review is no longer one person and one Claude:
+    another session, a worker, or a different tool entirely can be holding a task
+    while you are looking at the page it belongs to, and the alternative to
+    showing that is two of you doing the same job.
+  */
+  await page.exposeFunction('__aynaAgents', async () => {
+    if (!store) return [];
+    const now = Date.now();
+    const tasks = await store.list().catch(() => []);
+    const busy = new Map();
+    for (const t of tasks) {
+      if (!t.claimedBy || (t.claimExpiresAt && t.claimExpiresAt < now)) continue;
+      if (!busy.has(t.claimedBy)) busy.set(t.claimedBy, { agent: t.claimedBy, tasks: [] });
+      busy.get(t.claimedBy).tasks.push({ id: t.id, comment: t.comment, status: t.status });
+    }
+    // Claude is here whenever a round is owed, whether or not it claimed a row.
+    if (phase === 'awaiting-claude') {
+      const mine = busy.get('claude') ?? { agent: 'claude', tasks: [] };
+      mine.working = true;
+      busy.set('claude', mine);
+    }
+    return [...busy.values()];
+  });
+
   await page.exposeFunction('__aynaSay', async (text) => {
     const said = String(text ?? '').trim();
     if (!said) return { ok: false };
