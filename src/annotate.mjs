@@ -505,10 +505,35 @@ export async function runAnnotate({
     editedAt = 0;
   };
 
+  /*
+    A cheap signature of how the page looks, not of what it is doing.
+
+    Stylesheet text and element count move when a UI change lands and stay still
+    through animation, polling and incoming data — which is the distinction that
+    matters, because the question is whether somebody edited this page, not
+    whether it is alive.
+  */
+  const appearanceOf = () =>
+    page
+      .evaluate(() => {
+        let rules = 0;
+        for (const sheet of document.styleSheets) {
+          try {
+            for (const rule of sheet.cssRules) rules += rule.cssText.length;
+          } catch {
+            // A cross-origin sheet cannot be read; its length is not knowable.
+          }
+        }
+        return { rules, nodes: document.getElementsByTagName('*').length };
+      })
+      .catch(() => null);
+
+  let appearance = null;
   // The user finished a round of comments and wants them acted on.
   await page.exposeFunction('__aynaDone', async () => {
     round += 1;
     phase = 'awaiting-claude';
+    appearance = await appearanceOf();
     watchProject();
     await writeManifest();
     await writeStatus();
@@ -744,10 +769,22 @@ export async function runAnnotate({
   await gotoSettled(page, url);
   await injectOverlay();
 
-  // Editing the overlay reloads the open window, so a fix lands without the user
-  // losing their place.
+  /*
+    Only watch the overlay when someone is working on ayna itself.
+
+    This reloads the open window whenever src/overlay.js changes, which is a fine
+    convenience while developing the overlay and indefensible anywhere else: an
+    installed plugin is usually a symlink to a checkout, so editing ayna reset a
+    user's page — their scroll, their canvas, their diagram — while they were in
+    the middle of using it, for a change that had nothing to do with them. A
+    checkout has a .git beside it; an install does not.
+  */
+  const devCheckout =
+    process.env.AYNA_DEV === '1' ||
+    existsSync(path.join(path.dirname(path.dirname(overlayFile)), '.git'));
+
   let reloading = false;
-  const overlayWatcher = watch(overlayFile, async () => {
+  const overlayWatcher = devCheckout ? watch(overlayFile, async () => {
     if (reloading || page.isClosed()) return;
     reloading = true;
     setTimeout(async () => {
@@ -758,7 +795,7 @@ export async function runAnnotate({
       }
       reloading = false;
     }, 250);
-  });
+  }) : null;
 
   // Lets tests and scripted flows drive the overlay without a human at the mouse.
   // Deliberately not awaited: a real user clicks while the watch loop below is
@@ -785,22 +822,19 @@ export async function runAnnotate({
       the same window, in its current state, whatever they navigated to.
     */
     /*
-      Measure the page as the user's app, not as the app with ayna on it.
+      Measure without moving anything.
 
-      The overlay reserves space at both edges, so anything measured while it is
-      open describes a page a couple of hundred pixels shorter than the one that
-      ships. A collision can stop reproducing purely because a review is in
-      progress. The space goes back for the length of the measurement.
+      Handing the reserved space back for the length of a measurement did give
+      honest bounds, and it did it by resizing the page twice — so every comment
+      and every gate made the app snap to full height, flash black where the
+      console had been, and snap back. Nobody will accept a flicker on every
+      click in exchange for tidier arithmetic.
+
+      The bounds are corrected in the page script instead, from the insets the
+      overlay publishes. Nothing moves; the checks simply know that the top and
+      bottom strips are not the app's.
     */
-    const measureApp = async (script) => {
-      await page.evaluate(() => window.__aynaReleaseSpace && window.__aynaReleaseSpace()).catch(() => {});
-      await page.waitForTimeout(120);
-      try {
-        return await page.evaluate(script);
-      } finally {
-        await page.evaluate(() => window.__aynaReserveSpace && window.__aynaReserveSpace()).catch(() => {});
-      }
-    };
+    const measureApp = async (script) => page.evaluate(script);
 
     if (existsSync(auditRequest)) {
       await rm(auditRequest, { force: true });
@@ -834,6 +868,7 @@ export async function runAnnotate({
       for (const c of comments) {
         if (c.status === 'rejected') c.status = 'open';
       }
+      const signature = await appearanceOf();
       try {
         /*
           Come back to where they were standing.
@@ -844,9 +879,33 @@ export async function runAnnotate({
           judging was off screen exactly when they needed to look at it.
         */
         const at = await page.evaluate(() => ({ x: scrollX, y: scrollY })).catch(() => null);
-        await reloadSettled(page);
-        if (at && (at.x || at.y)) {
-          await page.evaluate((p) => scrollTo(p.x, p.y), at).catch(() => {});
+
+        /*
+          Do not reload a page that has already updated itself.
+
+          The reload exists to make a fix visible. An app with hot reloading has
+          shown it before ayna gets here, so the reload is pure loss: it throws
+          away everything the browser was holding — a canvas viewport, a zoom
+          level, an open diagram, unsaved edits — and none of that comes back from
+          a scroll position. Restoring scroll never helped anyone reviewing a
+          canvas, because their place was never scroll.
+
+          The signature is taken before the round is sent and compared now. Style
+          text and element count are what a UI fix changes and what animation and
+          incoming data do not, so a difference means the page moved on its own.
+        */
+        const changedItself =
+          appearance && signature && appearance.rules === signature.rules
+            ? false
+            : Boolean(appearance && signature);
+
+        if (changedItself) {
+          emit({ event: 'applied', round, via: reason, reloaded: false });
+        } else {
+          await reloadSettled(page);
+          if (at && (at.x || at.y)) {
+            await page.evaluate((p) => scrollTo(p.x, p.y), at).catch(() => {});
+          }
         }
         // The overlay is injected per load and that is asynchronous — without
         // waiting for it, __aynaReview fires into a page that has no overlay yet
@@ -899,7 +958,7 @@ export async function runAnnotate({
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  overlayWatcher.close();
+  overlayWatcher?.close();
   stopWatchingProject();
 
   const fullFile = path.join(outDir, 'full-page.png');

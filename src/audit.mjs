@@ -17,7 +17,24 @@ export const CHECKS = `(() => {
   // documentElement.clientHeight returns the *content* height without a doctype,
   // which made every off-screen and covered check silently pass on such a page.
   const vw = Math.round(window.visualViewport ? window.visualViewport.width : window.innerWidth);
-  const vh = Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  const rawH = Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight);
+
+  /*
+    Take ayna's own chrome out of the bounds.
+
+    A review reserves a strip at the top and, with the console open, another at
+    the bottom. Counting those as the app's area means a control tucked behind
+    the console reads as on screen. The overlay publishes the insets rather than
+    moving out of the way to be measured, because moving flickered the page on
+    every click.
+  */
+  const inset = (name) => {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const vTop = inset('--ayna-inset-top');
+  const vh = rawH - inset('--ayna-inset-bottom');
 
   const describe = (el) => {
     if (!el || !el.tagName) return null;
@@ -82,7 +99,7 @@ export const CHECKS = `(() => {
     const r = el.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
-    if (cx < 0 || cy < 0 || cx > vw || cy > vh) continue; // off screen is check 2's job
+    if (cx < 0 || cy < vTop || cx > vw || cy > vh) continue; // off screen is check 2's job
     /*
       elementFromPoint reports the host, not what is actually on top inside it, so
       a control covered by a sibling within the same component read as fine.

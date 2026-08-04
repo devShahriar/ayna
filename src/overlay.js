@@ -131,8 +131,18 @@
       background: #0b0f14; color: #e6e9ef; border-top: 1px solid #1b2431;
       display: flex; flex-direction: column;
       font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-      max-height: 46vh;
+      /*
+        A fixed height, so arriving lines scroll instead of growing the panel.
+
+        Sized to its content, every new line made the console taller, which took
+        another slice off the app, which relaid the page out underneath the
+        person reading it — a jump on every comment, every landing, every gate.
+        A log that reflows the thing it is reporting on is not worth having.
+      */
+      height: 34vh;
+      min-height: 168px;
     }
+    .${NS}-console.${NS}-min { height: auto; min-height: 0; }
     .${NS}-console-head {
       display: flex; align-items: center; gap: 10px; padding: 7px 14px;
       border-bottom: 1px solid #161e29; flex: none;
@@ -1420,6 +1430,12 @@
     */
     const root = document.body;
     document.documentElement.style.setProperty('--ayna-bar-h', h + 'px');
+    /*
+      Publish the insets so a measurement can correct for them without anything
+      being moved. The alternative — handing the space back to measure and taking
+      it again — flickered the whole app on every click.
+    */
+    document.documentElement.style.setProperty('--ayna-inset-top', h + 'px');
 
     /*
       Padding on the root was the first attempt and it only moves content that
@@ -1460,6 +1476,7 @@
       pixels below the console no matter what the arithmetic said. Measuring the
       viewport the same way everything else here measures it removes the argument.
     */
+    document.documentElement.style.setProperty('--ayna-inset-bottom', foot + 'px');
     const room = Math.max(120, viewportH() - h - foot);
     root.style.setProperty('height', room + 'px', 'important');
     root.style.setProperty('min-height', room + 'px', 'important');
@@ -1486,6 +1503,8 @@
   function releaseBarSpace() {
     const root = document.body;
     document.documentElement.style.removeProperty('--ayna-bar-h');
+    document.documentElement.style.removeProperty('--ayna-inset-top');
+    document.documentElement.style.removeProperty('--ayna-inset-bottom');
     root.style.removeProperty('padding-top');
     root.style.removeProperty('transform');
     root.style.removeProperty('height');
