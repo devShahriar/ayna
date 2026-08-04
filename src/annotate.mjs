@@ -441,6 +441,25 @@ export async function runAnnotate({
     once edits stop arriving, treat the round as applied. The marker still works
     and still wins, for anything that does report in.
   */
+  /*
+    Everything worth showing in the window, in order.
+
+    The event stream went to stdout, which meant the terminal — so following a
+    review meant watching a window and a terminal at once, and the person who
+    wanted to stay on the page had to keep leaving it. The same events feed a
+    console inside the window now. The database is the real record when there is
+    one; this mirror keeps the panel working when there is not.
+  */
+  const feed = [];
+  const pushFeed = (e) => {
+    feed.push({ seq: feed.length + 1, at: Date.now(), ...e });
+    if (feed.length > 500) feed.shift();
+  };
+  const emit = (e) => {
+    pushFeed(e);
+    onEvent(e);
+  };
+
   let editedAt = 0;
   let projectWatcher = null;
   const watchProject = () => {
@@ -473,7 +492,7 @@ export async function runAnnotate({
     watchProject();
     await writeManifest();
     await writeStatus();
-    onEvent({
+    emit({
       event: 'round',
       round,
       comments: comments.length,
@@ -493,6 +512,42 @@ export async function runAnnotate({
   let saidApplied = false;
   await page.exposeFunction('__aynaApplied', async () => {
     saidApplied = true;
+  });
+
+  /*
+    What the console shows, and what it can send.
+
+    Reading comes from the database when there is one, because that survives the
+    window and every process around it; the local mirror covers the case where
+    there is not. Writing goes to the same place, so a line typed on the page is
+    the same kind of thing as a line Claude wrote — one stream, one order, no
+    second channel to keep in sync.
+  */
+  await page.exposeFunction('__aynaFeed', async (since = 0) => {
+    if (store?.db) {
+      try {
+        const { eventsSince } = await import('./db.mjs');
+        return eventsSince(store.db, Number(since) || 0, 200);
+      } catch {
+        // Fall through to the mirror rather than leaving the panel blank.
+      }
+    }
+    return feed.filter((e) => e.seq > (Number(since) || 0));
+  });
+
+  await page.exposeFunction('__aynaSay', async (text) => {
+    const said = String(text ?? '').trim();
+    if (!said) return { ok: false };
+    if (store?.db) {
+      try {
+        const { appendEvent } = await import('./db.mjs');
+        appendEvent(store.db, { event: 'message', from: 'user', text: said });
+      } catch {
+        // The mirror below still carries it to anything watching this session.
+      }
+    }
+    emit({ event: 'message', from: 'user', text: said, action: 'read-and-reply' });
+    return { ok: true };
   });
 
   // They looked at the result and want another pass.
@@ -532,11 +587,11 @@ export async function runAnnotate({
       c.status = 'open';
       c.source = 'user';
       if (store && c.taskId) await store.update(c.taskId, { comment: note, status: 'open', source: 'user' }, 'redirected by the user');
-      onEvent({ event: 'task', id: c.taskId ?? id, status: 'open', comment: note, action: 'do-this-instead' });
+      emit({ event: 'task', id: c.taskId ?? id, status: 'open', comment: note, action: 'do-this-instead' });
     } else if (verdict === 'approve') {
       c.status = 'open'; // approved to go ahead, not approved as done
       if (store && c.taskId) await store.update(c.taskId, { status: 'open' }, 'user approved the proposal');
-      onEvent({ event: 'task', id: c.taskId ?? id, status: 'open', comment: c.comment, action: 'go-ahead' });
+      emit({ event: 'task', id: c.taskId ?? id, status: 'open', comment: c.comment, action: 'go-ahead' });
     } else {
       c.status = 'approved'; // declined and settled; nothing to do
       if (store && c.taskId) await store.update(c.taskId, { status: 'approved' }, 'user declined the proposal');
@@ -579,7 +634,7 @@ export async function runAnnotate({
     await writeManifest();
     await writeStatus();
     if (status === 'rejected') {
-      onEvent({ event: 'rejected', id: c.id, comment: c.comment, commentsFile, action: 'retry-rejected' });
+      emit({ event: 'rejected', id: c.id, comment: c.comment, commentsFile, action: 'retry-rejected' });
     }
     return { ok: true, status, open: comments.filter((x) => x.status !== 'approved').length };
   });
@@ -598,7 +653,7 @@ export async function runAnnotate({
     done = true;
     await writeManifest();
     await writeStatus();
-    onEvent({ event: 'closed', approved: true, commentsFile });
+    emit({ event: 'closed', approved: true, commentsFile });
   });
 
   // Approving everything is now a deliberate button of its own, never a side
@@ -696,7 +751,7 @@ export async function runAnnotate({
           { ...raw, viewport: 'live', size: `${raw.viewport.width}x${raw.viewport.height}`, screenshot: shot },
         ]);
         await writeFile(auditResult, JSON.stringify(report, null, 2));
-        onEvent({ event: 'audit', url: page.url(), counts: report.counts, clean: report.clean, file: auditResult });
+        emit({ event: 'audit', url: page.url(), counts: report.counts, clean: report.clean, file: auditResult });
       } catch (err) {
         await writeFile(auditResult, JSON.stringify({ error: err.message.split('\n')[0] }));
       }
@@ -711,7 +766,7 @@ export async function runAnnotate({
       saidApplied = false;
       stopWatchingProject();
       await rm(appliedFile, { force: true });
-      onEvent({ event: 'applied', round, via: reason });
+      emit({ event: 'applied', round, via: reason });
       // Anything the user sent back for another attempt has now had one, so it
       // returns to the pile to be judged again rather than staying "rejected".
       for (const c of comments) {
@@ -763,7 +818,7 @@ export async function runAnnotate({
 
   phase = done ? 'approved' : 'closed';
   await writeStatus();
-  if (!done) onEvent({ event: 'closed', approved: false, commentsFile });
+  if (!done) emit({ event: 'closed', approved: false, commentsFile });
 
   const manifest = {
     url,

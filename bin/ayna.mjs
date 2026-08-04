@@ -39,6 +39,7 @@ ${bold('TASKS')}
   tasks       Every comment ever made here and where it stands
   task        Show one, or move it: ayna task task-0003 --status in_progress
   propose     Put a change in front of the user before making it
+  say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
 
@@ -470,6 +471,27 @@ async function main() {
       starts after the fact — and that is the common case, because sessions end
       and reviews do not. This reads the log instead, so being late costs nothing.
     */
+    /*
+      Say something into the window the user is actually looking at.
+
+      Claude's side of a review only ever appeared in a terminal, so following
+      one meant watching two places at once. This puts a line on the page — same
+      event log, same order as everything else, so it survives the session like
+      the rest of it.
+    */
+    case 'say': {
+      const text = (values.comment ?? positionals.slice(1).join(' ')).trim();
+      if (!text) throw new Error('nothing to say — ayna say "your message"');
+
+      const { openDb, appendEvent } = await import('../src/db.mjs');
+      const db = await openDb(PROJECT);
+      const seq = appendEvent(db, { event: 'message', from: 'claude', text });
+
+      if (values.json) console.log(JSON.stringify({ ok: true, seq, text }));
+      else ok('said it — it is on the page now');
+      return;
+    }
+
     case 'events': {
       const { since, drain, follow } = await import('../src/events.mjs');
       const consumer = values.consumer ?? null;

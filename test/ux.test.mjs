@@ -557,3 +557,104 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     assert.equal(stillOpen, true, 'Stay open did not keep the window');
   });
 });
+
+describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  /*
+    The event stream went to stdout, so following a review meant watching a
+    window and a terminal at once and the person who wanted to stay on the page
+    kept having to leave it. Same stream, on the page, both directions.
+  */
+  async function withConsole(run) {
+    const { srv, url } = await pollingServer('<h1 class="t">Hello</h1><div style="height:1200px"></div>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-console-'));
+    try {
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store: await openStore(dir),
+        viewport: { width: 1200, height: 800 },
+        onReady: async (page) => {
+          await page.waitForTimeout(900);
+          await run(page, dir);
+          await page.close();
+        },
+      });
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const overlap = (page) =>
+    page.evaluate(() => {
+      const c = document.querySelector('.ayna-ov-console').getBoundingClientRect();
+      const b = document.body.getBoundingClientRect();
+      return Math.max(0, Math.round(b.bottom - c.top));
+    });
+
+  test('carries both sides of the conversation', async () => {
+    const lines = [];
+    await withConsole(async (page, dir) => {
+      const { appendEvent, openDb } = await import('../src/db.mjs');
+      appendEvent(await openDb(dir), { event: 'message', from: 'claude', text: 'starting on the nav now' });
+      await page.waitForTimeout(1500);
+
+      await page.fill('.ayna-ov-console input', 'make it wider too');
+      await page.click('[data-act=say]');
+      await page.waitForTimeout(1300);
+
+      lines.push(...(await page.evaluate(() =>
+        [...document.querySelectorAll('.ayna-ov-line')].map((n) => n.dataset.kind + ':' + n.querySelector('span').textContent),
+      )));
+    });
+    assert.ok(
+      lines.includes('message:starting on the nav now'),
+      `Claude's line never reached the window: ${lines.join(' | ')}`,
+    );
+    assert.ok(lines.includes('you:make it wider too'), 'the reply typed on the page was lost');
+  });
+
+  test('never covers the app, open or minimised', async () => {
+    /*
+      A panel that sits on top of the thing you are reviewing is not a panel.
+      Getting this right needed a correction pass: a first child's top margin
+      collapses out through body, so the box starts lower than the transform put
+      it and ends that much lower too — every number correct and the page still
+      finishing twenty-one pixels under the console.
+    */
+    const seen = {};
+    await withConsole(async (page) => {
+      seen.open = await overlap(page);
+      await page.click('[data-act=fold]');
+      await page.waitForTimeout(800);
+      seen.minimised = await overlap(page);
+      await page.click('[data-act=fold]');
+      await page.waitForTimeout(800);
+      seen.reopened = await overlap(page);
+    });
+    assert.deepEqual(seen, { open: 0, minimised: 0, reopened: 0 });
+  });
+
+  test('typing in it does not reach the page underneath', async () => {
+    // The page is in comment mode, where keystrokes are shortcuts.
+    let comments = null;
+    await withConsole(async (page) => {
+      await page.fill('.ayna-ov-console input', 'escape and arrows and all');
+      await page.press('.ayna-ov-console input', 'Escape');
+      await page.press('.ayna-ov-console input', 'ArrowUp');
+      await page.waitForTimeout(300);
+      comments = await page.evaluate(() => document.querySelectorAll('.ayna-ov-pop').length);
+    });
+    assert.equal(comments, 0, 'typing in the console disturbed the review');
+  });
+});

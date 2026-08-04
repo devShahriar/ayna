@@ -297,6 +297,11 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**The terminal comes to you.** A console sits under the app in the review window:
+Claude's progress, every event, and a box to type an instruction back — so a
+review no longer means watching a window and a terminal at once. It minimises to
+a strip, and reserves its own space so it never covers what you are reviewing.
+
 **ayna is held to its own standards.** `scripts/self-taste.mjs` renders the review
 chrome to a standalone page and runs impeccable's detectors over it. It found 53
 things the first time — including white-on-blue buttons at 3.68:1, which is ayna

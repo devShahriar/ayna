@@ -110,6 +110,59 @@
       height: auto; padding: 7px 14px; border-radius: 8px;
       font: 600 13px/1 -apple-system, system-ui, sans-serif;
     }
+    /*
+      The stream, on the page instead of in a terminal.
+
+      Following a review used to mean watching a window and a terminal at once,
+      so the person who wanted to stay on the page kept having to leave it. This
+      is the same event stream, docked under the app, and it reserves its own
+      space for the same reason the bar does: a panel that covers the thing you
+      are reviewing is not a panel, it is an obstruction.
+    */
+    .${NS}-console {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
+      background: #0f1216; color: #dfe3ea; border-top: 1px solid #262c36;
+      display: flex; flex-direction: column;
+      font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      max-height: 46vh;
+    }
+    .${NS}-console-head {
+      display: flex; align-items: center; gap: 10px; padding: 7px 14px;
+      border-bottom: 1px solid #1c222b; flex: none;
+      font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-console-head .${NS}-dotlive {
+      width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex: none;
+    }
+    .${NS}-console-head button {
+      background: transparent; border: 0; color: #8a93a3; cursor: pointer;
+      font: inherit; padding: 2px 8px; border-radius: 6px;
+    }
+    .${NS}-console-head button:hover { background: #1c222b; color: #fff; }
+    .${NS}-console-head .${NS}-spacer { margin-left: auto; }
+    .${NS}-console-lines {
+      overflow-y: auto; padding: 8px 14px; flex: 1 1 auto; min-height: 0;
+    }
+    .${NS}-line { display: flex; gap: 10px; padding: 2px 0; }
+    .${NS}-line b { flex: none; color: #6b7686; font-weight: 500; min-width: 52px; }
+    .${NS}-line span { min-width: 0; word-break: break-word; }
+    .${NS}-line[data-kind=message] span { color: #fff; }
+    .${NS}-line[data-kind=you] b { color: #60a5fa; }
+    .${NS}-line[data-kind=you] span { color: #cfe0ff; }
+    .${NS}-line[data-kind=applied] span { color: #4ade80; }
+    .${NS}-line[data-kind=audit] span { color: #fbbf24; }
+    .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #1c222b; flex: none; }
+    .${NS}-console-say input {
+      flex: 1; background: #171b21; border: 1px solid #2a323d; border-radius: 8px;
+      color: #f2f4f8; padding: 8px 11px; font: inherit; outline: none;
+    }
+    .${NS}-console-say input:focus { border-color: #2563eb; }
+    .${NS}-console-say button {
+      background: #2563eb; color: #fff; border: 0; border-radius: 8px;
+      padding: 8px 14px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
+    }
+    .${NS}-console.${NS}-min .${NS}-console-lines,
+    .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
       padding: 6px 14px; cursor: pointer; background: #2563eb; color: #fff;
@@ -1295,7 +1348,7 @@
     The transform is the more invasive of the two, so it is used only where the
     cheap answer provably does not work.
   */
-  let reserved = 0;
+  let reserved = '';
   function reserveForBar() {
     if (!bar) return;
 
@@ -1315,8 +1368,9 @@
     }
 
     const h = Math.round(bar.getBoundingClientRect().height);
-    if (!h || h === reserved) return;
-    reserved = h;
+    const key = h + ':' + (consoleEl ? Math.round(consoleEl.getBoundingClientRect().height) : 0);
+    if (!h || key === reserved) return;
+    reserved = key;
 
     /*
       Move the page, not the root.
@@ -1341,6 +1395,15 @@
       descendants, which is the only thing that moves them. So it is the rule,
       not the exception.
     */
+    /*
+      The console takes space at the bottom on the same principle: whatever ayna
+      draws over the app, the app gets that much less room rather than being
+      covered by it.
+    */
+    // Minimised is smaller, not weightless: a 37px strip resting on the bottom of
+    // someone's app is still ayna covering something.
+    const foot = consoleEl ? Math.round(consoleEl.getBoundingClientRect().height) : 0;
+
     root.style.setProperty('transform', 'translateY(' + h + 'px)', 'important');
     /*
       Viewport units, not percentages.
@@ -1351,8 +1414,34 @@
       at the top of the screen, underneath the very bar this is meant to keep
       clear of them. `100vh` is the window either way.
     */
-    root.style.setProperty('height', 'calc(100vh - ' + h + 'px)', 'important');
-    root.style.setProperty('min-height', 'calc(100vh - ' + h + 'px)', 'important');
+    /*
+      Real pixels, measured now — not 100vh.
+
+      `100vh` and the window's own idea of its height disagree by a stable margin
+      in some browsers and window states, and the page kept ending about twenty
+      pixels below the console no matter what the arithmetic said. Measuring the
+      viewport the same way everything else here measures it removes the argument.
+    */
+    const room = Math.max(120, viewportH() - h - foot);
+    root.style.setProperty('height', room + 'px', 'important');
+    root.style.setProperty('min-height', room + 'px', 'important');
+
+    /*
+      Then check, because the arithmetic is not the whole story.
+
+      A first child's top margin collapses out through body, so the box starts
+      lower than the transform put it and ends that much lower too — the page
+      still finished twenty-one pixels underneath the console with every number
+      correct. Forcing a block formatting context would fix the collapse and
+      would also overwrite whatever display the app chose for its own body, which
+      is not a trade worth making for a margin. Measuring the result and taking
+      the difference off costs one reflow and assumes nothing.
+    */
+    const overshoot = Math.round(root.getBoundingClientRect().bottom - (viewportH() - foot));
+    if (overshoot > 0) {
+      root.style.setProperty('height', Math.max(120, room - overshoot) + 'px', 'important');
+      root.style.setProperty('min-height', Math.max(120, room - overshoot) + 'px', 'important');
+    }
   }
 
   /** Put the page back exactly as it was; a review must leave no trace. */
@@ -1363,7 +1452,7 @@
     root.style.removeProperty('transform');
     root.style.removeProperty('height');
     root.style.removeProperty('min-height');
-    reserved = 0;
+    reserved = '';
   }
   window.__aynaReleaseSpace = releaseBarSpace;
 
@@ -2056,6 +2145,138 @@
   }
 
   /*
+    The console.
+
+    One line per thing that happened, in the order it happened, with an input so
+    an instruction can be given without leaving the page. It polls rather than
+    being pushed to: the events live in a database written by another process,
+    and a poll of an indexed integer column costs nothing next to inventing a
+    channel to be notified over.
+  */
+  let consoleEl = null;
+  let consoleSeq = 0;
+  let consoleTimer = 0;
+  let consoleMin = false;
+  try {
+    consoleMin = sessionStorage.getItem('ayna-console') === 'min';
+  } catch {
+    // Private mode; it just opens expanded each time.
+  }
+
+  const WORDING = {
+    round: (e) => ['sent', `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Claude`],
+    applied: (e) => ['applied', `changes landed${e.via && e.via !== 'marker' ? ` (noticed by ${e.via.replace('-', ' ')})` : ''}`],
+    task: (e) => ['task', `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}${e.comment ? ' — ' + e.comment : ''}`.trim()],
+    rejected: (e) => ['back', `sent back: ${e.comment ?? ''}`],
+    closed: (e) => ['closed', e.approved ? 'review finished' : 'window closed — pending work kept'],
+    audit: (e) => ['audit', e.clean ? 'no layout faults' : `${Object.values(e.counts ?? {}).reduce((a, b) => a + b, 0)} faults found`],
+    claimed: (e) => ['claimed', `${e.taskId ?? ''} taken by ${e.by ?? 'someone'}`],
+    message: (e) => (e.from === 'user' ? ['you', e.text] : ['claude', e.text]),
+    ready: (e) => ['owed', `${e.pending} still waiting`],
+  };
+
+  function consoleLine(e) {
+    const wording = WORDING[e.event];
+    if (!wording) return null;
+    const [who, text] = wording(e);
+    if (!text) return null;
+    const row = document.createElement('div');
+    row.className = NS + '-line';
+    row.dataset.kind = e.event === 'message' ? (e.from === 'user' ? 'you' : 'message') : e.event;
+    const b = document.createElement('b');
+    b.textContent = who;
+    const span = document.createElement('span');
+    span.textContent = text;
+    row.appendChild(b);
+    row.appendChild(span);
+    return row;
+  }
+
+  function setConsoleMinimised(min) {
+    consoleMin = min;
+    if (!consoleEl) return;
+    consoleEl.classList.toggle(NS + '-min', min);
+    consoleEl.querySelector('[data-act=fold]').textContent = min ? 'Show' : 'Hide';
+    try {
+      sessionStorage.setItem('ayna-console', min ? 'min' : 'open');
+    } catch {
+      // Not being able to remember the preference is not worth failing over.
+    }
+    reserveForBar();
+  }
+
+  async function pumpConsole() {
+    if (!consoleEl || !window.__aynaFeed) return;
+    const events = await window.__aynaFeed(consoleSeq).catch(() => []);
+    if (!events || !events.length) return;
+
+    const lines = consoleEl.querySelector('.' + NS + '-console-lines');
+    // Only follow the tail when the reader is already at it; yanking someone back
+    // down while they are reading further up is the reason logs get closed.
+    const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 40;
+    for (const e of events) {
+      consoleSeq = Math.max(consoleSeq, e.seq ?? 0);
+      const row = consoleLine(e);
+      if (row) lines.appendChild(row);
+    }
+    while (lines.children.length > 300) lines.removeChild(lines.firstChild);
+    if (atBottom) lines.scrollTop = lines.scrollHeight;
+  }
+
+  function buildConsole() {
+    if (consoleEl || !window.__aynaFeed) return;
+    consoleEl = document.createElement('div');
+    consoleEl.className = NS + '-console';
+    consoleEl.setAttribute('data-ayna', '1');
+    consoleEl.innerHTML =
+      '<div class="' + NS + '-console-head">' +
+        '<span class="' + NS + '-dotlive"></span><span>Claude</span>' +
+        '<span class="' + NS + '-spacer"></span>' +
+        '<button data-act="fold">Hide</button>' +
+      '</div>' +
+      '<div class="' + NS + '-console-lines"></div>' +
+      '<div class="' + NS + '-console-say">' +
+        '<input placeholder="Tell Claude something — no need for the terminal" />' +
+        '<button data-act="say">Send</button>' +
+      '</div>';
+    document.documentElement.appendChild(consoleEl);
+
+    consoleEl.querySelector('[data-act=fold]').addEventListener('click', () => setConsoleMinimised(!consoleMin));
+
+    const input = consoleEl.querySelector('input');
+    const send = async () => {
+      const text = input.value.trim();
+      if (!text || !window.__aynaSay) return;
+      input.value = '';
+      await window.__aynaSay(text).catch(() => {});
+      pumpConsole();
+    };
+    consoleEl.querySelector('[data-act=say]').addEventListener('click', send);
+    input.addEventListener('keydown', (ev) => {
+      // Typing here must never reach the page underneath, which is in comment
+      // mode and would treat every keystroke as a shortcut.
+      ev.stopPropagation();
+      if (ev.key === 'Enter') send();
+    });
+
+    /*
+      The console grows as lines arrive, so the space kept for it has to follow.
+
+      Reserving once at build time meant measuring an empty panel: the page was
+      given back the room for a header, then the first few lines pushed the
+      console up over content that had already been laid out under it.
+    */
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => reserveForBar()).observe(consoleEl);
+    }
+
+    setConsoleMinimised(consoleMin);
+    pumpConsole();
+    clearInterval(consoleTimer);
+    consoleTimer = setInterval(pumpConsole, 1000);
+  }
+
+  /*
     The task list.
 
     Markers only exist on the page you are standing on, so work raised on another
@@ -2218,7 +2439,20 @@
     el.textContent = 'Tasks' + (pending ? ' · ' + pending : '');
   }
 
+  /*
+    Started last, on purpose.
+
+    Calling this up with setPhase put it before its own state was declared — the
+    let bindings below are in the temporal dead zone until execution reaches
+    them, so the whole overlay threw on init and no chrome appeared at all. It
+    needs nothing from the phases, so it goes at the end where everything exists.
+  */
+  buildConsole();
+
   function cleanup() {
+    clearInterval(consoleTimer);
+    consoleEl?.remove();
+    consoleEl = null;
     closePanel();
     clearReview();
     if (hl) hl.remove();

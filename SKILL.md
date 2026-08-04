@@ -419,6 +419,19 @@ control's focus ring was removed with nothing put back — invisible to anyone
 tabbing through. `faintFocusIndicator` means it exists but is under 3:1 against
 its background. Both are real faults with a fix, not preferences.
 
+## Talking to the user without the terminal
+
+The review window has a console docked under the app. Put a line in it as you
+work — they are watching the page, not your terminal:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" say "widening the nav now"
+```
+
+Anything they type back arrives as a `message` event on the stream, with
+`action: "read-and-reply"`. Treat it as a comment: act on it and say what you
+did. It is the same event log as everything else, so it survives the session.
+
 ## The part ayna cannot measure
 
 Layout faults are provable and `audit` chases them to zero. Whether a page looks
