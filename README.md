@@ -275,6 +275,10 @@ from another origin. Browser security, not something ayna can route around.
 sessions and costs real money. Everything else here is covered; that is not. Use
 the in-session flow unless you specifically want unattended runs.
 
+**The daemon is optional.** Everything works without it; what you lose is the
+tidying — a crashed worker's lease sits until something else notices, and dead
+pointer files stay on disk.
+
 **Windows is untested.** The fallbacks exist — a JS file scanner where `grep` is
 absent, a platform-aware "open" — but they have never been run there.
 
@@ -296,6 +300,14 @@ is on screen is silent. Reaching past the viewport needs a full-page capture, wh
 briefly relays the page out at another size — visible on anything that re-renders
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
+
+**Nothing is stranded by a process dying.** `ayna watchd start` runs a bookkeeper
+in the background: it notices sessions whose process is gone or that have stopped
+speaking, frees their windows so the next session can adopt them rather than
+finding a locked door, expires the leases of workers that crashed, and clears the
+pointer files that used to accumulate forever. It never opens a browser and never
+edits a file — a background process that could do either would be a much larger
+promise than this one.
 
 **It can do the work itself.** `ayna work` takes tasks off the queue and runs
 them through a brain of your choosing — `claude -p` by default, any command via

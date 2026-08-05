@@ -215,6 +215,39 @@ export async function runAnnotate({
 }) {
   await mkdir(outDir, { recursive: true });
 
+  /*
+    Register the window, and keep saying so.
+
+    Without this the only record of a live review was a pointer file nobody
+    cleaned up, so a window that died left its tasks claimed by a process that no
+    longer existed and the next session found a locked door. A session row plus a
+    heartbeat lets the bookkeeper notice the death and free the work for whoever
+    comes next.
+  */
+  let sessionId = null;
+  let tabId = null;
+  let sessions = null;
+  let beat = null;
+  if (store?.db) {
+    try {
+      const { openSessions } = await import('./sessions.mjs');
+      sessions = await openSessions(projectDir, { db: store.db });
+      sessionId = sessions.register({ tool: 'claude', pid: process.pid, project: projectDir });
+      tabId = sessions.openTab({ url, outDir, sessionId });
+      beat = setInterval(() => {
+        try {
+          sessions.heartbeat(sessionId);
+        } catch {
+          // A missed beat is recoverable; the sweep allows for silence.
+        }
+      }, 20_000);
+      beat.unref?.();
+    } catch {
+      // The window works without any of this; it just cannot be swept up after.
+      sessions = null;
+    }
+  }
+
   const ownsContext = !providedContext;
   const context =
     providedContext ??
@@ -978,6 +1011,16 @@ export async function runAnnotate({
 
   overlayWatcher?.close();
   stopWatchingProject();
+  clearInterval(beat);
+  if (sessions) {
+    // Say it ended, rather than leaving the bookkeeper to infer it later.
+    try {
+      if (tabId) sessions.closeTab(tabId);
+      if (sessionId) sessions.end(sessionId);
+    } catch {
+      // The sweep will reach the same conclusion from the heartbeat.
+    }
+  }
 
   const fullFile = path.join(outDir, 'full-page.png');
   if (!page.isClosed()) {
