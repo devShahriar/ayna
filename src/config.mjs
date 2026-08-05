@@ -59,6 +59,31 @@ function deepMerge(base, override) {
   return out;
 }
 
+/*
+  The palette, so ayna can look like the thing it is sitting on top of.
+
+  A review panel is somebody else's furniture in somebody else's room. Shipping
+  one fixed theme means it clashes with half the apps it opens, and the honest
+  answer to "will you use this" was no while the colours were mine and not
+  theirs. Anything unset falls back to the default, so a partial theme is a valid
+  theme — one line to change the accent is the common case.
+*/
+export const DEFAULT_THEME = {
+  surface: '#0b0f14',
+  line: '#1b2431',
+  text: '#e6e9ef',
+  muted: '#9aa4b2',
+  dim: '#55606f',
+  accent: '#1f6feb',
+  live: '#22d3ee',
+  good: '#34d399',
+  warn: '#f59e0b',
+  bad: '#ef4444',
+  you: '#38bdf8',
+  agent: '#a78bfa',
+  ayna: '#2dd4bf',
+};
+
 export async function loadConfig(rootDir) {
   const file = path.join(rootDir, 'ayna.config.json');
   let user = {};
@@ -69,6 +94,7 @@ export async function loadConfig(rootDir) {
     // No config yet — defaults are fine.
   }
   const cfg = deepMerge(DEFAULT_CONFIG, user);
+  cfg.theme = { ...DEFAULT_THEME, ...(cfg.theme ?? {}) };
   cfg.rootDir = rootDir;
   cfg.targetDir = path.resolve(rootDir, cfg.target.root);
   cfg.runsDir = path.join(rootDir, '.ayna', 'runs');

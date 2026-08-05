@@ -39,6 +39,8 @@ ${bold('TASKS')}
   tasks       Every comment ever made here and where it stands
   task        Show one, or move it: ayna task task-0003 --status in_progress
   propose     Put a change in front of the user before making it
+  work        Take tasks off the queue and do them (--brain claude|cursor|…)
+  verify      Ask each open task whether it still applies; closes what is fixed
   say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
@@ -122,6 +124,9 @@ const { values, positionals } = parseArgs({
     consumer: { type: 'string' },
     follow: { type: 'boolean' },
     propose: { type: 'boolean' },
+    task: { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    brain: { type: 'string' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
     dir: { type: 'string' },
@@ -479,6 +484,129 @@ async function main() {
       event log, same order as everything else, so it survives the session like
       the rest of it.
     */
+    /*
+      Ask each outstanding task whether it still applies.
+
+      Somebody fixing something themselves and then being asked about it anyway
+      is how a task list stops being read, and once it stops being read the
+      unsolved ones go with it.
+    */
+    /*
+      Work the queue without a Claude session in front of it.
+
+      Sessions end and terminals get closed; the queue outlives both. This takes
+      tasks off the same store every other tool reads, claims each one so nothing
+      is done twice, and checks before and after.
+    */
+    case 'work': {
+      const { work, brainFor } = await import('../src/worker.mjs');
+      const { verifyTasks } = await import('../src/verify.mjs');
+      const cfg = await loadConfig(PROJECT);
+      const store = await openStore(PROJECT);
+      await importLegacy(PROJECT, store);
+
+      const brain = brainFor(cfg, values.brain);
+      const server = await startTarget(cfg).catch(() => null);
+      const browser = server ? await openBrowser({ headless: true }) : null;
+
+      // One browser for the whole run, handed to the checker.
+      const verify = browser
+        ? (tasks) =>
+            verifyTasks({
+              browser,
+              url: tasks[0]?.url ?? server.url,
+              tasks,
+              viewport: cfg.viewports[0],
+            }).catch(() => tasks.map((t) => ({ id: t.id, verdict: 'unknown' })))
+        : null;
+
+      const say = values.json ? () => {} : (m) => info(m);
+      if (!values.json) banner(`ayna work · ${brain.name}`);
+
+      try {
+        const result = await work({
+          projectDir: PROJECT,
+          cfg,
+          brain,
+          verify,
+          limit: values.iterations ? Number(values.iterations) : Infinity,
+          onEvent: (e) => {
+            if (values.json) return;
+            if (e.event === 'working') say(`${e.taskId} — ${e.comment ?? ''}`);
+            else if (e.event === 'applied') say(`${e.taskId} ${e.outcome}${e.outcome === 'still-broken' ? ' ✗' : ' ✓'}`);
+            else if (e.event === 'failed') fail(`${e.taskId} — ${e.why}`);
+            else if (e.event === 'task') say(`${e.taskId} was already fixed`);
+          },
+        });
+
+        if (values.json) console.log(JSON.stringify(result, null, 2));
+        else {
+          console.log('');
+          ok(`${result.worked} task${result.worked === 1 ? '' : 's'} worked`);
+        }
+      } finally {
+        await browser?.close().catch(() => {});
+        await server?.close().catch(() => {});
+      }
+      return;
+    }
+
+    case 'verify': {
+      const { verifyTasks, applyVerdicts } = await import('../src/verify.mjs');
+      const cfg = await loadConfig(PROJECT);
+      const store = await openStore(PROJECT);
+      await importLegacy(PROJECT, store);
+
+      const all = await store.list({ pending: true });
+      const tasks = values.task ? all.filter((t) => t.id === values.task) : all;
+      if (!tasks.length) {
+        if (values.json) console.log(JSON.stringify({ checked: 0, verdicts: [] }));
+        else info('nothing outstanding to check');
+        return;
+      }
+
+      const server = await startTarget(cfg);
+      const browser = await openBrowser({ headless: headlessMode(cfg) });
+      let verdicts = [];
+      try {
+        // One page per URL: the tasks belong to whatever they were raised on.
+        const byUrl = new Map();
+        for (const t of tasks) {
+          const key = (t.url ?? server.url).split('#')[0];
+          if (!byUrl.has(key)) byUrl.set(key, []);
+          byUrl.get(key).push(t);
+        }
+        for (const [pageUrl, group] of byUrl) {
+          verdicts.push(
+            ...(await verifyTasks({
+              browser,
+              url: pageUrl,
+              tasks: group,
+              viewport: cfg.viewports[0],
+            }).catch(() => group.map((t) => ({ id: t.id, verdict: 'unknown', why: 'the page could not be opened' })))),
+          );
+        }
+      } finally {
+        await browser.close().catch(() => {});
+        await server.close().catch(() => {});
+      }
+
+      const applied = values['dry-run'] ? { obsolete: 0, asked: 0, untouched: verdicts.length } : await applyVerdicts(store, verdicts);
+
+      if (values.json) {
+        console.log(JSON.stringify({ checked: tasks.length, ...applied, verdicts }, null, 2));
+      } else {
+        banner('ayna verify');
+        for (const v of verdicts) {
+          const mark = v.verdict === 'gone' ? '✓' : v.verdict === 'reproduces' ? '·' : '?';
+          console.log(`  ${mark} ${v.id.padEnd(11)} ${v.verdict}${v.why ? ' — ' + v.why : ''}`);
+        }
+        console.log('');
+        ok(`${applied.obsolete} closed as already fixed · ${applied.asked} need your word · ${applied.untouched} unchanged`);
+      }
+      return;
+    }
+
     case 'say': {
       const text = (values.comment ?? positionals.slice(1).join(' ')).trim();
       if (!text) throw new Error('nothing to say — ayna say "your message"');
@@ -841,6 +969,7 @@ async function main() {
         outDir,
         projectDir: PROJECT,
         viewport: cfg.viewports[0],
+        theme: cfg.theme,
       });
 
       if (context) await context.close().catch(() => {});

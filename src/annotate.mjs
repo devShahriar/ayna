@@ -194,6 +194,7 @@ export async function runAnnotate({
   outDir,
   projectDir,
   viewport,
+  theme = null,
   onReady,
   /*
     Called the moment anything happens that Claude should act on.
@@ -760,7 +761,24 @@ export async function runAnnotate({
     up the current code, and the watcher below turns an edit into a reload.
   */
   const overlayFile = fileURLToPath(new URL('./overlay.js', import.meta.url));
+  /*
+    The theme is set on the page, not baked into the stylesheet, so a project can
+    say what ayna should look like in its own config and everything unset keeps
+    the default.
+  */
+  const applyTheme = async () => {
+    if (!theme) return;
+    await page
+      .evaluate((t) => {
+        for (const [k, v] of Object.entries(t)) {
+          if (typeof v === 'string') document.documentElement.style.setProperty('--ayna-' + k, v);
+        }
+      }, theme)
+      .catch(() => {});
+  };
+
   const injectOverlay = async () => {
+    await applyTheme();
     const src = await readFile(overlayFile, 'utf8').catch(() => null);
     if (src) await page.evaluate(src).catch(() => {});
   };

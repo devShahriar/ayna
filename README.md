@@ -297,6 +297,27 @@ briefly relays the page out at another size — visible on anything that re-rend
 on resize, a canvas above all. Scroll it into view before you frame it and this
 never happens.
 
+**It can do the work itself.** `ayna work` takes tasks off the queue and runs
+them through a brain of your choosing — `claude -p` by default, any command via
+`brains` in the config, so nothing is tied to one vendor. It claims each task
+first, so a Claude session and a worker never do the same one; it checks whether
+the fault still reproduces before spending anything on it; and it says
+`still-broken` rather than `applied` when a fix did not take. A proposal is never
+touched: `proposed` means found by a tool and not yet permitted.
+
+**Nothing nags you about a problem you already fixed.** `ayna verify` re-checks
+every open task against the live page. A measured fault that no longer reproduces
+closes itself with the evidence attached. Anything asked for in words is only ever
+flagged for your word — restyling a logo is not the same as making it bigger.
+
+**Make it look like your app.** A `theme` block in `ayna.config.json` sets the
+review chrome's colours; anything unset keeps the default, so changing one accent
+is one line.
+
+**Circle what you mean.** Draw mode marks a region freehand, which on a diagram
+beats a rectangle — and the stroke travels with the comment, because "this node,
+the one I circled" is what a bounding box throws away.
+
 **You can see who else is working.** Another Claude session, a worker, or a
 different tool entirely can be holding a task while you are looking at the page it
 belongs to. The console names them and says what they hold, so two of you do not

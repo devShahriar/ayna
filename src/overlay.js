@@ -75,7 +75,7 @@
       position: fixed; z-index: 2147483647; left: 0; right: 0; top: 0;
       display: flex; align-items: center; gap: 12px;
       flex-wrap: wrap; justify-content: center;
-      background: #111418; color: #f2f4f8; padding: 10px 16px;
+      background: var(--ayna-bar, #111418); color: var(--ayna-text, #f2f4f8); padding: 10px 16px;
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
       box-shadow: 0 2px 18px rgba(0,0,0,.35);
     }
@@ -128,7 +128,8 @@
     */
     .${NS}-console {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
-      background: #0b0f14; color: #e6e9ef; border-top: 1px solid #1b2431;
+      background: var(--ayna-surface, #0b0f14); color: var(--ayna-text, #e6e9ef);
+      border-top: 1px solid var(--ayna-line, #1b2431);
       display: flex; flex-direction: column;
       font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
       /*
@@ -149,7 +150,7 @@
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
     .${NS}-console-head .${NS}-dotlive {
-      width: 7px; height: 7px; border-radius: 50%; background: #34d399; flex: none;
+      width: 7px; height: 7px; border-radius: 50%; background: var(--ayna-good, #34d399); flex: none;
     }
     .${NS}-console-head button {
       background: transparent; border: 0; color: #9aa4b2; cursor: pointer;
@@ -167,7 +168,7 @@
     .${NS}-agent b { color: #cfd6e0; font-weight: 600; }
     /* Running gets the pulse; idle is just outlined. Straight from the legend:
        queued, running, done are three readable states, not one. */
-    .${NS}-agent.${NS}-busy { border-color: #22d3ee; }
+    .${NS}-agent.${NS}-busy { border-color: var(--ayna-live, #22d3ee); }
     .${NS}-agent.${NS}-busy i { animation: ${NS}-pulse 2.4s ease-in-out infinite; }
     @keyframes ${NS}-pulse {
       0%, 100% { box-shadow: 0 0 2px rgba(34,211,238,.30); }
@@ -181,9 +182,9 @@
     .${NS}-line b {
       flex: none; font-weight: 600; min-width: 54px; text-align: right;
     }
-    .${NS}-line[data-lane=you] b { color: #38bdf8; }
-    .${NS}-line[data-lane=claude] b { color: #a78bfa; }
-    .${NS}-line[data-lane=ayna] b { color: #2dd4bf; }
+    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #38bdf8); }
+    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #a78bfa); }
+    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #2dd4bf); }
     .${NS}-phase {
       margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #161e29;
       color: #7c8798; font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
@@ -194,26 +195,26 @@
     .${NS}-line[data-kind=message] span { color: #fff; }
     .${NS}-line[data-kind=you] b { color: #60a5fa; }
     .${NS}-line[data-kind=you] span { color: #cfd6e0; }
-    .${NS}-line[data-kind=applied] span { color: #34d399; }
-    .${NS}-line[data-kind=audit] span { color: #f59e0b; }
+    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #34d399); }
+    .${NS}-line[data-kind=audit] span { color: var(--ayna-warn, #f59e0b); }
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
-    .${NS}-line[data-kind=gate] b { color: #22d3ee; }
+    .${NS}-line[data-kind=gate] b { color: var(--ayna-live, #22d3ee); }
     .${NS}-line[data-kind=gate] span { color: #a5f3fc; }
     .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #161e29; flex: none; }
     .${NS}-console-say input {
       flex: 1; background: #0f151c; border: 1px solid #2a3444; border-radius: 8px;
       color: #e6e9ef; padding: 8px 11px; font: inherit; outline: none;
     }
-    .${NS}-console-say input:focus { border-color: #38bdf8; }
+    .${NS}-console-say input:focus { border-color: var(--ayna-you, #38bdf8); }
     .${NS}-console-say button {
-      background: #1f6feb; color: #fff; border: 0; border-radius: 8px;
+      background: var(--ayna-accent, #1f6feb); color: #fff; border: 0; border-radius: 8px;
       padding: 8px 14px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
-      padding: 6px 14px; cursor: pointer; background: #2563eb; color: #fff;
+      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #2563eb); color: #fff;
     }
     /*
       After the generic rule on purpose: same specificity, so source order
@@ -238,6 +239,9 @@
     }
     .${NS}-tag b { font-weight: 700; }
     .${NS}-tag i { font-style: normal; opacity: .75; margin-left: 8px; }
+    .${NS}-ink {
+      position: fixed; inset: 0; z-index: 2147483641; pointer-events: none;
+    }
     .${NS}-marquee {
       position: absolute; z-index: 2147483641; pointer-events: none;
       border: 2px dashed #2563eb; background: rgba(59,130,246,.10); border-radius: 3px;
@@ -543,11 +547,19 @@
       */
       const MODES = [
         { id: 'comment', label: 'Comment', title: 'Click anything to comment on it' },
+        /*
+          Circling a thing is how people point at it. A rectangle is how a
+          computer points at it — fine for a paragraph, hopeless for one node in a
+          diagram surrounded by others. Drawing keeps the stroke, so the comment
+          arrives with the shape the person actually drew.
+        */
+        { id: 'draw', label: 'Draw', title: 'Circle or scribble around what you mean' },
         { id: 'move', label: 'Move', title: 'Drag an element to try it somewhere else' },
         { id: 'browse', label: 'Browse', title: 'Use the app normally — nothing is captured' },
       ];
       const HINT = {
         comment: 'Click anything to comment',
+        draw: 'Draw around what you mean — release to comment',
         move: 'Drag an element to reorder it',
         browse: state.signIn
           ? 'Sign in first — nothing is captured while you do'
@@ -1092,6 +1104,127 @@
     captures that region as its own crop, plus every element substantially inside
     it so Claude still gets selectors and source locations to edit.
   */
+  /*
+    Freehand marking.
+
+    The stroke is drawn on a full-page canvas above the app and below the
+    chrome, then its bounding box becomes the region — so everything downstream
+    (the crop, the task, the review marker) works exactly as it does for a
+    dragged rectangle. The path itself is kept with the comment, because "this
+    one, the one I circled" is information a bounding box throws away.
+  */
+  let inkCanvas = null;
+  let inkPath = [];
+  let inking = false;
+
+  function ensureInk() {
+    if (inkCanvas) return inkCanvas;
+    inkCanvas = document.createElement('canvas');
+    inkCanvas.className = NS + '-ink';
+    inkCanvas.setAttribute('data-ayna', '1');
+    document.documentElement.appendChild(inkCanvas);
+    return inkCanvas;
+  }
+
+  function sizeInk() {
+    const c = ensureInk();
+    const w = viewportW();
+    const h = viewportH();
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
+    }
+    return c;
+  }
+
+  function drawInk() {
+    const c = sizeInk();
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    if (inkPath.length < 2) return;
+    g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ayna-warn').trim() || '#f59e0b';
+    g.lineWidth = 3;
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(inkPath[0].x - scrollX, inkPath[0].y - scrollY);
+    for (const p of inkPath.slice(1)) g.lineTo(p.x - scrollX, p.y - scrollY);
+    g.stroke();
+  }
+
+  function clearInk() {
+    inkPath = [];
+    inking = false;
+    if (inkCanvas) {
+      const g = inkCanvas.getContext('2d');
+      g.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
+    }
+  }
+
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      if (state.mode !== 'draw' || state.phase !== 'comment' || isOurs(e.target)) return;
+      e.preventDefault();
+      inking = true;
+      inkPath = [{ x: e.pageX, y: e.pageY }];
+      sizeInk();
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mousemove',
+    (e) => {
+      if (!inking) return;
+      inkPath.push({ x: e.pageX, y: e.pageY });
+      drawInk();
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mouseup',
+    async (e) => {
+      if (!inking) return;
+      inking = false;
+      if (inkPath.length < 4) {
+        clearInk();
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
+      const xs = inkPath.map((p) => p.x);
+      const ys = inkPath.map((p) => p.y);
+      const pad = 6;
+      const rect = {
+        x: Math.min(...xs) - pad,
+        y: Math.min(...ys) - pad,
+        width: Math.max(8, Math.max(...xs) - Math.min(...xs) + pad * 2),
+        height: Math.max(8, Math.max(...ys) - Math.min(...ys) + pad * 2),
+      };
+
+      // A stroke that enclosed nothing is a slip of the hand, not a comment.
+      if (rect.width < 12 && rect.height < 12) {
+        clearInk();
+        return;
+      }
+
+      state.suppressClick = true;
+      // Same path as a dragged region from here on, so the crop, the task and
+      // the review marker all behave identically — the only difference is the
+      // shape the person drew, which is kept alongside.
+      const within = elementsWithin(rect);
+      openPopover(within[0] || document.body, {
+        rect,
+        elements: within,
+        drawn: inkPath.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+      });
+    },
+    true,
+  );
+
   let marqueeBox = null;
 
   function ensureMarquee() {
@@ -1657,6 +1790,7 @@
   window.addEventListener('orientationchange', relayout, { passive: true });
 
   function closePopover() {
+    clearInk();
     if (pop) {
       pop.remove();
       pop = null;
@@ -1857,7 +1991,13 @@
       const first = described[0] ?? { selector: 'body', tag: 'body', id: null, classes: [], text: '', outerHTML: '', styles: {} };
       const payload = {
         kind: region ? 'region' : 'comment',
-        region: region ? { rect: r, elementCount: described.length } : null,
+        /*
+          The stroke travels with the comment. A bounding box says where; the
+          path says which one — "this node, the one I circled" is exactly the
+          information a rectangle discards, and on a diagram it is the whole
+          message.
+        */
+        region: region ? { rect: r, elementCount: described.length, drawn: region.drawn ?? null } : null,
         comment: text,
         // Primary target stays flat for simple single-element comments.
         selector: first.selector,

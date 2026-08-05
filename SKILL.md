@@ -438,6 +438,20 @@ true`, or the counts that remain. "Done" is a prediction until something looks.
 It stops nothing: the user still decides. But do not claim a fix the gate
 contradicts.
 
+## Before working a task, ask whether it still applies
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" verify
+```
+
+A measured fault that no longer reproduces closes itself — somebody fixed it, and
+nobody needs to read it. Anything asked for in words is only flagged. Run this
+before a batch of work so you are not fixing what is already fixed.
+
+`ayna work` does the same thing unattended: it claims each task so you and it
+never collide, and reports `still-broken` rather than `applied` when a fix did not
+take.
+
 ## The part ayna cannot measure
 
 Layout faults are provable and `audit` chases them to zero. Whether a page looks
