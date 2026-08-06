@@ -324,7 +324,9 @@ flagged for your word — restyling a logo is not the same as making it bigger.
 
 **Make it look like your app.** A `theme` block in `ayna.config.json` sets the
 review chrome's colours; anything unset keeps the default, so changing one accent
-is one line.
+is one line. Text on those colours is worked out rather than assumed — a brand
+colour is often bright, and white on kormoOS's `#ccfe05` measures 1.18:1, which
+would have made every button in a "successfully applied" theme unreadable.
 
 **Circle what you mean.** Draw mode marks a region freehand, which on a diagram
 beats a rectangle — and the stroke travels with the comment, because "this node,

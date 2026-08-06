@@ -56,7 +56,7 @@
   css.textContent = `
     .${NS}-hl {
       position: absolute; pointer-events: none; z-index: 2147483640;
-      border: 2px solid #2563eb; background: rgba(59,130,246,.12);
+      border: 2px solid var(--ayna-accent, #2563eb); background: rgba(59,130,246,.12);
       border-radius: 3px;
     }
     /*
@@ -207,14 +207,16 @@
     }
     .${NS}-console-say input:focus { border-color: var(--ayna-you, #38bdf8); }
     .${NS}-console-say button {
-      background: var(--ayna-accent, #1f6feb); color: #fff; border: 0; border-radius: 8px;
+      background: var(--ayna-accent, #1f6feb); color: var(--ayna-on-accent, #fff);
+      border: 0; border-radius: 8px;
       padding: 8px 14px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
-      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #2563eb); color: #fff;
+      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #2563eb);
+      color: var(--ayna-on-accent, #fff);
     }
     /*
       After the generic rule on purpose: same specificity, so source order
@@ -233,7 +235,8 @@
     .${NS}-warn { color: #fbbf24; }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      background: #2563eb; color: #fff; border-radius: 4px; padding: 2px 7px;
+      background: var(--ayna-accent, #2563eb); color: var(--ayna-on-accent, #fff);
+      border-radius: 4px; padding: 2px 7px;
       font: 500 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.2);
     }
@@ -244,7 +247,7 @@
     }
     .${NS}-marquee {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      border: 2px dashed #2563eb; background: rgba(59,130,246,.10); border-radius: 3px;
+      border: 2px dashed var(--ayna-accent, #2563eb); background: rgba(59,130,246,.10); border-radius: 3px;
       display: flex; align-items: flex-end; justify-content: flex-end; padding: 4px;
       font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff;
     }
@@ -272,8 +275,11 @@
     @keyframes ${NS}-rot { to { transform: rotate(360deg); } }
     .${NS}-pop {
       position: fixed; z-index: 2147483646; width: 320px; max-width: calc(100vw - 16px);
-      background: #fff; color: #111; border-radius: 12px; padding: 14px;
-      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid #c9cfd9;
+      /* The panels follow the app too: a white card in a black UI is ayna
+         announcing itself rather than fitting in. */
+      background: var(--ayna-panel, #fff); color: var(--ayna-panel-text, #111);
+      border-radius: 12px; padding: 14px;
+      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid var(--ayna-panel-line, #c9cfd9);
       font: 13px/1.5 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column; gap: 0;
     }
@@ -281,10 +287,12 @@
        reach is a row you cannot click. */
     .${NS}-body { overflow: auto; min-height: 0; }
     .${NS}-pop textarea {
-      width: 100%; min-height: 78px; resize: vertical; padding: 9px; color: #111;
-      border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; background: #fff;
+      width: 100%; min-height: 78px; resize: vertical; padding: 9px;
+      color: var(--ayna-panel-text, #111);
+      border: 1px solid var(--ayna-panel-line, #dfe3ea); border-radius: 8px; font: inherit;
+      background: var(--ayna-panel, #fff);
     }
-    .${NS}-pop textarea:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+    .${NS}-pop textarea:focus { outline: 2px solid var(--ayna-accent, #2563eb); outline-offset: -1px; }
     /*
       A footnote, not a field. Boxed and grey at the top of the panel it read as
       an input you were meant to fill in, and it occupied the line the crop should
@@ -296,8 +304,8 @@
     }
     .${NS}-sel:empty { display: none; }
     .${NS}-hint { color: #5b6472; font-size: 12px; margin: 8px 0; }
-    .${NS}-attach { color: #2563eb; text-decoration: underline; cursor: pointer; }
-    .${NS}-pop.${NS}-dragover { outline: 2px dashed #2563eb; outline-offset: 3px; }
+    .${NS}-attach { color: var(--ayna-accent, #2563eb); text-decoration: underline; cursor: pointer; }
+    .${NS}-pop.${NS}-dragover { outline: 2px dashed var(--ayna-accent, #2563eb); outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     .${NS}-auto { position: relative; display: inline-flex; }
     .${NS}-auto b {
@@ -316,8 +324,14 @@
     .${NS}-row button {
       font: inherit; font-weight: 600; border-radius: 8px; padding: 7px 13px; cursor: pointer;
     }
-    .${NS}-save { background: #2563eb; color: #fff; border: 1px solid #2563eb; }
-    .${NS}-cancel { background: #fff; color: #374151; border: 1px solid #dfe3ea; }
+    .${NS}-save {
+      background: var(--ayna-accent, #2563eb); color: var(--ayna-on-accent, #fff);
+      border: 1px solid var(--ayna-accent, #2563eb);
+    }
+    .${NS}-cancel {
+      background: transparent; color: var(--ayna-panel-text, #374151);
+      border: 1px solid var(--ayna-panel-line, #dfe3ea);
+    }
     /*
       A comment you have just filed is not a warning.
 
@@ -328,7 +342,8 @@
     */
     .${NS}-pin {
       position: absolute; z-index: 2147483645; width: 24px; height: 24px;
-      border-radius: 999px 999px 999px 2px; background: #2563eb; color: #fff;
+      border-radius: 999px 999px 999px 2px; background: var(--ayna-accent, #2563eb);
+      color: var(--ayna-on-accent, #fff);
       font: 700 12px/24px -apple-system, system-ui, sans-serif; text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
@@ -344,7 +359,7 @@
         and the colour carried no information because everything had it. Amber and
         red now mean what they say. Blue means "your turn".
       */
-      border: 2px solid #2563eb; background: rgba(59,130,246,.07);
+      border: 2px solid var(--ayna-accent, #2563eb); background: rgba(59,130,246,.07);
       border-radius: 4px; transition: border-color .2s, background-color .2s;
     }
     .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
@@ -373,7 +388,7 @@
       in the card that opens from it — the same decision painted two ways
       depending on where you happened to click.
     */
-    .${NS}-ok { background: #15803d; color: #fff; }
+    .${NS}-ok { background: var(--ayna-good, #15803d); color: var(--ayna-on-good, #fff); }
     .${NS}-no { background: #2b313d; color: #e5e7eb; }
     .${NS}-ok:hover { background: #166534; }
     .${NS}-no:hover { background: #dc2626; color: #fff; }
@@ -427,8 +442,9 @@
     }
     .${NS}-card {
       position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
-      background: #fff; color: #111; border-radius: 12px; padding: 14px;
-      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid #c9cfd9;
+      background: var(--ayna-panel, #fff); color: var(--ayna-panel-text, #111);
+      border-radius: 12px; padding: 14px;
+      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid var(--ayna-panel-line, #c9cfd9);
       font: 13px/1.55 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column;
     }
@@ -444,7 +460,8 @@
     .${NS}-card[data-status=proposed] .${NS}-badge { background: #ede9fe; color: #5b21b6; }
     .${NS}-card textarea {
       width: 100%; min-height: 54px; resize: vertical; padding: 8px; margin-top: 8px;
-      border: 1px solid #dfe3ea; border-radius: 8px; font: inherit; color: #111; background: #fff;
+      border: 1px solid var(--ayna-panel-line, #dfe3ea); border-radius: 8px; font: inherit;
+      color: var(--ayna-panel-text, #111); background: var(--ayna-panel, #fff);
     }
     .${NS}-fix {
       background: #f4f5f8; border-radius: 8px; padding: 8px 10px; margin: 8px 0;

@@ -806,6 +806,32 @@ export async function runAnnotate({
         for (const [k, v] of Object.entries(t)) {
           if (typeof v === 'string') document.documentElement.style.setProperty('--ayna-' + k, v);
         }
+
+        /*
+          Work out what colour text belongs on each of those, rather than
+          assuming white.
+
+          A brand colour is often bright — kormoOS's is #ccfe05, where white text
+          measures 1.18:1 and is simply not readable. Hardcoding white meant any
+          light accent produced invisible buttons, so the theme would look
+          "applied" and be unusable. The luminance decides, the same arithmetic
+          ayna uses to judge everyone else's contrast.
+        */
+        const luminance = (hex) => {
+          const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+          if (!m) return null;
+          const ch = [0, 2, 4]
+            .map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255)
+            .map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)));
+          return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+        };
+
+        for (const key of ['accent', 'good', 'bad', 'warn', 'live']) {
+          const l = luminance(t[key]);
+          if (l === null) continue;
+          // 0.4 is where black overtakes white against a mid tone.
+          document.documentElement.style.setProperty('--ayna-on-' + key, l > 0.4 ? '#0a0a0a' : '#ffffff');
+        }
       }, theme)
       .catch(() => {});
   };
