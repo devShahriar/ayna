@@ -452,6 +452,26 @@ before a batch of work so you are not fixing what is already fixed.
 never collide, and reports `still-broken` rather than `applied` when a fix did not
 take.
 
+## Checking one part of a page, yourself
+
+You have no hands. When you need to know whether the thing you just changed is
+still usable, name it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" inspect --selector ".toolbar" --json
+```
+
+Headless, a second or so, no window taken. You get back a crop of exactly that
+region — **Read it** — plus the faults measured *inside* it, its computed styles
+and its text. `--region x,y,w,h` works too when you already know the pixels from
+a screenshot, and `--flow steps.json` reaches a state that only exists after
+clicking.
+
+`counts` is what is wrong in the region you asked about; `pageCounts` is the
+whole page. The difference is the point: it lets you tell "the part I changed is
+fine" from "the page is fine", which are not the same claim. Exit code is 1 when
+the region has a serious fault, so a script can gate on it.
+
 ## Doing the queue without a person watching
 
 ```bash
@@ -547,6 +567,7 @@ edit their project off your own judgement without a yes.
 | `A propose --comment "…"` | put a change in front of the user before making it |
 | `A verify` | ask each open task whether it still applies; closes what is already fixed |
 | `A work --brain claude` | do the queue unattended; claims each task first |
+| `A inspect --selector ".x"` | one part of a page, headless: its crop and the faults inside it |
 | `A audit` | layout faults the page can prove, including contrast and focus |
 | `A taste --propose` | design anti-patterns, if impeccable is installed |
 | `A qa` | run every flow in `ayna-flows/`; exit 1 on failure |

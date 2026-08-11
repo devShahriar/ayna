@@ -57,6 +57,7 @@ ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
   taste       Design anti-patterns via impeccable, if installed (--propose to raise them)
+  inspect     Look at one part of a page headlessly: --selector or --region
   audit       Find layout faults the page can prove: covered, cut off, overlapping
               (--flow steps.json to audit a state you have to click into)
   qa          Run every flow in ayna-flows/ and gate on the result (exit 1 on fail)
@@ -127,6 +128,7 @@ const { values, positionals } = parseArgs({
     propose: { type: 'boolean' },
     task: { type: 'string' },
     'dry-run': { type: 'boolean' },
+    region: { type: 'string' },
     brain: { type: 'string' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
@@ -171,7 +173,17 @@ async function main() {
     would get pristine screenshots of a landing page you have never seen, with no
     hint that it isn't your app. Fail loudly instead.
   */
-  const NEEDS_TARGET = new Set(['shot', 'critique', 'annotate', 'loop', 'serve']);
+  /*
+    Anything that renders a page needs to know which page.
+
+    `inspect`, `audit`, `qa`, `taste` and `verify` all open something and report
+    on what they find. Without this they fall back to the plugin's own bundled
+    demo and answer confidently about a landing page the user has never seen —
+    the same trap `shot` was guarded against, and every bit as convincing.
+  */
+  const NEEDS_TARGET = new Set([
+    'shot', 'critique', 'annotate', 'loop', 'serve', 'inspect', 'audit', 'qa', 'taste', 'verify',
+  ]);
   /*
     `--root` answers the question as well as `--url` does.
 
@@ -506,6 +518,64 @@ async function main() {
       background process that can put a window on your screen or change your code
       is a far larger promise than this one.
     */
+    /*
+      Visual QA an agent can do for itself.
+
+      Everything else here assumes somebody is pointing. An agent has no hands —
+      it can name a thing and needs back what a person gets from pointing at it:
+      the pixels, and what is measurably wrong inside them. Headless, so it costs
+      a second and steals no window.
+    */
+    case 'inspect': {
+      const { inspect, summarizeInspection } = await import('../src/inspect.mjs');
+      const cfg = await loadConfig(PROJECT);
+
+      let region = null;
+      if (values.region) {
+        const [x, y, w, h] = String(values.region).split(',').map(Number);
+        if ([x, y, w, h].some((n) => !Number.isFinite(n))) {
+          throw new Error('--region wants x,y,width,height in pixels');
+        }
+        region = { x, y, width: w, height: h };
+      }
+      if (!values.selector && !region) {
+        throw new Error('what should it look at? --selector ".toolbar" or --region 40,80,320,120');
+      }
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const outDir = path.join(PROJECT, '.ayna', 'inspect', stamp);
+      const server = await startTarget(cfg);
+      const browser = await openBrowser({ headless: true });
+      const steps = values.flow
+        ? (JSON.parse(await readFile(path.resolve(PROJECT, values.flow), 'utf8')).steps ?? [])
+        : [];
+
+      try {
+        const result = await inspect({
+          browser,
+          url: values.url ?? server.url,
+          selector: values.selector ?? null,
+          region,
+          steps,
+          viewport: cfg.viewports[0],
+          outDir,
+        });
+
+        if (values.json) console.log(JSON.stringify(result, null, 2));
+        else {
+          banner('ayna inspect');
+          console.log('  ' + summarizeInspection(result));
+          if (result.screenshot) console.log('  ' + path.relative(PROJECT, result.screenshot));
+        }
+        // Exit 1 on a fault so a script can gate on it, the way `qa` does.
+        if (result.found && !result.clean) process.exitCode = 1;
+      } finally {
+        await browser.close().catch(() => {});
+        await server.close().catch(() => {});
+      }
+      return;
+    }
+
     case 'watchd': {
       const { watchLoop, running, takePidFile, releasePidFile, pruneSessionFiles } = await import('../src/watchd.mjs');
       const action = positionals[1] ?? 'status';
