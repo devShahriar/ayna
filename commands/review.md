@@ -16,6 +16,12 @@ Open the annotation overlay so I can point at what I mean: **$ARGUMENTS**
 
 2. Every time I send, you get a `{"event":"round"}` line. Read my comments:
    `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" comments --json`
+
+   Say what you are doing as you go:
+   `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" say "widening the nav now"`
+   puts a line in the console down the left of the window I am already looking
+   at, so I never have to go back to your terminal. Anything I type there arrives
+   as a `message` event — treat it as a comment and answer it.
    Don't poll, and don't wait to be told to check again — the stream tells you.
 
 3. For **every** comment: Read its `regionScreenshot` to see the exact element I
