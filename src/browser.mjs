@@ -1,18 +1,68 @@
 import { chromium } from 'playwright-core';
 import { mkdir } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
  * Launches the Chrome already installed on this machine (playwright-core does not
  * download its own browser). Headed by default so you can watch the loop work.
  */
-export async function openBrowser({ headless = false } = {}) {
-  const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
-  // CI runners are frequently root inside a container, where the sandbox refuses
-  // to start, and their /dev/shm is too small for Chrome's default use.
-  if (process.env.CI) args.push('--no-sandbox', '--disable-dev-shm-usage');
+/*
+  Is this a container?
 
-  return chromium.launch({ channel: 'chrome', headless, args });
+  The sandbox flags were gated on CI alone, which is true of a CI runner and of
+  nothing else — so anyone running ayna in a container had to claim to be CI to
+  get Chrome to start as root. That is a lie in an environment variable, and the
+  sort that quietly changes other tools' behaviour too. Ask the machine instead.
+*/
+function inContainer() {
+  if (process.env.AYNA_NO_SANDBOX === '1') return true;
+  if (existsSync('/.dockerenv') || existsSync('/run/.containerenv')) return true;
+  try {
+    // The classic tell, and still the most portable one.
+    return /docker|containerd|kubepods|lxc/.test(readFileSync('/proc/1/cgroup', 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Which browser to drive.
+ *
+ * `chrome` means real Google Chrome, which is around 400MB of image for a
+ * container that only needs to render a page. `chromium` is a tenth of that and
+ * renders the same. Neither is right for everybody, so it is a setting.
+ */
+export const chromeChannel = () => process.env.AYNA_CHROME_CHANNEL || 'chrome';
+
+export function launchArgs() {
+  const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
+  /*
+    Root inside a container cannot use Chrome's sandbox, and the default /dev/shm
+    there is 64MB — far too small, which shows up as tabs dying at random rather
+    than as anything that says "shared memory".
+  */
+  if (process.env.CI || inContainer()) args.push('--no-sandbox', '--disable-dev-shm-usage');
+  return args;
+}
+
+/** Say which channel was missing, rather than reporting a generic launch failure. */
+function launchFailed(err, channel) {
+  if (/executable doesn't exist|Failed to launch|ENOENT|not found/i.test(err.message)) {
+    return new Error(
+      `could not start "${channel}". playwright-core downloads no browser — install one, ` +
+        `or set AYNA_CHROME_CHANNEL (chrome, chromium, msedge).\n  ${err.message.split('\n')[0]}`,
+    );
+  }
+  return err;
+}
+
+export async function openBrowser({ headless = false, channel = chromeChannel() } = {}) {
+  try {
+    return await chromium.launch({ channel, headless, args: launchArgs() });
+  } catch (err) {
+    throw launchFailed(err, channel);
+  }
 }
 
 /*
@@ -149,14 +199,13 @@ export async function capture({ browser, url, viewports, outDir, label }) {
  */
 export async function openPersistentContext({ profileDir, headless = false, viewport, followWindow }) {
   await mkdir(profileDir, { recursive: true });
-  const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
-  if (process.env.CI) args.push('--no-sandbox', '--disable-dev-shm-usage');
+  const args = launchArgs();
 
   const size = viewport ?? { width: 1440, height: 900 };
   if (!headless) args.push(`--window-size=${size.width},${size.height}`);
 
   return chromium.launchPersistentContext(profileDir, {
-    channel: 'chrome',
+    channel: chromeChannel(),
     headless,
     /*
       A headed window must follow the window.

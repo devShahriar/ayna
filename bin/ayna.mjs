@@ -138,7 +138,10 @@ const { values, positionals } = parseArgs({
     status: { type: 'string' },
     comment: { type: 'string' },
     fix: { type: 'string' },
-    selector: { type: 'string' },
+    selector: { type: 'string', multiple: true },
+    frame: { type: 'string' },
+    'image-base64': { type: 'boolean' },
+    'out-dir': { type: 'string' },
     file: { type: 'string' },
     'fresh-profile': { type: 'boolean' },
     'no-wait': { type: 'boolean' },
@@ -473,7 +476,9 @@ async function main() {
         kind: 'proposal',
         comment: values.comment,
         fix: values.fix ?? null,
-        selector: values.selector ?? null,
+        // `--selector` takes several values for `inspect`, so it always arrives
+        // as an array. A proposal is about one element.
+        selector: [values.selector].flat()[0] ?? null,
         url: values.url ?? cfg.target.url ?? null,
         source: 'claude',
       });
@@ -543,35 +548,73 @@ async function main() {
       }
 
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const outDir = path.join(PROJECT, '.ayna', 'inspect', stamp);
-      const server = await startTarget(cfg);
+      const outDir = values['out-dir']
+        ? path.resolve(PROJECT, values['out-dir'])
+        : path.join(PROJECT, '.ayna', 'inspect', stamp);
+
+      /*
+        A given URL is the target; nothing needs starting.
+
+        Starting one unconditionally meant a sandbox with no local project to
+        serve failed before it ever reached the page it was told to look at.
+      */
+      const server = values.url ? null : await startTarget(cfg);
       const browser = await openBrowser({ headless: true });
       const steps = values.flow
         ? (JSON.parse(await readFile(path.resolve(PROJECT, values.flow), 'utf8')).steps ?? [])
         : [];
 
-      try {
-        const result = await inspect({
-          browser,
-          url: values.url ?? server.url,
-          selector: values.selector ?? null,
-          region,
-          steps,
-          viewport: cfg.viewports[0],
-          outDir,
-        });
+      /*
+        One browser for every region asked about.
 
-        if (values.json) console.log(JSON.stringify(result, null, 2));
+        Each launch costs a second or two, which is the dominant cost inside an
+        agent's fix loop — three cards should not mean three cold starts.
+      */
+      const selectors = region ? [null] : [values.selector].flat();
+
+      try {
+        const results = [];
+        for (const [i, sel] of selectors.entries()) {
+          results.push(
+            await inspect({
+              browser,
+              url: values.url ?? server.url,
+              selector: sel,
+              frame: values.frame ?? null,
+              region,
+              steps,
+              viewport: cfg.viewports[0],
+              outDir,
+              image: Boolean(values['image-base64']),
+              label: selectors.length > 1 ? `inspect-${i + 1}` : 'inspect',
+            }),
+          );
+        }
+
+        // One selector keeps the shape it always had; several add a list, so a
+        // caller written against the single case is not broken by the feature.
+        const single = results.length === 1;
+        const payload = single
+          ? results[0]
+          : { url: values.url ?? server.url, results, clean: results.every((r) => r.found && r.clean) };
+
+        if (values.json) console.log(JSON.stringify(payload, null, 2));
         else {
           banner('ayna inspect');
-          console.log('  ' + summarizeInspection(result));
-          if (result.screenshot) console.log('  ' + path.relative(PROJECT, result.screenshot));
+          for (const r of results) {
+            console.log('  ' + summarizeInspection(r));
+            if (r.screenshot) console.log('    ' + path.relative(PROJECT, r.screenshot));
+          }
         }
-        // Exit 1 on a fault so a script can gate on it, the way `qa` does.
-        if (result.found && !result.clean) process.exitCode = 1;
+
+        /*
+          Exit 1 on a fault, and on not having been able to look at all. A QA gate
+          that passes because the selector was wrong is worse than one that fails.
+        */
+        if (results.some((r) => !r.found || !r.clean)) process.exitCode = 1;
       } finally {
         await browser.close().catch(() => {});
-        await server.close().catch(() => {});
+        await server?.close().catch(() => {});
       }
       return;
     }

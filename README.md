@@ -337,12 +337,18 @@ different tool entirely can be holding a task while you are looking at the page 
 belongs to. The console names them and says what they hold, so two of you do not
 do the same job. A claim that expires drops off by itself.
 
+**It runs in a container.** Chrome's sandbox flags apply when a container is
+detected or `AYNA_NO_SANDBOX=1` is set, rather than only when `CI` is — nobody
+should have to claim to be CI. `AYNA_CHROME_CHANNEL=chromium` avoids shipping
+400MB of Google Chrome, and a missing browser says which one it wanted.
+
 **An agent can look at one thing.** `ayna inspect --selector ".toolbar"` returns a
 crop of that region and the faults measured inside it — headless, in about a
 second. It reports the region's counts and the page's separately, so "the part I
 changed is fine" and "the page is fine" stay different claims. `--region x,y,w,h`
 takes pixels straight from a previous screenshot; `--flow` reaches a state that
-only exists after clicking.
+only exists after clicking; `--frame "iframe#card"` reaches inside a sandboxed
+iframe, which the page itself cannot see into.
 
 **Claims are checked, not taken.** When changes land, ayna re-measures before you
 are asked to judge — the console says "no measurable faults left" or names what is

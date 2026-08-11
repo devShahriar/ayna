@@ -467,10 +467,29 @@ and its text. `--region x,y,w,h` works too when you already know the pixels from
 a screenshot, and `--flow steps.json` reaches a state that only exists after
 clicking.
 
+**Inside an iframe, name the frame.** Agent-built cards often render in a
+sandboxed `srcdoc` iframe, which the top document cannot see into at all:
+
+```bash
+ayna inspect --frame "iframe#card-3" --selector ".kc" --json
+# or the same thing:  --selector "iframe#card-3 >> .kc"
+```
+
+Without it the selector matches nothing — which is reported, and is not the same
+as clean. `rect` comes back in page coordinates so a crop still lines up;
+`frameRect` is the same box inside the frame.
+
 `counts` is what is wrong in the region you asked about; `pageCounts` is the
 whole page. The difference is the point: it lets you tell "the part I changed is
-fine" from "the page is fine", which are not the same claim. Exit code is 1 when
-the region has a serious fault, so a script can gate on it.
+fine" from "the page is fine", which are not the same claim. Exit code is 1 when the
+region has a serious fault **and** when it could not be looked at, because a gate
+that passes on a wrong selector is worse than one that fails. `transportError`
+marks a page that could not be reached — that is somebody's server, not somebody's
+UI, and must not be reported as a regression.
+
+Repeat `--selector` to inspect several regions in one browser launch.
+`--image-base64` returns the PNG inline for a caller with no shared filesystem,
+and `--out-dir` puts the files somewhere writable.
 
 ## Doing the queue without a person watching
 
