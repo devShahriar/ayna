@@ -668,8 +668,21 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
           projectDir: site,
           viewport: { width: 1200, height: 800 },
           onReady: async (page) => {
+            /*
+              Start inside the page, not in ayna's own rail.
+
+              The console occupies the left edge now, the way the bar occupies the
+              top, so a drag beginning six pixels left of an element near the page
+              edge begins on the overlay and never reaches the app. That is the
+              cost of docking anything, and the test asserts marquee behaviour
+              rather than the geometry around it.
+            */
             const box = await page.locator('.list').boundingBox();
-            await page.mouse.move(box.x - 6, box.y - 6);
+            const rail = await page.evaluate(() => {
+              const c = document.querySelector('.ayna-ov-console');
+              return c ? Math.round(c.getBoundingClientRect().right) : 0;
+            });
+            await page.mouse.move(Math.max(box.x - 6, rail + 8), box.y - 6);
             await page.mouse.down();
             await page.mouse.move(box.x + box.width + 6, box.y + box.height + 6, { steps: 12 });
             await page.waitForTimeout(150);
@@ -1443,7 +1456,12 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
           projectDir: site,
           viewport: { width: 1000, height: 700 },
           onReady: async (page) => {
-            await page.mouse.move(200, 180);
+            // Over the canvas, not over ayna's rail down the left edge.
+            const clear = await page.evaluate(() => {
+              const c = document.querySelector('.ayna-ov-console');
+              return (c ? Math.round(c.getBoundingClientRect().right) : 0) + 40;
+            });
+            await page.mouse.move(clear, 180);
             await page.waitForTimeout(200);
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-tag').textContent),
@@ -1451,9 +1469,9 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
               'a canvas tells you to frame a region, since traversal has nothing finer',
             );
 
-            await page.mouse.move(100, 100);
+            await page.mouse.move(clear, 100);
             await page.mouse.down();
-            await page.mouse.move(370, 260, { steps: 12 });
+            await page.mouse.move(clear + 270, 260, { steps: 12 });
             await page.waitForTimeout(150);
             await page.mouse.up();
 

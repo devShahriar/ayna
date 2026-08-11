@@ -344,10 +344,12 @@ still there. Borrowed from
 whose rule is that gates verify claims and never predictions, and check after the
 agent finishes.
 
-**The terminal comes to you.** A console sits under the app in the review window:
+**The terminal comes to you.** A console runs down the left of the review window:
 Claude's progress, every event, and a box to type an instruction back — so a
-review no longer means watching a window and a terminal at once. It minimises to
-a strip, and reserves its own space so it never covers what you are reviewing.
+review no longer means watching a window and a terminal at once. It collapses to a
+34px spine, and reserves its own space so it never covers what you are reviewing.
+A column costs about a sixth of the width; the same log across the bottom cost a
+third of the height, which a page can far less afford.
 
 **ayna is held to its own standards.** `scripts/self-taste.mjs` renders the review
 chrome to a standalone page and runs impeccable's detectors over it. It found 53

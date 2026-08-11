@@ -72,7 +72,7 @@
       bar covers nothing at all rather than covering something less important.
     */
     .${NS}-bar {
-      position: fixed; z-index: 2147483647; left: 0; right: 0; top: 0;
+      position: fixed; z-index: 2147483647; left: var(--ayna-inset-left, 0px); right: 0; top: 0;
       display: flex; align-items: center; gap: 12px;
       flex-wrap: wrap; justify-content: center;
       background: var(--ayna-bar, #111418); color: var(--ayna-text, #f2f4f8); padding: 10px 16px;
@@ -126,26 +126,35 @@
       chat window, which is what this is — and it matches the terminals this sits
       next to instead of fighting them.
     */
-    .${NS}-console {
-      position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
-      background: var(--ayna-surface, #0b0f14); color: var(--ayna-text, #e6e9ef);
-      border-top: 1px solid var(--ayna-line, #1b2431);
-      display: flex; flex-direction: column;
-      font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-      /*
-        A fixed height, so arriving lines scroll instead of growing the panel.
+    /*
+      A rail down the left, not a shelf across the bottom.
 
-        Sized to its content, every new line made the console taller, which took
-        another slice off the app, which relaid the page out underneath the
-        person reading it — a jump on every comment, every landing, every gate.
-        A log that reflows the thing it is reporting on is not worth having.
-      */
-      height: 34vh;
-      min-height: 168px;
+      Full width across the bottom cost a third of the page height to show six
+      lines of text — the most expensive possible arrangement for a log that is
+      mostly read out of the corner of an eye. A column is cheap: a page has
+      horizontal room to spare and almost never has vertical room to spare, and
+      lines of text are already a tall narrow shape.
+
+      Translucent because the space is reserved, so what shows through is the
+      page's own background rather than its content — enough to feel part of the
+      app instead of a panel bolted onto it.
+    */
+    .${NS}-console {
+      position: fixed; left: 0; top: 0; bottom: 0; z-index: 2147483646;
+      width: 216px;
+      background: color-mix(in srgb, var(--ayna-surface, #0b0f14) 70%, transparent);
+      color: var(--ayna-text, #e6e9ef);
+      border-right: 1px solid var(--ayna-line, #1b2431);
+      display: flex; flex-direction: column;
+      font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    .${NS}-console.${NS}-min { height: auto; min-height: 0; }
+    /* Collapsed to a spine: still legible, costs 34px. */
+    .${NS}-console.${NS}-min { width: 34px; }
+    .${NS}-console.${NS}-min .${NS}-console-title,
+    .${NS}-console.${NS}-min .${NS}-agents { display: none; }
+    .${NS}-console.${NS}-min .${NS}-console-head { padding: 8px 4px; justify-content: center; }
     .${NS}-console-head {
-      display: flex; align-items: center; gap: 10px; padding: 7px 14px;
+      display: flex; align-items: center; gap: 7px; padding: 7px 10px; flex-wrap: wrap;
       border-bottom: 1px solid #161e29; flex: none;
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
@@ -158,11 +167,13 @@
     }
     .${NS}-console-head button:hover { background: #161e29; color: #e6e9ef; }
     .${NS}-console-head .${NS}-spacer { margin-left: auto; }
-    .${NS}-agents { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .${NS}-agents { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; flex: 1 1 100%; }
+    .${NS}-agents:empty { display: none; }
     .${NS}-agent {
       display: inline-flex; align-items: center; gap: 6px;
-      border: 1px solid #2a3444; border-radius: 999px; padding: 2px 9px;
-      font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9aa4b2;
+      border: 1px solid var(--ayna-line, #2a3444); border-radius: 999px; padding: 1px 7px;
+      font: 500 10.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--ayna-muted, #9aa4b2);
     }
     .${NS}-agent i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
     .${NS}-agent b { color: #cfd6e0; font-weight: 600; }
@@ -175,13 +186,27 @@
       50% { box-shadow: 0 0 9px rgba(34,211,238,.75); }
     }
     .${NS}-console-lines {
-      overflow-y: auto; padding: 8px 14px; flex: 1 1 auto; min-height: 0;
+      overflow-y: auto; padding: 8px 11px; flex: 1 1 auto; min-height: 0;
     }
-    .${NS}-line { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
-    .${NS}-at { flex: none; color: #55606f; font-style: normal; min-width: 40px; }
-    .${NS}-line b {
-      flex: none; font-weight: 600; min-width: 54px; text-align: right;
-    }
+    /*
+      Let a line be a line.
+
+      As a flex row with a wrapping text child, every entry cost two rows and a
+      ragged gap — a log that is mostly glanced at should be dense, and a
+      terminal is dense because its text simply flows. Inline, wrapping under
+      itself, is both smaller and more familiar.
+    */
+    /*
+      One rule, not two fighting.
+
+      A flex row with fixed-width time and lane columns made sense across the
+      bottom of a wide window; in a 216px rail it left the message a 60px gutter
+      to wrap inside, one word per line. Text flows instead — which is what a
+      terminal line has always been.
+    */
+    .${NS}-line { display: block; padding: 2px 0; word-break: break-word; }
+    .${NS}-at { color: #55606f; font-style: normal; margin-right: 6px; }
+    .${NS}-line b { font-weight: 600; margin-right: 6px; }
     .${NS}-line[data-lane=you] b { color: var(--ayna-you, #38bdf8); }
     .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #a78bfa); }
     .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #2dd4bf); }
@@ -191,7 +216,7 @@
       text-transform: uppercase; letter-spacing: .06em;
     }
     .${NS}-phase:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
-    .${NS}-line span { min-width: 0; word-break: break-word; }
+
     .${NS}-line[data-kind=message] span { color: #fff; }
     .${NS}-line[data-kind=you] b { color: #60a5fa; }
     .${NS}-line[data-kind=you] span { color: #cfd6e0; }
@@ -200,16 +225,35 @@
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
     .${NS}-line[data-kind=gate] b { color: var(--ayna-live, #22d3ee); }
     .${NS}-line[data-kind=gate] span { color: #a5f3fc; }
-    .${NS}-console-say { display: flex; gap: 8px; padding: 9px 12px; border-top: 1px solid #161e29; flex: none; }
+    /*
+      Neon, in the sense that matters: saturated ink on near-black.
+
+      The instinct is to reach for a halo, and a coloured glow on a dark surface
+      is the single most reliable tell of a generated interface — impeccable has
+      a rule for it and ayna's own chrome was caught by that rule once already.
+      Full-chroma text on a dark ground reads as neon without it, and stays
+      readable, which a glow actively works against.
+    */
+    .${NS}-console { text-shadow: none; }
+    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #22d3ee); }
+    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c084fc); }
+    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #34d399); }
+    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f7fb); }
+    .${NS}-line[data-kind=you] span { color: var(--ayna-you, #67e8f9); }
+    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #4ade80); }
+    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #67e8f9); }
+    .${NS}-phase { color: var(--ayna-accent, #d4ff3f); }
+    .${NS}-console-say { display: flex; gap: 6px; padding: 9px 10px; flex-wrap: wrap; border-top: 1px solid #161e29; flex: none; }
     .${NS}-console-say input {
       flex: 1; background: #0f151c; border: 1px solid #2a3444; border-radius: 8px;
       color: #e6e9ef; padding: 8px 11px; font: inherit; outline: none;
     }
     .${NS}-console-say input:focus { border-color: var(--ayna-you, #38bdf8); }
+    .${NS}-console-say input { flex: 1 1 100%; }
     .${NS}-console-say button {
       background: var(--ayna-accent, #1f6feb); color: var(--ayna-on-accent, #fff);
-      border: 0; border-radius: 8px;
-      padding: 8px 14px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
+      border: 0; border-radius: 8px; flex: 1 1 100%;
+      padding: 7px 12px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
@@ -1566,7 +1610,7 @@
     }
 
     const h = Math.round(bar.getBoundingClientRect().height);
-    const key = h + ':' + (consoleEl ? Math.round(consoleEl.getBoundingClientRect().height) : 0);
+    const key = h + ':' + (consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0);
     if (!h || key === reserved) return;
     reserved = key;
 
@@ -1604,11 +1648,14 @@
       draws over the app, the app gets that much less room rather than being
       covered by it.
     */
-    // Minimised is smaller, not weightless: a 37px strip resting on the bottom of
-    // someone's app is still ayna covering something.
-    const foot = consoleEl ? Math.round(consoleEl.getBoundingClientRect().height) : 0;
+    /*
+      The console takes width now, not height. Minimised is narrower, not
+      weightless: a strip resting on someone's app is still ayna covering
+      something.
+    */
+    const rail = consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0;
 
-    root.style.setProperty('transform', 'translateY(' + h + 'px)', 'important');
+    root.style.setProperty('transform', 'translate(' + rail + 'px, ' + h + 'px)', 'important');
     /*
       Viewport units, not percentages.
 
@@ -1626,10 +1673,14 @@
       pixels below the console no matter what the arithmetic said. Measuring the
       viewport the same way everything else here measures it removes the argument.
     */
-    document.documentElement.style.setProperty('--ayna-inset-bottom', foot + 'px');
-    const room = Math.max(120, viewportH() - h - foot);
+    document.documentElement.style.setProperty('--ayna-inset-left', rail + 'px');
+    document.documentElement.style.setProperty('--ayna-inset-bottom', '0px');
+
+    const room = Math.max(120, viewportH() - h);
+    const across = Math.max(200, viewportW() - rail);
     root.style.setProperty('height', room + 'px', 'important');
     root.style.setProperty('min-height', room + 'px', 'important');
+    root.style.setProperty('width', across + 'px', 'important');
 
     /*
       Then check, because the arithmetic is not the whole story.
@@ -1642,7 +1693,7 @@
       is not a trade worth making for a margin. Measuring the result and taking
       the difference off costs one reflow and assumes nothing.
     */
-    const overshoot = Math.round(root.getBoundingClientRect().bottom - (viewportH() - foot));
+    const overshoot = Math.round(root.getBoundingClientRect().bottom - viewportH());
     if (overshoot > 0) {
       root.style.setProperty('height', Math.max(120, room - overshoot) + 'px', 'important');
       root.style.setProperty('min-height', Math.max(120, room - overshoot) + 'px', 'important');
@@ -1655,6 +1706,7 @@
     document.documentElement.style.removeProperty('--ayna-bar-h');
     document.documentElement.style.removeProperty('--ayna-inset-top');
     document.documentElement.style.removeProperty('--ayna-inset-bottom');
+    document.documentElement.style.removeProperty('--ayna-inset-left');
     root.style.removeProperty('padding-top');
     root.style.removeProperty('transform');
     root.style.removeProperty('height');
@@ -1725,8 +1777,7 @@
     const ceiling = zone.bottom + 8;
     // The console owns the bottom now, so the floor is its top edge — not the
     // window's. Without this the comment box opened underneath it.
-    const consoleTop = consoleEl ? Math.round(consoleEl.getBoundingClientRect().top) : vh;
-    const floor = Math.min(vh, consoleTop) - 8;
+    const floor = vh - 8;
 
     let top = y + r.height + 10;
     if (top + h > floor) top = y - h - 10; // no room below — flip above
@@ -1738,7 +1789,9 @@
     if (top + h > floor) top = Math.max(ceiling, floor - h);
 
     el.style.position = 'fixed';
-    el.style.left = Math.min(Math.max(x, 8), Math.max(8, vw - w - 8)) + 'px';
+    // The rail owns the left edge, so that is the wall — not the window's.
+    const wall = consoleEl ? Math.round(consoleEl.getBoundingClientRect().right) + 8 : 8;
+    el.style.left = Math.min(Math.max(x, wall), Math.max(wall, vw - w - 8)) + 'px';
     el.style.top = Math.max(barZone().bottom + 8, top) + 'px';
 
     /*

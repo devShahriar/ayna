@@ -595,11 +595,13 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     }
   }
 
+  // The console is a rail down the left now, so the edge that can be covered is
+  // the page's left one, not its bottom.
   const overlap = (page) =>
     page.evaluate(() => {
       const c = document.querySelector('.ayna-ov-console').getBoundingClientRect();
       const b = document.body.getBoundingClientRect();
-      return Math.max(0, Math.round(b.bottom - c.top));
+      return Math.max(0, Math.round(c.right - b.left));
     });
 
   test('carries both sides of the conversation', async () => {
@@ -627,10 +629,11 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
   test('never covers the app, open or minimised', async () => {
     /*
       A panel that sits on top of the thing you are reviewing is not a panel.
-      Getting this right needed a correction pass: a first child's top margin
-      collapses out through body, so the box starts lower than the transform put
-      it and ends that much lower too — every number correct and the page still
-      finishing twenty-one pixels under the console.
+      Across the bottom this needed a correction pass, because a first child's
+      top margin collapses out through body and the box ended lower than the
+      arithmetic said. Down the left there is no equivalent, but the assertion
+      stays: whatever ayna draws over an app, the app gets that much less room
+      rather than being covered.
     */
     const seen = {};
     await withConsole(async (page) => {
