@@ -452,6 +452,33 @@ before a batch of work so you are not fixing what is already fixed.
 never collide, and reports `still-broken` rather than `applied` when a fix did not
 take.
 
+## Doing the queue without a person watching
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" work
+```
+
+Takes tasks off the store one at a time, claims each so you and it never do the
+same one, checks whether the fault still reproduces before spending anything, and
+reports `still-broken` rather than `applied` when a fix did not take. `--brain`
+picks the tool: `claude -p` by default, anything named under `brains` in the
+config otherwise.
+
+It never touches a `proposed` task. That status means found by a tool and not yet
+permitted.
+
+## Keeping the bookkeeping honest
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" watchd start
+```
+
+Optional, and dull on purpose. It notices sessions whose process is gone, frees
+their windows so the next session can adopt the work rather than finding a locked
+door, expires the leases of workers that crashed, and clears the pointer files
+that otherwise accumulate forever. It never opens a browser and never edits a
+file.
+
 ## The part ayna cannot measure
 
 Layout faults are provable and `audit` chases them to zero. Whether a page looks
@@ -500,3 +527,44 @@ run `applied`, and let them judge the result like any other task.
 
 **The rule: their comments are instructions, your findings are suggestions.** Never
 edit their project off your own judgement without a yes.
+
+## Every command
+
+`A` below is `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs"`.
+
+| command | what it is for |
+|---|---|
+| `A shot --json` | screenshot every viewport, plus the diagnostics a picture cannot show |
+| `A annotate --events` | open the review window; one JSON line per thing the user does |
+| `A comments --json` | what they marked up, with crops, selectors and source locations |
+| `A status` | the phase of the open review |
+| `A applied` | tell the window your edits are in, so it shows them for judging |
+| `A say "…"` | put a line in the console the user is watching, on the page |
+| `A events --since 0` | everything that happened, and what is still owed — survives every process |
+| `A events --follow` | the same as a stream, for a monitor |
+| `A tasks` | every task and where it stands |
+| `A task <id> --status <s>` | move one; `in_progress` claims it, nothing else may |
+| `A propose --comment "…"` | put a change in front of the user before making it |
+| `A verify` | ask each open task whether it still applies; closes what is already fixed |
+| `A work --brain claude` | do the queue unattended; claims each task first |
+| `A audit` | layout faults the page can prove, including contrast and focus |
+| `A taste --propose` | design anti-patterns, if impeccable is installed |
+| `A qa` | run every flow in `ayna-flows/`; exit 1 on failure |
+| `A flow --flow f.json` | replay a scripted journey |
+| `A login` | open the app so the user signs in; ayna never types credentials |
+| `A watchd start` | background bookkeeping: frees the work of processes that died |
+| `A clean --keep 3` | drop old runs; tasks, the database and the login profile are kept |
+
+Anything not listed — `init`, `serve`, `snapshot`, `restore`, `record`, `report`,
+`loop`, `critique`, `wait` — exists and is either setup or the standalone paid
+path. `A --help` prints all of them.
+
+## Two rules that outrank the rest
+
+**Never claim a fix the gate contradicts.** Every `applied` is followed by a
+`gate` event carrying what still reproduces. If it says a fault is still there,
+say so.
+
+**Never approve your own work.** `proposed` means you found it and the user has
+not agreed yet; only they move a task to `approved`. A worker that approves its
+own suggestion has emptied the word of meaning.
