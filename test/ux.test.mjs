@@ -722,3 +722,68 @@ describe('what everyone else is doing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
     }
   });
 });
+
+describe('resizing the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  test('the page fills the window at every size', async () => {
+    /*
+      The space reservation short-circuited on a key holding the bar's height and
+      the rail's width, and neither changes when somebody resizes the window — so
+      the page kept the width and height it was given for the old one. Going full
+      screen left the app in its original box with black down two edges. The one
+      event that most obviously needs a re-measure was the one it skipped.
+    */
+    const { srv, url } = await pollingServer(
+      '<div id="app" style="position:fixed;inset:0;background:#123"><h1 class="t">app</h1></div>',
+    );
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-resize-'));
+    try {
+      const gaps = [];
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store: await openStore(dir),
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          const measure = async (label) => {
+            await page.waitForTimeout(800);
+            gaps.push({
+              label,
+              ...(await page.evaluate(() => {
+                const b = document.body.getBoundingClientRect();
+                return {
+                  right: Math.round(innerWidth - b.right),
+                  bottom: Math.round(innerHeight - b.bottom),
+                };
+              })),
+            });
+          };
+
+          await measure('launch');
+          await page.setViewportSize({ width: 1600, height: 1000 });
+          await measure('bigger');
+          await page.setViewportSize({ width: 900, height: 600 });
+          await measure('smaller');
+          await page.close();
+        },
+      });
+
+      for (const g of gaps) {
+        assert.equal(g.right, 0, `${g.label}: ${g.right}px of dead space down the right`);
+        assert.equal(g.bottom, 0, `${g.label}: ${g.bottom}px of dead space along the bottom`);
+      }
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

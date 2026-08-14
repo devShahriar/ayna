@@ -1609,8 +1609,23 @@
       bar.__aynaRO.observe(bar);
     }
 
+    /*
+      The window's size belongs in this key.
+
+      It held only the bar's height and the rail's width, and neither of those
+      changes when somebody resizes the window — so the early return fired, the
+      page kept the width and height it was given for the old window, and going
+      full screen left the app in its original box with black around two edges.
+      The one event that most obviously needs a re-measure was the one this
+      skipped.
+    */
     const h = Math.round(bar.getBoundingClientRect().height);
-    const key = h + ':' + (consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0);
+    const key = [
+      h,
+      consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0,
+      viewportW(),
+      viewportH(),
+    ].join(':');
     if (!h || key === reserved) return;
     reserved = key;
 

@@ -17,6 +17,14 @@ import path from 'node:path';
 */
 function inContainer() {
   if (process.env.AYNA_NO_SANDBOX === '1') return true;
+  /*
+    Linux only. The sandbox works fine for an ordinary user on macOS and Windows,
+    and passing --no-sandbox there buys nothing while making Chrome show a yellow
+    "unsupported command-line flag" bar across the top of the window — which is
+    both alarming and, in a review window, a strip of the page you were trying to
+    look at.
+  */
+  if (process.platform !== 'linux') return false;
   if (existsSync('/.dockerenv') || existsSync('/run/.containerenv')) return true;
   try {
     // The classic tell, and still the most portable one.
