@@ -419,6 +419,28 @@ control's focus ring was removed with nothing put back — invisible to anyone
 tabbing through. `faintFocusIndicator` means it exists but is under 3:1 against
 its background. Both are real faults with a fix, not preferences.
 
+## Offer it before you write it
+
+When a fix is a matter of taste — a size, a weight, a colour, spacing — do not
+guess once and edit. Put two or three versions on their page and let them look:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" preview \
+  --selector ".hero h1" \
+  --css "font-size: 34px; font-weight: 700" --label "bolder" \
+  --css "font-size: 44px; letter-spacing: -0.02em" --label "much bigger"
+```
+
+It blocks until they answer. They cycle with ← →, keep one with Enter, dismiss
+them all with Escape. **Nothing is written to any file** — it is a stylesheet in
+their browser, and it comes down the moment they answer.
+
+`preview-accepted` carries the css they chose: write *that* into the source.
+`preview-rejected` means try something else, and has cost them nothing.
+
+CSS only. Anything that restructures a page cannot be undone by removing a style
+tag, and a preview that cannot be cleanly withdrawn is an edit with a nicer name.
+
 ## Talking to the user without the terminal
 
 The review window has a console docked under the app. Put a line in it as you
@@ -578,6 +600,7 @@ edit their project off your own judgement without a yes.
 | `A comments --json` | what they marked up, with crops, selectors and source locations |
 | `A status` | the phase of the open review |
 | `A applied` | tell the window your edits are in, so it shows them for judging |
+| `A preview --selector ".x" --css "…"` | try variants in their window; writes nothing |
 | `A say "…"` | put a line in the console the user is watching, on the page |
 | `A events --since 0` | everything that happened, and what is still owed — survives every process |
 | `A events --follow` | the same as a stream, for a monitor |

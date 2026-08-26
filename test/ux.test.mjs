@@ -787,3 +787,123 @@ describe('resizing the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
     }
   });
 });
+
+describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  /*
+    Every other path here edits the source and asks afterwards, which makes "no,
+    not that" expensive: the change has happened, and rejecting it does not undo
+    it. A preview is a stylesheet in the page and nothing else, so the answer
+    arrives before anything is committed and a rejected one costs a tag being
+    removed.
+  */
+  async function withPreview(run) {
+    const { srv, url } = await pollingServer(
+      '<h1 class="t" style="font-size:20px;font-weight:400">Subscribe for updates</h1>',
+    );
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-preview-'));
+    try {
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store: await openStore(dir),
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          await page.waitForTimeout(800);
+          await run(page, dir);
+          await page.close();
+        },
+      });
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const offer = async (dir, extra = []) => {
+    const { appendEvent, openDb } = await import('../src/db.mjs');
+    const db = await openDb(dir);
+    return appendEvent(db, {
+      event: 'preview',
+      previewId: 'pv-test',
+      selector: '.t',
+      variants: [
+        { css: 'font-size: 34px', label: 'bolder' },
+        { css: 'font-size: 44px', label: 'much bigger' },
+        ...extra,
+      ],
+    });
+  };
+
+  const size = (page) => page.evaluate(() => getComputedStyle(document.querySelector('.t')).fontSize);
+
+  test('the variants actually render, over the page’s own inline styles', async () => {
+    /*
+      A plain rule in an injected stylesheet loses to style="font-size:20px" on
+      the element itself. The first version of this cycled its labels
+      convincingly and changed nothing on screen — the worst kind of preview, one
+      that lies about what it is showing.
+    */
+    const seen = [];
+    await withPreview(async (page, dir) => {
+      seen.push(await size(page));
+      await offer(dir);
+      await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
+      await page.waitForTimeout(400);
+      seen.push(await size(page));
+      await page.keyboard.press('ArrowRight');
+      await page.waitForTimeout(400);
+      seen.push(await size(page));
+    });
+    assert.deepEqual(seen, ['20px', '34px', '44px']);
+  });
+
+  test('accepting reports the chosen variant and leaves the page as it was', async () => {
+    // What gets written is whatever Claude does with the answer. Leaving the
+    // stylesheet up would show the change twice — once faked, once real.
+    let after = null;
+    let answer = null;
+    await withPreview(async (page, dir) => {
+      const from = await offer(dir);
+      await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
+      await page.keyboard.press('ArrowRight');
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(700);
+
+      after = await size(page);
+      const { eventsSince, openDb } = await import('../src/db.mjs');
+      answer = eventsSince(await openDb(dir), from).find((e) => e.event === 'preview-accepted');
+    });
+
+    assert.equal(after, '20px', 'the preview must come down when it is answered');
+    assert.ok(answer, 'Claude was never told');
+    assert.equal(answer.label, 'much bigger');
+    assert.equal(answer.css, 'font-size: 44px');
+    assert.equal(answer.action, 'write-this-to-source');
+  });
+
+  test('rejecting says so, and carries no css to write', async () => {
+    let answer = null;
+    await withPreview(async (page, dir) => {
+      const from = await offer(dir);
+      await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(700);
+      const { eventsSince, openDb } = await import('../src/db.mjs');
+      answer = eventsSince(await openDb(dir), from).find((e) => e.event === 'preview-rejected');
+    });
+    assert.ok(answer, 'a refusal is an answer and has to travel too');
+    assert.equal(answer.css, null, 'nothing to write when nothing was chosen');
+    assert.equal(answer.action, 'try-something-else');
+  });
+});

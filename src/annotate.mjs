@@ -653,6 +653,27 @@ export async function runAnnotate({
     return { ok: true };
   });
 
+  /*
+    A verdict on something the user could see before it was written.
+
+    Every other path here edits the source first and asks afterwards, which makes
+    "no, not that" expensive: the change already happened, and rejecting it does
+    not undo it. A preview is CSS applied in the page and nowhere else, so the
+    answer arrives before anything is committed to a file — and a rejected one
+    costs a stylesheet being removed.
+  */
+  await page.exposeFunction('__aynaPreviewChoice', async (id, index, accepted, css, label) => {
+    emit({
+      event: accepted ? 'preview-accepted' : 'preview-rejected',
+      previewId: id,
+      variant: index,
+      label: label ?? null,
+      css: accepted ? css : null,
+      action: accepted ? 'write-this-to-source' : 'try-something-else',
+    });
+    return { ok: true };
+  });
+
   // They looked at the result and want another pass.
   await page.exposeFunction('__aynaMore', async () => {
     phase = 'commenting';

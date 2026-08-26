@@ -243,6 +243,25 @@
     .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #4ade80); }
     .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #67e8f9); }
     .${NS}-phase { color: var(--ayna-accent, #d4ff3f); }
+    /* Anchored to the bottom centre: near the element without covering it, and
+       in the same place every time so the eye stops hunting for it. */
+    .${NS}-preview-bar {
+      position: fixed; z-index: 2147483647; left: 50%; bottom: 24px;
+      transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+      background: var(--ayna-bar, #111418); color: var(--ayna-text, #f2f4f8);
+      border: 1px solid var(--ayna-line, #2a3444); border-radius: 999px;
+      padding: 7px 9px 7px 15px;
+      font: 600 12px/1 -apple-system, system-ui, sans-serif;
+      box-shadow: 0 3px 10px rgba(0,0,0,.35);
+    }
+    .${NS}-preview-bar button {
+      border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer;
+      font: inherit; background: #2b313d; color: #e5e7eb;
+    }
+    .${NS}-preview-bar button[data-act=prev],
+    .${NS}-preview-bar button[data-act=next] { padding: 6px 10px; }
+    .${NS}-preview-bar .${NS}-ok { background: var(--ayna-good, #15803d); color: var(--ayna-on-good, #fff); }
+    .${NS}-preview-bar .${NS}-no { background: #2b313d; color: #e5e7eb; }
     .${NS}-console-say { display: flex; gap: 6px; padding: 9px 10px; flex-wrap: wrap; border-top: 1px solid #161e29; flex: none; }
     .${NS}-console-say input {
       flex: 1; background: #0f151c; border: 1px solid #2a3444; border-radius: 8px;
@@ -1129,6 +1148,28 @@
   document.addEventListener(
     'keydown',
     (e) => {
+      /*
+        Cycling variants is a thing you do repeatedly while looking at the page,
+        and reaching for a button between each one puts the mouse where your eyes
+        should be.
+      */
+      if (preview && !isOurs(e.target)) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          preview.ui.querySelector(e.key === 'ArrowRight' ? '[data-act=next]' : '[data-act=prev]').click();
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          preview.ui.querySelector('[data-act=keep]').click();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          preview.ui.querySelector('[data-act=drop]').click();
+          return;
+        }
+      }
       if (e.key === 'Escape') {
         // Let the page's own field handle Escape if that is where focus is.
         if (isFormField(document.activeElement) && !pop) return;
@@ -2442,6 +2483,102 @@
   }
 
   /*
+    Variants you can see before anything is written.
+
+    Everywhere else here, a change reaches the source first and the verdict comes
+    after — which makes "no, not that" expensive, because the edit has already
+    happened and saying no does not undo it. A preview is a stylesheet in the
+    page and nothing else: three versions of an element, switched between with
+    one key, and the source is untouched until one is accepted.
+
+    Deliberately CSS only. Anything that can restructure a page cannot be undone
+    by removing a <style> tag, and a preview that cannot be cleanly withdrawn is
+    just an edit with a nicer name.
+  */
+  let preview = null;
+
+  function clearPreview() {
+    document.getElementById(NS + '-preview-style')?.remove();
+    preview?.ui?.remove();
+    preview = null;
+  }
+
+  function paintVariant() {
+    if (!preview) return;
+    const v = preview.variants[preview.at];
+    let style = document.getElementById(NS + '-preview-style');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = NS + '-preview-style';
+      style.setAttribute('data-ayna', '1');
+      document.documentElement.appendChild(style);
+    }
+    /*
+      Win against an inline style, because that is what real pages have.
+
+      A plain rule in an injected stylesheet loses to `style="font-size:20px"` on
+      the element itself, so the first version of this cycled its labels
+      convincingly and changed nothing on screen — the worst kind of preview,
+      one that lies about what it is showing. Each declaration is marked
+      important unless it already is, which beats inline and is still undone by
+      removing the tag.
+    */
+    const important = v.css
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => (/!\s*important$/i.test(d) ? d : `${d} !important`))
+      .join('; ');
+    style.textContent = `${preview.selector} { ${important}; }`;
+
+    const label = preview.ui.querySelector('[data-part=label]');
+    label.textContent = `${v.label ?? 'variant'} · ${preview.at + 1}/${preview.variants.length}`;
+    // The element is the point; keep it in view as the variants change it.
+    document.querySelector(preview.selector)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function startPreview(e) {
+    if (!e.selector || !Array.isArray(e.variants) || !e.variants.length) return;
+    clearPreview();
+
+    const ui = document.createElement('div');
+    ui.className = NS + '-preview-bar';
+    ui.setAttribute('data-ayna', '1');
+    ui.innerHTML =
+      '<span data-part="label"></span>' +
+      '<button data-act="prev" title="Previous variant">‹</button>' +
+      '<button data-act="next" title="Next variant">›</button>' +
+      '<button data-act="keep" class="' + NS + '-ok">Use this</button>' +
+      '<button data-act="drop" class="' + NS + '-no">None of them</button>';
+    document.documentElement.appendChild(ui);
+
+    preview = { id: e.previewId ?? e.seq, selector: e.selector, variants: e.variants, at: 0, ui };
+
+    const step = (by) => {
+      preview.at = (preview.at + by + preview.variants.length) % preview.variants.length;
+      paintVariant();
+    };
+    ui.querySelector('[data-act=prev]').addEventListener('click', () => step(-1));
+    ui.querySelector('[data-act=next]').addEventListener('click', () => step(1));
+
+    const answer = async (accepted) => {
+      const v = preview.variants[preview.at];
+      const { id, at } = preview;
+      /*
+        Take the preview down before telling anyone. What gets written to source
+        is whatever Claude does with this answer, and leaving the stylesheet up
+        would show the change twice over — once faked, once real.
+      */
+      clearPreview();
+      await window.__aynaPreviewChoice?.(id, at, accepted, v.css, v.label ?? null);
+    };
+    ui.querySelector('[data-act=keep]').addEventListener('click', () => answer(true));
+    ui.querySelector('[data-act=drop]').addEventListener('click', () => answer(false));
+
+    paintVariant();
+  }
+
+  /*
     The console.
 
     One line per thing that happened, in the order it happened, with an input so
@@ -2470,6 +2607,9 @@
     claimed: (e) => ['claimed', `${e.taskId ?? ''} taken by ${e.by ?? 'someone'}`],
     message: (e) => (e.from === 'user' ? ['you', e.text] : ['claude', e.text]),
     ready: (e) => ['owed', `${e.pending} still waiting`],
+    preview: (e) => ['preview', `${e.variants?.length ?? 0} to try on ${e.selector}`],
+    'preview-accepted': (e) => ['kept', `${e.label ?? 'variant ' + ((e.variant ?? 0) + 1)} — write it in`],
+    'preview-rejected': () => ['dropped', 'none of them — try something else'],
     gate: (e) => [
       'checked',
       e.unavailable
@@ -2611,6 +2751,8 @@
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 40;
     for (const e of events) {
       consoleSeq = Math.max(consoleSeq, e.seq ?? 0);
+      // The same stream that carries messages carries these; no second channel.
+      if (e.event === 'preview') startPreview(e);
       if (e.event === 'round' && e.round !== consoleRound) {
         consoleRound = e.round;
         lines.appendChild(roundHeader(e));

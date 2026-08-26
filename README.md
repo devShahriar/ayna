@@ -37,8 +37,12 @@ Start a new Claude session and try `/ayna:review`, or run `ayna` yourself.
 flowchart LR
   A[ayna annotate] --> B[click · draw · comment]
   B --> C[Send to Claude]
-  C --> D[Claude edits your source]
-  D --> E[ayna applied]
+  C --> P{taste?}
+  P -->|yes| V[ayna preview · variants in the page]
+  V -->|keep one| D
+  V -->|none| C
+  P -->|no| D
+  D[Claude edits your source] --> E[ayna applied]
   E --> F{gate re-measures}
   F --> G[Looks right / Needs work]
   G -->|needs work| D
@@ -54,6 +58,22 @@ ayna annotate --events --url http://localhost:3000
 Real Chrome, your profile, your logins. The overlay docks a rail down the left
 and a mode bar across the top, and **reserves that space** — it never covers the
 app it is showing you.
+
+### 1b. For anything that is a matter of taste, try it first
+
+```bash
+ayna preview --selector ".hero h1" \
+  --css "font-size: 34px; font-weight: 700"   --label "bolder" \
+  --css "font-size: 44px; letter-spacing: -0.02em" --label "much bigger"
+```
+
+Two or three versions appear on your page. Cycle them with **← →**, keep one with
+**Enter**, dismiss them all with **Escape**. **No file is touched either way** —
+it is a stylesheet in the browser, and it comes down the moment you answer. Only
+the version you keep gets written into the source.
+
+Everywhere else the edit happens first, which makes "no, not that" expensive:
+rejecting a change does not undo it. This makes it free.
 
 ### 2. Say what is wrong, on the thing that is wrong
 
@@ -214,6 +234,7 @@ condition under which it is finished, and taste has none.
 |---|---|
 | `ayna annotate --events` | open the review window; one JSON line per thing you do |
 | `ayna comments --json` | what you marked, with crops and source locations |
+| `ayna preview --selector ".x" --css "…"` | try variants in the page; writes nothing |
 | `ayna say "…"` | put a line in the rail you are looking at |
 | `ayna events --since 0` | everything that happened, and what is owed — survives every process |
 | `ayna tasks` · `ayna task <id> --status s` | the queue, and moving one through it |
@@ -333,4 +354,4 @@ demo/               a deliberately mediocre landing page to improve
 
 Plain ESM, no TypeScript, no build step. One dependency: `playwright-core`.
 
-**190 tests.** `npm test`.
+**193 tests.** `npm test`.

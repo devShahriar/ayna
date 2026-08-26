@@ -42,6 +42,7 @@ ${bold('TASKS')}
   watchd      Bookkeeping in the background: start | stop | status
   work        Take tasks off the queue and do them (--brain claude|cursor|…)
   verify      Ask each open task whether it still applies; closes what is fixed
+  preview     Try CSS variants in their window before writing any of it to source
   say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
@@ -129,6 +130,9 @@ const { values, positionals } = parseArgs({
     task: { type: 'string' },
     'dry-run': { type: 'boolean' },
     region: { type: 'string' },
+    css: { type: 'string', multiple: true },
+    label: { type: 'string', multiple: true },
+    timeout: { type: 'string' },
     brain: { type: 'string' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
@@ -800,6 +804,57 @@ async function main() {
         }
         console.log('');
         ok(`${applied.obsolete} closed as already fixed · ${applied.asked} need your word · ${applied.untouched} unchanged`);
+      }
+      return;
+    }
+
+    /*
+      Show it before writing it.
+
+      Every other path edits the source and asks afterwards, which makes "no, not
+      that" expensive — the change has happened and saying no does not undo it.
+      This puts CSS in the page and nowhere else: the user tries the variants,
+      and only the accepted one is worth writing.
+    */
+    case 'preview': {
+      const css = [values.css].flat().filter(Boolean);
+      const labels = [values.label].flat().filter(Boolean);
+      const selector = [values.selector].flat()[0];
+      if (!selector || !css.length) {
+        throw new Error('ayna preview --selector ".hero h1" --css "font-size: 42px" [--css "…"]');
+      }
+
+      const { openDb, appendEvent } = await import('../src/db.mjs');
+      const db = await openDb(PROJECT);
+      const previewId = `pv-${Date.now().toString(36)}`;
+      const seq = appendEvent(db, {
+        event: 'preview',
+        previewId,
+        selector,
+        variants: css.map((c, i) => ({ css: c, label: labels[i] ?? `variant ${i + 1}` })),
+      });
+
+      if (values.json) console.log(JSON.stringify({ ok: true, previewId, seq, variants: css.length }));
+      else ok(`${css.length} variant${css.length === 1 ? '' : 's'} on the page — waiting for their answer`);
+
+      /*
+        Then wait for it, unless told not to. A preview nobody answers is a
+        stylesheet left on someone's page, and the answer is the whole point.
+      */
+      if (!values['no-wait']) {
+        const { eventsSince } = await import('../src/db.mjs');
+        const deadline = Date.now() + Number(values.timeout ?? 300) * 1000;
+        let answer = null;
+        while (!answer && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 400));
+          answer = eventsSince(db, seq).find(
+            (e) => (e.event === 'preview-accepted' || e.event === 'preview-rejected') && e.previewId === previewId,
+          );
+        }
+        if (values.json) console.log(JSON.stringify(answer ?? { event: 'preview-timeout', previewId }));
+        else if (!answer) warn('no answer yet — the preview is still on their page');
+        else if (answer.event === 'preview-accepted') ok(`they kept "${answer.label}" — write it into the source`);
+        else info('none of them — try something else');
       }
       return;
     }
