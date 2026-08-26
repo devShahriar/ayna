@@ -205,7 +205,7 @@
       terminal line has always been.
     */
     .${NS}-line { display: block; padding: 2px 0; word-break: break-word; }
-    .${NS}-at { color: #55606f; font-style: normal; margin-right: 6px; }
+    .${NS}-at { color: var(--ayna-dim, #767f8f); font-style: normal; margin-right: 6px; }
     .${NS}-line b { font-weight: 600; margin-right: 6px; }
     .${NS}-line[data-lane=you] b { color: var(--ayna-you, #38bdf8); }
     .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #a78bfa); }

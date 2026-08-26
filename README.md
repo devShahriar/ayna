@@ -1,412 +1,336 @@
 # ayna
 
-*ayna — mirror.* A Claude Code plugin that lets Claude **see** the UI it just built.
+**Claude can write your UI. It cannot see it.** ayna drives real Chrome, puts the
+running page in front of both of you, and turns "this looks wrong" into something
+either of you can point at, measure, and check afterwards.
 
-Reading CSS tells you what was *intended*. A screenshot tells you what the user
-*gets*. Ayna closes that gap: it renders the running page in real Chrome, hands
-Claude the image, and loops critique → fix → re-shoot until it looks right.
+![The review window: activity rail on the left, modes across the top, the page in the middle](docs/screens/01-window.png)
 
-And when words aren't enough, you can **click the thing you mean** and comment on it.
+Three ways to use it, and they share one store:
 
-![Commenting on an element, Claude applying the change, and approving it in place](docs/demo.gif)
+| | who drives | what it is for |
+|---|---|---|
+| **Review** | you, clicking | mark up a page, Claude fixes exactly what you marked |
+| **Inspect** | an agent | check one region headlessly, before reporting work done |
+| **Work** | nobody | drain the queue unattended, verifying as it goes |
 
-*Click an element → say what's wrong → Claude edits → the page reloads with your
-comment re-anchored on the change → approve it. The window never closes on you.*
+---
 
 ## Install
 
 ```bash
 git clone https://github.com/devshahriar/ayna && cd ayna
-npm install
-npm run setup      # links it where Claude Code looks
+npm install          # playwright-core only — it drives the Chrome you have
+npm run setup        # links the skill and the `ayna` command
 ```
 
-Then start a new Claude session anywhere and run `/ayna:fix`.
+Requires **Node 24** (the store is `node:sqlite`) and a Chrome or Chromium on the
+machine. Nothing is downloaded at runtime.
 
-Requires Node 20+, Google Chrome, and Claude Code. `playwright-core` drives your
-installed Chrome — no browser download, no API key. `npm run uninstall` removes
-the links again; it only ever touches links it made itself.
+Start a new Claude session and try `/ayna:review`, or run `ayna` yourself.
 
-You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
+---
 
-| command | what it does |
-|---|---|
-| `/ayna:look` | screenshot + critique, **changes nothing** |
-| `/ayna:loop` | shoot → critique → fix → verify, on repeat |
-| `/ayna:review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
-| `/ayna:fix` | Claude audits it, proposes fixes grouped by cause, and re-measures each one you approve |
+## Flow 1 — Review: you point, Claude fixes
 
-Asking in words works too — *"screenshot the page"*, *"how does this look?"*,
-*"self improve my UI"*.
+```mermaid
+flowchart LR
+  A[ayna annotate] --> B[click · draw · comment]
+  B --> C[Send to Claude]
+  C --> D[Claude edits your source]
+  D --> E[ayna applied]
+  E --> F{gate re-measures}
+  F --> G[Looks right / Needs work]
+  G -->|needs work| D
+  G -->|looks right| H[approved]
+```
 
-## Point at what you mean
+### 1. Open the page
 
 ```bash
-node bin/ayna.mjs annotate
+ayna annotate --events --url http://localhost:3000
 ```
 
-Chrome opens with an overlay:
+Real Chrome, your profile, your logins. The overlay docks a rail down the left
+and a mode bar across the top, and **reserves that space** — it never covers the
+app it is showing you.
 
-| | |
-|---|---|
-| **Click** an element | leave a comment on it |
-| **Drag a box** | comment on a whole area — the crop is exactly what you framed. The only way to point inside a `<canvas>` (diagrams, charts, maps), where there are no elements to click |
-| **↑ / ↓** | walk up and down the DOM, like devtools — grab the card, not the `<span>` inside it |
-| **⇧ Shift-click** | select several elements for a single comment |
-| **Paste, drop, or pick an image** | attach a visual reference to the comment |
-| **Move mode → drag** | reorder an element among its siblings; the page updates live |
-| **Tasks** | every unresolved comment across the whole project, grouped by page — click one to jump to it, approve or reject it from the list |
-| **Browse mode** | the app works normally — click through its own UI, follow links, or type a URL — so you can review any page in one session |
-| **Use any form** | fields and submit buttons work in comment mode; alt-click one to comment on it instead |
+### 2. Say what is wrong, on the thing that is wrong
 
-### Apps behind a login
+![Clicking an element and typing a comment, with the crop of what was selected](docs/screens/02-comment.png)
+
+Click any element, drag a box, or switch to **Draw** and circle it — on a canvas
+that is the only thing that works, and the stroke travels with the comment.
+Paste a screenshot in if a picture says it faster.
+
+Claude receives the comment plus the crop, the selector, the computed styles, and
+`file:line` candidates from your source.
+
+### 3. Everything owed, in one list
+
+![The task panel listing what is still outstanding on this page](docs/screens/03-tasks.png)
+
+Comments are **tasks in a database**, not state in a browser window. Close the
+window, end the session, reboot — anything you never approved is still waiting,
+and the next session is told before it has to ask.
+
+### 4. Watch it happen without leaving the page
+
+![The activity rail showing the round sent, Claude replying, and the change landing](docs/screens/04-console.png)
+
+The rail carries both directions. Claude narrates with `ayna say`; anything you
+type back arrives as an event it treats as a comment. You never go to the
+terminal.
+
+### 5. Judge each change where it happened
+
+![Review markers on the changed elements, with the gate's answer in the rail](docs/screens/05-review.png)
+
+Each change gets **Looks right** / **Needs work** on the element itself. And when
+the changes land, ayna re-measures and says so — `no measurable faults left`, or
+what is still there. *"Done" is a prediction until something looks.*
+
+Nothing is approved on your behalf. Closing the window keeps whatever you did not
+judge.
+
+---
+
+## Flow 2 — Inspect: visual QA an agent runs for itself
+
+An agent has no hands. It can name a thing, and needs back what you get from
+pointing at one: the pixels, and what is measurably wrong inside them.
 
 ```bash
-node bin/ayna.mjs login          # opens the app; you sign in; the session is saved
+ayna inspect --selector ".toolbar" --json
 ```
 
-An audit that hits a sign-in screen stops and says so rather than reporting on the
-login page. Claude never types your credentials — it opens the window and waits.
-
-Sign in yourself, in that window. Form fields and submit buttons work in comment
-mode, so you can just fill it in and click through. A page with a password field
-also drops into browse mode so nothing gets in the way. The Chrome profile persists
-in `.ayna/profile`, so it is normally a one-time step. `--fresh-profile` starts logged
-out when you want to check a signed-out view.
-
-**Ayna never sees your credentials** — you type them into your own app, and nothing
-you type is captured. The comment payload is asserted clean in the test suite.
-
-Press **Send to Claude**. For each comment Claude gets:
-
-- **a crop of exactly what you selected** — not the whole page
-- your comment, and any reference image you pasted
-- the precise selector (`#hero > div.container > h1`), for every element in the set
-- **`file:line` candidates in your source** — found by grepping the element's id,
-  classes, and text back through the project
-- computed styles and rendered `outerHTML`
-- for a drag: the final sibling order you want, so it gets reproduced in the source
-  rather than faked with CSS
-
-So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
-as: this element, this crop, this file, this line, these styles.
-
-Claude runs it as an event stream (`annotate --events`), so every round you send
-notifies it directly — there is no polling and nothing to re-arm.
-
-**Your window stays open.** Claude edits, the page reloads itself, and **every
-portion you commented on is highlighted again in place** — so you judge each change
-where it happened.
-
-**The verdict sits on the element itself** — every changed portion gets its own
-**Looks right** / **Needs work** buttons, right there. Rejecting one sends just
-that comment back for another attempt; the rest are left alone. Approved comments
-don't disappear — they collapse to a green ✓ badge you can click to re-read, so by
-the end of a session the page carries the record of everything that changed.
-
-Only **Approve & close** ends the session.
-
-## Auditing the window you're in
-
-```bash
-node bin/ayna.mjs audit
+```
+✗ .toolbar (1440×55) — 2 covered
+  .ayna/inspect/2026-08-11T20-20-28/inspect.png
 ```
 
-If a review window is open, this measures **that window, in its current state** —
-it doesn't close it and it doesn't reload. Get the app into the state you care
-about (a live view, an expanded panel, a menu open) and audit exactly that. Faults
-that only exist after you click into something are invisible to a page at rest.
-
-## When Claude finds something itself
-
-Claude can audit your UI and spot faults you never mentioned. It does **not** edit
-your project off its own judgement. Each finding arrives in the same review window
-as a dashed purple marker — *"Claude suggests"* — with the fix it wants to make
-written out. You answer it there:
-
-- **Go ahead** → it makes the change, then you judge the result like anything else
-- **Leave it** → dropped
-- **Type something instead** → your words replace the suggestion, and it does that
-
-Your comments are instructions. Its findings are suggestions. Nothing in your
-project changes without a yes.
-
-## Work that outlives the window
-
-```bash
-node bin/ayna.mjs watch    # announces tasks as they appear, forever
-node bin/ayna.mjs tasks    # everything raised here and where it stands
+```mermaid
+flowchart LR
+  A[agent edits a card] --> B[ayna inspect --selector]
+  B --> C{faults in that region?}
+  C -->|yes, exit 1| A
+  C -->|no, exit 0| D[report done]
 ```
 
-Comments are **tasks on disk**, not state in a browser window. Close the window,
-end the session, reboot — a task you never approved is still waiting, and the next
-session is told about it before you have to ask. `watch` reports what is already
-owed the moment it starts.
-
-## Automated QA
-
-Flows are a test suite, versioned with the code:
-
-```bash
-node bin/ayna.mjs qa          # runs every flow in ayna-flows/, exit 1 on failure
-```
-
-Each flow asserts what must hold — no console errors, a settle-time budget, and
-**no layout faults**. That last one matters: every flow ends in a layout audit, so
-a journey whose steps still pass but which now hides a control behind a panel
-fails the run. It also diffs against the last baseline and reports what *changed*:
-broke, fixed, slower, or new faults.
-
-## The loop
-
-```
-look ──► critique ──► improve ──► recheck ──► verify ──┐
-  ▲                                                     │
-  └─────────────────────────────────────────────────────┘
-```
-
-1. **look** — loads the page at every configured viewport, screenshots full-page,
-   and records what a screenshot can't show: console errors, horizontal overflow,
-   sub-12px text, blank renders.
-2. **critique** — scores the page 0–10 and ranks issues, each with a concrete fix,
-   grounded in the screenshot rather than in what the source implies.
-3. **improve** — works the issue list top-down. Visual pass only; the copy stays.
-4. **recheck** — re-renders and re-screenshots.
-5. **verify** — compares both sets skeptically: did it actually get better, what
-   regressed?
-
-Snapshots are taken before every edit, so any round can be rolled back.
-
-## Two ways to run it
-
-|  | in-session (default) | standalone |
-|---|---|---|
-| brain | the Claude session you're in | spawned `claude -p` subprocesses |
-| cost | near-free — context is already warm | ~$1.50–3.30 per iteration |
-| use for | interactive work | CI, unattended runs |
-| entry | the `ayna` skill / `/ayna:loop` | `node bin/ayna.mjs loop -n 3` |
-
-The in-session path is why the plugin form matters: Claude reads the PNG with its
-own Read tool and edits with its own Edit tool, so there are no extra model calls
-and no re-reading your source three times per round.
-
-## CLI
-
-```bash
-node bin/ayna.mjs shot --json          # screenshot; prints paths + diagnostics
-node bin/ayna.mjs annotate             # click-and-comment overlay
-node bin/ayna.mjs comments --json      # what was marked up
-node bin/ayna.mjs snapshot --root src  # back up before editing
-node bin/ayna.mjs restore --root src   # undo a bad round
-node bin/ayna.mjs record --score 7 --note "fixed FAQ alignment"
-node bin/ayna.mjs report --open        # before/after HTML report
-node bin/ayna.mjs loop -n 3            # unattended (costs money)
-node bin/ayna.mjs critique             # tell me what's wrong, change nothing
-```
-
-`--headed` shows the Chrome window (headless by default, except `annotate` which is
-always headed).
-
-`--url` takes any page, deep links included — path, query and hash are honoured:
-
-```bash
-node bin/ayna.mjs annotate --url http://localhost:3031/d/d-835f8b1a49a73b39
-node bin/ayna.mjs shot --url http://localhost:3000/settings/billing
-```
-
-## Config
-
-`ayna.config.json` in *your* project (falls back to the plugin's defaults):
+The scoping is the point. An audit of a real app returns findings from
+everywhere; `counts` is what is wrong **in the region you named** and
+`pageCounts` is the whole page — so *"the part I changed is fine"* and *"the page
+is fine"* stay different claims.
 
 ```jsonc
 {
-  "target": {
-    "root": "src",                    // directory Ayna may edit and snapshot
-    "url": "http://localhost:5173",   // your dev server
-    "startCommand": "npm run dev",    // optional; Ayna will boot it
-    "port": 5173,
-    "routes": ["/", "/pricing", "/settings"]   // every page worth reviewing
-  },
-  "viewports": [
-    { "name": "desktop", "width": 1440, "height": 900 },
-    { "name": "mobile",  "width": 390,  "height": 844 }
-  ],
-  "loop": { "iterations": 3, "targetScore": 8.5, "verify": true, "autoRevert": true },
-  "goal": "..."
+  "found": true,
+  "clean": false,
+  "counts":     { "covered": 2, "lowContrast": 0 },   // in .toolbar
+  "pageCounts": { "covered": 2, "lowContrast": 1 },   // everywhere
+  "rect": { "x": 0, "y": 96, "width": 1440, "height": 55 },
+  "screenshot": ".ayna/inspect/…/inspect.png"
 }
 ```
 
-`goal` is the highest-leverage setting — the critic scores against it, so *"a dense
-operator console, information-first"* produces a very different loop than the
-default landing-page goal.
+| flag | for |
+|---|---|
+| `--frame "iframe#card"` | reach inside a sandboxed iframe the page itself cannot see into |
+| `--selector "iframe#card >> .kc"` | the same thing, Playwright-style |
+| `--region x,y,w,h` | pixels straight off a previous screenshot |
+| `--flow steps.json` | a state that only exists after clicking |
+| `--image-base64` | the PNG inline, for a caller with no shared filesystem |
+| repeated `--selector` | several regions, one browser launch |
+
+**Exit 1 on a fault *and* on not having been able to look** — a gate that passes
+because the selector was wrong is worse than one that fails. A page that cannot be
+reached comes back `transportError: true`: that is somebody's server, not
+somebody's UI.
+
+---
+
+## Flow 3 — Work: the queue, unattended
+
+```bash
+ayna verify     # close what somebody already fixed
+ayna work       # then do what is left
+```
+
+```
+✓ task-0001  gone — no lowContrast fault reported here any more
+→ 1 closed as already fixed · 0 need your word
+
+task-0002 — widen the nav bar
+task-0002 applied ✓
+✓ 1 task worked
+```
+
+`verify` re-checks every open task against the live page. A **measured** fault
+that no longer reproduces closes itself with the evidence. Anything asked for in
+words is only ever flagged for your word — restyling a logo is not the same as
+making it bigger.
+
+`work` claims each task before touching it, so a Claude session and a worker never
+do the same one, checks whether the fault still reproduces before spending a model
+call, and reports `still-broken` rather than `applied` when a fix did not take. It
+never touches a `proposed` task: that status means *found by a tool, not permitted
+yet*.
+
+The brain is any command — `claude -p` by default, Cursor or anything else via
+`brains` in the config.
+
+---
+
+## What it can prove
+
+`audit` reports only what the page can demonstrate, which is what lets a fixing
+loop know when it is finished:
+
+| check | means |
+|---|---|
+| `covered` | a control is behind something else and cannot be clicked |
+| `offscreen` | content is cut off by the window edge |
+| `overlaps` | two elements are drawn on top of each other |
+| `clipped` | text is cut off by its container |
+| `lowContrast` | below the WCAG minimum — 4.5:1, or 3:1 for large text |
+| `noFocusIndicator` | a keyboard user cannot see where they are |
+| `faintFocusIndicator` | the focus ring is under 3:1 against its background |
+| `smallTargets` | a hit target under 44px |
+| `tinyText` · `unlabelled` | text below 12px; an icon-only control with no name |
+
+Where it cannot know — a gradient behind the text, a translucent colour — it says
+nothing rather than inventing a number.
+
+**Taste is separate and never affects `clean`.** If
+[impeccable](https://github.com/pbakaus/impeccable) is installed, `ayna taste`
+reports the tells of a generated page. Those are opinions; a fixing loop needs a
+condition under which it is finished, and taste has none.
+
+---
+
+## Commands
+
+| | |
+|---|---|
+| `ayna annotate --events` | open the review window; one JSON line per thing you do |
+| `ayna comments --json` | what you marked, with crops and source locations |
+| `ayna say "…"` | put a line in the rail you are looking at |
+| `ayna events --since 0` | everything that happened, and what is owed — survives every process |
+| `ayna tasks` · `ayna task <id> --status s` | the queue, and moving one through it |
+| `ayna inspect --selector ".x"` | one region, headless: its crop and its faults |
+| `ayna audit` | layout faults the whole page can prove |
+| `ayna verify` | ask each open task whether it still applies |
+| `ayna work` | do the queue unattended |
+| `ayna taste --propose` | design anti-patterns, if impeccable is installed |
+| `ayna qa` | run every flow in `ayna-flows/`; exit 1 on failure |
+| `ayna login` | open the app so you sign in — ayna never types credentials |
+| `ayna watchd start` | background bookkeeping |
+| `ayna clean --keep 3` | drop old runs; tasks, database and login profile are kept |
+
+`ayna --help` prints the rest.
+
+---
+
+## Config
+
+`ayna.config.json` in your project:
+
+```jsonc
+{
+  "target": { "url": "http://localhost:3000" },
+  "viewports": [{ "name": "desktop", "width": 1440, "height": 900 }],
+  "theme": { "accent": "#ccfe05", "surface": "#0a0a0a", "bar": "#000000" },
+  "brains": { "cursor": { "cmd": "cursor-agent", "args": ["--headless"] } }
+}
+```
+
+Anything unset keeps its default, so changing one accent is one line. **Text on
+your colours is computed, not assumed** — white on `#ccfe05` measures 1.18:1, so a
+theme could otherwise apply "successfully" and leave every button unreadable.
+
+### In a container
+
+```bash
+AYNA_NO_SANDBOX=1              # or it detects /.dockerenv, cgroups
+AYNA_CHROME_CHANNEL=chromium   # instead of 400MB of Google Chrome
+TZ=UTC LANG=C.UTF-8            # rendered dates and text should not vary
+```
+
+Needs fonts (`fonts-liberation`, `fonts-noto-color-emoji`) — without them text
+renders as tofu and a visual check produces confident nonsense. Give Chrome
+`--shm-size=1g` or rely on `--disable-dev-shm-usage`. `.ayna/` must be writable,
+or pass `--out-dir`.
+
+---
 
 ## Safety
 
-- Every round is snapshotted first; `restore` puts it back. No git required.
-- Rollback fires only on evidence about the *page* — blank render, new console
-  errors, verifier-confirmed regressions.
-- **A dead server is not a UI regression.** If the shot is a Chrome error page,
-  Ayna restarts the server and re-shoots rather than reverting work it never saw.
-- `after` screenshots are kept even for reverted rounds, so you can check the
-  rollback was right.
-- It edits what `target.root` points at. That boundary is a convention the skill
-  follows plus a snapshot you can roll back — **not a sandbox**. Point it somewhere
-  you're happy to have rewritten.
+- **ayna never types your credentials.** `ayna login` opens the window and waits
+  while you sign in; the session is saved to a profile so it is asked once.
+- **Nothing is edited before you say so.** A fault ayna found itself is
+  `proposed` — a suggestion, not permission.
+- **A transport failure is not a UI regression.** A server that died is reported
+  as unreachable, never as a page that got worse.
+- **Screenshots go in your project**, not the plugin directory.
+
+---
 
 ## Known limitations
 
-Written down because finding these yourself, mid-task, is worse than reading them
-here.
+Written down because finding these mid-task is worse than reading them here.
 
 **Nothing inside a `<canvas>` can be measured.** Diagram editors, charts, maps and
 3D are pixels with no DOM behind them, so `audit` sees one element where you see a
-hundred. Frame a region and comment on it instead — the crop is the message.
+hundred. Draw round a region and comment on it instead — the crop is the message.
 
 **Source mapping is a grep, not a compiler.** It matches ids, class names and text
-back through your files, which works well for plain HTML, JSX, Vue and Svelte. On
-CSS-in-JS with generated class names it will often find nothing. The selector,
-crop and computed styles still arrive, so Claude can work — it just has to find
-the file itself.
+back through your files: fine for HTML, JSX, Vue and Svelte, often empty on
+CSS-in-JS with generated class names. The selector, crop and styles still arrive.
 
-**Cross-origin iframes are opaque.** Embedded widgets, payment fields, anything
-from another origin. Browser security, not something ayna can route around.
+**Cross-origin iframes are opaque to the page — but not to `inspect`.** Use
+`--frame`. Anything ayna itself cannot enter is reported as `found: false`, never
+as clean.
+
+**Rejecting a change does not undo it.** It marks the task for another attempt and
+leaves the edit in your files. `restore --root <dir>` rolls back the whole round;
+per-task revert is not built.
 
 **`ayna loop` has no tests.** It is the standalone path that spawns its own Claude
-sessions and costs real money. Everything else here is covered; that is not. Use
-the in-session flow unless you specifically want unattended runs.
-
-**The daemon is optional.** Everything works without it; what you lose is the
-tidying — a crashed worker's lease sits until something else notices, and dead
-pointer files stay on disk.
+sessions and costs real money. Everything else here is covered.
 
 **Windows is untested.** The fallbacks exist — a JS file scanner where `grep` is
 absent, a platform-aware "open" — but they have never been run there.
 
-**Rejecting a change does not undo it.** It marks the task for another attempt and
-leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
-Per-task revert is not built.
-
-**"Waiting for Claude" used to be a dead end.** It cleared only when something ran
-`ayna applied`, so a session that never did left the window on a spinner over
-changes already on disk. It now notices the edits itself, and there is a
-**Changes are in** button for edits it cannot see.
-
-**Apps that never stop talking used to hang it.** Loads waited for the network to
-go quiet, which an app that polls never does — so every load ran to a 30s timeout.
-Loads now wait for the document and give the network a bounded moment after it.
-
 **Cropping something scrolled off-screen makes the page flinch.** A crop of what
-is on screen is silent. Reaching past the viewport needs a full-page capture, which
-briefly relays the page out at another size — visible on anything that re-renders
-on resize, a canvas above all. Scroll it into view before you frame it and this
-never happens.
+is on screen is silent; reaching past the viewport needs a full-page capture,
+which briefly relays the page out at another size. Scroll it into view first.
 
-**Nothing is stranded by a process dying.** `ayna watchd start` runs a bookkeeper
-in the background: it notices sessions whose process is gone or that have stopped
-speaking, frees their windows so the next session can adopt them rather than
-finding a locked door, expires the leases of workers that crashed, and clears the
-pointer files that used to accumulate forever. It never opens a browser and never
-edits a file — a background process that could do either would be a much larger
-promise than this one.
+**ayna is held to its own standards, and has failed them.**
+`scripts/self-taste.mjs` renders the review chrome to a standalone page and runs
+impeccable over it. It found 53 things the first time, including white-on-blue
+buttons at 3.68:1 — ayna failing the contrast rule it enforces on everyone else.
+That is the script's whole reason to exist.
 
-**It can do the work itself.** `ayna work` takes tasks off the queue and runs
-them through a brain of your choosing — `claude -p` by default, any command via
-`brains` in the config, so nothing is tied to one vendor. It claims each task
-first, so a Claude session and a worker never do the same one; it checks whether
-the fault still reproduces before spending anything on it; and it says
-`still-broken` rather than `applied` when a fix did not take. A proposal is never
-touched: `proposed` means found by a tool and not yet permitted.
-
-**Nothing nags you about a problem you already fixed.** `ayna verify` re-checks
-every open task against the live page. A measured fault that no longer reproduces
-closes itself with the evidence attached. Anything asked for in words is only ever
-flagged for your word — restyling a logo is not the same as making it bigger.
-
-**Make it look like your app.** A `theme` block in `ayna.config.json` sets the
-review chrome's colours; anything unset keeps the default, so changing one accent
-is one line. Text on those colours is worked out rather than assumed — a brand
-colour is often bright, and white on kormoOS's `#ccfe05` measures 1.18:1, which
-would have made every button in a "successfully applied" theme unreadable.
-
-**Circle what you mean.** Draw mode marks a region freehand, which on a diagram
-beats a rectangle — and the stroke travels with the comment, because "this node,
-the one I circled" is what a bounding box throws away.
-
-**You can see who else is working.** Another Claude session, a worker, or a
-different tool entirely can be holding a task while you are looking at the page it
-belongs to. The console names them and says what they hold, so two of you do not
-do the same job. A claim that expires drops off by itself.
-
-**It runs in a container.** Chrome's sandbox flags apply when a container is
-detected or `AYNA_NO_SANDBOX=1` is set, rather than only when `CI` is — nobody
-should have to claim to be CI. `AYNA_CHROME_CHANNEL=chromium` avoids shipping
-400MB of Google Chrome, and a missing browser says which one it wanted.
-
-**An agent can look at one thing.** `ayna inspect --selector ".toolbar"` returns a
-crop of that region and the faults measured inside it — headless, in about a
-second. It reports the region's counts and the page's separately, so "the part I
-changed is fine" and "the page is fine" stay different claims. `--region x,y,w,h`
-takes pixels straight from a previous screenshot; `--flow` reaches a state that
-only exists after clicking; `--frame "iframe#card"` reaches inside a sandboxed
-iframe, which the page itself cannot see into.
-
-**Claims are checked, not taken.** When changes land, ayna re-measures before you
-are asked to judge — the console says "no measurable faults left" or names what is
-still there. Borrowed from
-[super-simple-software-factory](https://github.com/disler/super-simple-software-factory),
-whose rule is that gates verify claims and never predictions, and check after the
-agent finishes.
-
-**The terminal comes to you.** A console runs down the left of the review window:
-Claude's progress, every event, and a box to type an instruction back — so a
-review no longer means watching a window and a terminal at once. It collapses to a
-34px spine, and reserves its own space so it never covers what you are reviewing.
-A column costs about a sixth of the width; the same log across the bottom cost a
-third of the height, which a page can far less afford.
-
-**ayna is held to its own standards.** `scripts/self-taste.mjs` renders the review
-chrome to a standalone page and runs impeccable's detectors over it. It found 53
-things the first time — including white-on-blue buttons at 3.68:1, which is ayna
-failing the contrast rule it enforces on everyone else. It is at zero now, and
-the script is how it stays there.
-
-**Keyboard users are checked too.** A control whose focus ring was removed and
-never replaced is reported, as is one too faint to see (under 3:1). Both are
-counted faults. This runs only where ayna owns the page — measuring focus means
-moving it, and moving it in a window you are reviewing in would fire your app's
-handlers and take the caret with it.
-
-**Contrast is measured, not guessed.** Text below the WCAG minimum — 4.5:1, or
-3:1 for large text — is a counted fault like any other, because it is arithmetic
-rather than opinion. Where it cannot know (a gradient behind the text, a
-translucent colour) it says nothing rather than inventing a number.
-
-**It only knows what it can measure** — but it can borrow taste. Layout faults are
-provable; "this looks generic" is not.
-[Impeccable](https://github.com/pbakaus/impeccable) (Apache-2.0) detects the
-patterns every AI-built page shares, and `ayna taste --url <page> --propose`
-raises each as a proposal you approve or dismiss. It is spawned, never depended
-on: ayna still installs nothing but `playwright-core`, and a machine without
-impeccable simply skips the check. Its findings never affect whether an audit is
-clean, because a fixing loop needs a condition under which it is finished and
-taste does not have one.
-
-**It only knows what it can measure.** "This control cannot be clicked" is a fact.
-"This looks wrong" is not, and ayna will not tell you. Taste is still yours.
-
-**Two days old.** Written and used hard, on a handful of real apps. Expect rough
-edges in proportion to that.
+---
 
 ## Layout
 
 ```
-SKILL.md            the in-session loop — the plugin's actual behavior
-commands/           /ayna, /ayna:look, /ayna:review
-bin/ayna.mjs        CLI
-src/annotate.mjs    click-to-comment capture, crops, source mapping
-src/overlay.js      the in-page annotation UI (runs in the browser)
-src/browser.mjs     Chrome control, screenshots, diagnostics
-src/loop.mjs        standalone orchestration
-src/report.mjs      HTML report
+SKILL.md            the in-session loop — what a Claude session reads
+commands/           /ayna:fix, :look, :loop, :review
+bin/ayna.mjs        the CLI
+src/annotate.mjs    the review window
+src/overlay.js      the in-page UI (runs in the browser)
+src/inspect.mjs     one region, headless — the agent QA entry point
+src/audit.mjs       what the page can prove
+src/verify.mjs      does this task still apply?
+src/worker.mjs      the queue, unattended
+src/db.mjs          sqlite: sessions, tabs, tasks, events
+src/watchd.mjs      the bookkeeper
+scripts/ui-shots.mjs · self-taste.mjs · readme-shots.mjs
 demo/               a deliberately mediocre landing page to improve
 ```
+
+Plain ESM, no TypeScript, no build step. One dependency: `playwright-core`.
+
+**190 tests.** `npm test`.

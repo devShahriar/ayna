@@ -73,7 +73,14 @@ export const DEFAULT_THEME = {
   line: '#1b2431',
   text: '#e6e9ef',
   muted: '#9aa4b2',
-  dim: '#55606f',
+  /*
+    4.76:1 on the surface, not 3.01.
+
+    The dimmest ink is still ink somebody has to read — these are the timestamps
+    down the rail — and the first value chosen for it failed the contrast floor
+    ayna enforces on everyone else's UI.
+  */
+  dim: '#767f8f',
   accent: '#1f6feb',
   live: '#22d3ee',
   good: '#34d399',
