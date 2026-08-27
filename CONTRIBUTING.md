@@ -41,12 +41,17 @@ without tests.
 
 ```
 SKILL.md            the in-session loop — what Claude actually follows
-commands/           slash commands (/ayna, /ayna:look, /ayna:review)
+commands/           slash commands (/ayna, /ayna:look, /ayna:loop, /ayna:review, /ayna:fix) for Claude Code
+.puku-cli/
+├── settings.json   hook manifest for puku-cli
+├── scripts/        one shell script per hook event (+ shared _lib.sh)
+└── skills/         SKILL.md files for /ayna and /ayna-look, /ayna-loop, /ayna-review, /ayna-fix on puku-cli
 bin/ayna.mjs        CLI
 src/annotate.mjs    click-to-comment capture, crops, source mapping
 src/overlay.js      the in-page UI — runs in the browser, not in Node
 src/browser.mjs     Chrome control, screenshots, page diagnostics
 src/loop.mjs        standalone orchestration (spawns its own Claude sessions)
+src/brain.mjs       `claude -p` wrapper — also handles `puku -p`
 src/server.mjs      static server for the target
 src/snapshot.mjs    backup / restore / changed-file detection
 src/report.mjs      HTML report
@@ -54,7 +59,10 @@ demo/               a deliberately mediocre landing page to improve
 ```
 
 `src/overlay.js` is injected into the page under review. It runs in the browser, so
-no Node APIs, and keep it dependency-free.
+no Node APIs, and keep it dependency-free. `.puku-cli/skills/` are
+frontmatter-driven prompt templates — same as `commands/`, but flattened into
+one directory per skill (no colon-namespacing) so puku-cli shows them as
+top-level `/ayna-*` slash commands.
 
 ## Regenerating the README demo
 

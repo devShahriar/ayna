@@ -1,7 +1,8 @@
 # ayna
 
-A Claude Code plugin that lets you *see* the UI you built. Playwright drives real
-Chrome, screenshots the running page, and you critique and fix from the image.
+A Claude Code plugin (with puku-cli support) that lets you *see* the UI you
+built. Playwright drives real Chrome, screenshots the running page, and you
+critique and fix from the image.
 
 ## The one rule
 
@@ -24,12 +25,16 @@ unattended/CI runs only.
 ## Layout
 
 ```
-SKILL.md            the in-session loop — the plugin's real behavior
-commands/           /ayna, /ayna:look, /ayna:review
+SKILL.md            the in-session loop — the Claude plugin's real behavior
+commands/           /ayna, /ayna:look, /ayna:review  (Claude Code)
+.puku-cli/
+├── settings.json   hook manifest
+├── scripts/        one shell script per hook event (+ _lib.sh)
+└── skills/         /ayna + /ayna-look, /ayna-loop, /ayna-review, /ayna-fix (puku-cli)
 bin/ayna.mjs        CLI
 src/browser.mjs     Chrome control, screenshots, page diagnostics
 src/loop.mjs        standalone orchestration (spawns its own Claude sessions)
-src/brain.mjs       `claude -p` wrapper — standalone path only
+src/brain.mjs       `claude -p` wrapper — also handles `puku -p`
 src/snapshot.mjs    backup / restore / changed-file detection
 src/report.mjs      HTML report
 src/server.mjs      static server for the target

@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bishal/Projects/ayna/.puku-cli/scripts/session-init.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bishal/Projects/ayna/.puku-cli/scripts/prompt-inject.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bishal/Projects/ayna/.puku-cli/scripts/pre-tool-gate.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "FileEdit|FileWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bishal/Projects/ayna/.puku-cli/scripts/post-tool-audit.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bishal/Projects/ayna/.puku-cli/scripts/stop-announce.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

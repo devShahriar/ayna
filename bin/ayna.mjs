@@ -10,7 +10,7 @@ import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { startTarget } from '../src/target.mjs';
 import { openBrowser, capture, captureRoutes, openPersistentContext } from '../src/browser.mjs';
-import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
+import { runAgent, ensureAgent, resolveAgent, KNOWN_AGENTS } from '../src/brain.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
@@ -27,10 +27,12 @@ import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 const HELP = `
-${bold('ayna')} — let Claude see the UI it builds
+${bold('ayna')} — let your AI agent see the UI it builds
 
   Screenshots the running page in real Chrome, and lets you click, comment on and
-  rearrange elements so Claude edits exactly what you meant.
+  rearrange elements so your agent edits exactly what you meant.
+
+  Supported agents: ${KNOWN_AGENTS.join(', ')} (set with --agent or AYNA_AGENT).
 
 ${bold('USAGE')}
   ayna <command> [options]
@@ -40,16 +42,16 @@ ${bold('TASKS')}
   task        Show one, or move it: ayna task task-0003 --status in_progress
   propose     Put a change in front of the user before making it
   watchd      Bookkeeping in the background: start | stop | status
-  work        Take tasks off the queue and do them (--brain claude|cursor|…)
+  work        Take tasks off the queue and do them (--brain puku|claude|cursor|…)
   verify      Ask each open task whether it still applies; closes what is fixed
   say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
 
-${bold('REVIEW')} — you point, Claude fixes
+${bold('REVIEW')} — you point, your agent fixes
   annotate    Open the page so you can click, comment, attach images, reorder
   comments    What was marked up (--json for the full payload)
-  status      Phase of the open review: commenting / awaiting-claude / reviewing
+  status      Phase of the open review: commenting / awaiting-agent / reviewing
   wait        Block until the user sends a round, then exit (run in background)
   applied     Tell the open window the edits are in, so it reloads for approval
 
@@ -73,7 +75,7 @@ ${bold('REPORT')}
   record      Log a round (--score, --note)
   report      Build the before/after HTML report
 
-${bold('UNATTENDED')} — spawns its own Claude sessions, costs real money
+${bold('UNATTENDED')} — spawns its own agent sessions, costs real money
   loop        The full look → critique → improve → verify cycle
   critique    Screenshot and critique once, without editing anything
 
@@ -84,6 +86,7 @@ ${bold('OPTIONS')}
   -n, --iterations <n>   How many improvement rounds (default: config, 3)
   -m, --model <name>     opus | sonnet | haiku  (default: config, opus)
       --url <url>        The page to open — path, query and hash are honoured
+      --agent <name>     puku | claude  (default: AYNA_AGENT, then "agent" in ayna.config.json, then puku)
       --routes <list>    Several pages at once, e.g. /,/pricing,/about
       --root <dir>       The UI directory to snapshot/restore
       --file <path>      A specific comments.json (comments)
@@ -130,6 +133,7 @@ const { values, positionals } = parseArgs({
     'dry-run': { type: 'boolean' },
     region: { type: 'string' },
     brain: { type: 'string' },
+    agent: { type: 'string' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
     dir: { type: 'string' },
@@ -169,6 +173,13 @@ async function main() {
   const localConfig = path.join(PROJECT, 'ayna.config.json');
   const hasLocalConfig = existsSync(localConfig);
   const cfg = await loadConfig(hasLocalConfig ? PROJECT : ROOT);
+
+  /*
+    Pick the agent once, here. --agent > AYNA_AGENT > cfg.agent > 'puku'.
+    Stored on cfg so every command path that already has cfg in hand sees the
+    same value without re-resolving.
+  */
+  cfg.agent = resolveAgent(values.agent, cfg);
 
   /*
     Without this guard, running ayna from a project that has no ayna.config.json
@@ -464,10 +475,10 @@ async function main() {
 
     case 'propose': {
       /*
-        A change Claude wants to make, put in front of the user before anything is
-        edited. It lands in the same window as their own comments, with the same
-        controls, so approving a suggestion and answering a comment are one habit
-        rather than two.
+        A change the agent wants to make, put in front of the user before
+        anything is edited. It lands in the same window as their own comments,
+        with the same controls, so approving a suggestion and answering a
+        comment are one habit rather than two.
       */
       if (!values.comment) throw new Error('what are you proposing? --comment "…" [--fix "…"] [--selector "…"]');
       const store = await openStore(PROJECT);
@@ -480,7 +491,7 @@ async function main() {
         // as an array. A proposal is about one element.
         selector: [values.selector].flat()[0] ?? null,
         url: values.url ?? cfg.target.url ?? null,
-        source: 'claude',
+        source: cfg.agent,
       });
       if (values.json) console.log(JSON.stringify(task, null, 2));
       else ok(`proposed ${task.id} — waiting for the user`);
@@ -810,7 +821,7 @@ async function main() {
 
       const { openDb, appendEvent } = await import('../src/db.mjs');
       const db = await openDb(PROJECT);
-      const seq = appendEvent(db, { event: 'message', from: 'claude', text });
+      const seq = appendEvent(db, { event: 'message', from: cfg.agent, text });
 
       if (values.json) console.log(JSON.stringify({ ok: true, seq, text }));
       else ok('said it — it is on the page now');
@@ -1126,7 +1137,7 @@ async function main() {
       if (values.json) say(`opened ${server.url}`);
       else ok(`opened ${server.url}`);
       say('click anything to comment · paste an image to attach a reference');
-      say('press "Send to Claude" in the page when you are done');
+      say('press "Send" in the page when you are done');
 
       // Written before we block, so `ayna applied` and `ayna status` can find this
       // session while the window is still open.
@@ -1167,6 +1178,7 @@ async function main() {
         projectDir: PROJECT,
         viewport: cfg.viewports[0],
         theme: cfg.theme,
+        agent: cfg.agent,
       });
 
       if (context) await context.close().catch(() => {});
@@ -1368,8 +1380,8 @@ async function main() {
     }
 
     case 'critique': {
-      const claude = await ensureClaudeAvailable();
-      if (!claude.ok) throw new Error('the `claude` CLI was not found on PATH');
+      const probe = await ensureAgent(cfg.agent);
+      if (!probe.ok) throw new Error(`the \`${probe.binary}\` CLI was not found on PATH`);
 
       const { browser, url, close, outDir } = await prepare(cfg, 'critique');
       step('look', `screenshotting ${routes.length} route(s)`);
@@ -1386,7 +1398,8 @@ async function main() {
       }
 
       step('critique', 'asking the design critic what is wrong');
-      const run = await runClaude({
+      const run = await runAgent({
+        agent: cfg.agent,
         prompt: critiquePrompt({ cfg, capture: cap, iteration: 1 }),
         cwd: cfg.rootDir,
         tools: ['Read', 'Glob', 'Grep'],
@@ -1461,6 +1474,7 @@ async function main() {
         model: values.model,
         headless: headlessMode(cfg),
         open: values.open,
+        agent: values.agent ?? cfg.agent,
       });
       return;
     }
@@ -1519,25 +1533,33 @@ async function readSession() {
  * which, then returns.
  *
  * `settle` skips over the state we are already in — right after `applied` the
- * phase is still `awaiting-claude` from the round just handled, and returning on
- * that would be answering our own question.
+ * phase is still `awaiting-agent` (or the legacy `awaiting-claude`) from the
+ * round just handled, and returning on that would be answering our own
+ * question.
  */
 async function followSession(statusFile, sessionDir, { settle = false } = {}) {
   const read = async () =>
     existsSync(statusFile) ? JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}')) : {};
 
+  /*
+    Both spellings count as "the agent is mid-thought". The legacy value is
+    accepted so an overlay written before the rename still talks to a CLI
+    built after it.
+  */
+  const isAwaiting = (s) => s.phase === 'awaiting-agent' || s.phase === 'awaiting-puku' || s.phase === 'awaiting-claude';
+
   if (settle) {
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const s = await read();
-      if (s.phase !== 'awaiting-claude') break;
+      if (!isAwaiting(s)) break;
       await new Promise((r) => setTimeout(r, 300));
     }
   }
 
   for (;;) {
     const s = await read();
-    if (s.phase === 'awaiting-claude') {
+    if (isAwaiting(s)) {
       console.log(JSON.stringify({ phase: s.phase, round: s.round, comments: s.comments, action: 'read-comments' }));
       return;
     }

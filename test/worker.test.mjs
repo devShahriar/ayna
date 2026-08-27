@@ -1,5 +1,5 @@
 /*
-  Working the queue without a Claude session in front of it.
+  Working the queue without a Puku session in front of it.
 
   Sessions end and terminals get closed; the queue outlives both. These tests
   guard the three rules that make an unattended worker safe to run: it claims
@@ -78,7 +78,7 @@ describe('the worker', () => {
     try {
       const store = await openStore(dir);
       const t = await store.create({ comment: 'widen the nav', status: 'open' });
-      await store.claim(t.id, 'a-claude-session');
+      await store.claim(t.id, 'a-puku-session');
 
       const result = await work({ projectDir: dir, brain: await fakeBrain(dir) });
       assert.equal(result.worked, 0, 'two things doing one task is the failure this prevents');
@@ -162,8 +162,8 @@ describe('the worker', () => {
   test('any tool can be the brain', async () => {
     const cfg = { brain: 'cursor', brains: { cursor: { cmd: 'cursor-agent', args: ['--headless'] } } };
     assert.deepEqual(brainFor(cfg), { name: 'cursor', cmd: 'cursor-agent', args: ['--headless'] });
-    // Claude is the default and needs no config entry.
-    assert.equal(brainFor({}).cmd, 'claude');
+    // Puku is the default and needs no config entry.
+    assert.equal(brainFor({}).cmd, 'puku');
     assert.throws(() => brainFor({}, 'nobody'), /no brain called/);
   });
 

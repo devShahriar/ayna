@@ -1,16 +1,16 @@
 # ayna
 
-*ayna — mirror.* A Claude Code plugin that lets Claude **see** the UI it just built.
+*ayna — mirror.* A Puku-cli plugin (with Claude Code compatibility) that lets Puku **see** the UI it just built.
 
 Reading CSS tells you what was *intended*. A screenshot tells you what the user
 *gets*. Ayna closes that gap: it renders the running page in real Chrome, hands
-Claude the image, and loops critique → fix → re-shoot until it looks right.
+Puku the image, and loops critique → fix → re-shoot until it looks right.
 
 And when words aren't enough, you can **click the thing you mean** and comment on it.
 
-![Commenting on an element, Claude applying the change, and approving it in place](docs/demo.gif)
+![Commenting on an element, Puku applying the change, and approving it in place](docs/demo.gif)
 
-*Click an element → say what's wrong → Claude edits → the page reloads with your
+*Click an element → say what's wrong → Puku edits → the page reloads with your
 comment re-anchored on the change → approve it. The window never closes on you.*
 
 ## Install
@@ -18,23 +18,23 @@ comment re-anchored on the change → approve it. The window never closes on you
 ```bash
 git clone https://github.com/devshahriar/ayna && cd ayna
 npm install
-npm run setup      # links it where Claude Code looks
+npm run setup      # links it where puku-cli and Claude Code look
 ```
 
-Then start a new Claude session anywhere and run `/ayna:fix`.
+Then start a new puku-cli session (or Claude Code) anywhere and run `/ayna-fix`.
 
-Requires Node 20+, Google Chrome, and Claude Code. `playwright-core` drives your
-installed Chrome — no browser download, no API key. `npm run uninstall` removes
-the links again; it only ever touches links it made itself.
+Requires Node 20+, Google Chrome, and puku-cli (or Claude Code). `playwright-core`
+drives your installed Chrome — no browser download, no API key. `npm run uninstall`
+removes the entries again; it only ever touches entries it made itself.
 
 You drive it. Nothing runs on its own — no hooks, no automatic screenshots:
 
 | command | what it does |
 |---|---|
-| `/ayna:look` | screenshot + critique, **changes nothing** |
-| `/ayna:loop` | shoot → critique → fix → verify, on repeat |
-| `/ayna:review` | opens the page so **you** click parts and comment; Claude fixes exactly those |
-| `/ayna:fix` | Claude audits it, proposes fixes grouped by cause, and re-measures each one you approve |
+| `/ayna-look` | screenshot + critique, **changes nothing** |
+| `/ayna-loop` | shoot → critique → fix → verify, on repeat |
+| `/ayna-review` | opens the page so **you** click parts and comment; Puku fixes exactly those |
+| `/ayna-fix` | Puku audits it, proposes fixes grouped by cause, and re-measures each one you approve |
 
 Asking in words works too — *"screenshot the page"*, *"how does this look?"*,
 *"self improve my UI"*.
@@ -66,7 +66,7 @@ node bin/ayna.mjs login          # opens the app; you sign in; the session is sa
 ```
 
 An audit that hits a sign-in screen stops and says so rather than reporting on the
-login page. Claude never types your credentials — it opens the window and waits.
+login page. Puku never types your credentials — it opens the window and waits.
 
 Sign in yourself, in that window. Form fields and submit buttons work in comment
 mode, so you can just fill it in and click through. A page with a password field
@@ -77,7 +77,7 @@ out when you want to check a signed-out view.
 **Ayna never sees your credentials** — you type them into your own app, and nothing
 you type is captured. The comment payload is asserted clean in the test suite.
 
-Press **Send to Claude**. For each comment Claude gets:
+Press **Send to Puku**. For each comment Puku gets:
 
 - **a crop of exactly what you selected** — not the whole page
 - your comment, and any reference image you pasted
@@ -88,13 +88,13 @@ Press **Send to Claude**. For each comment Claude gets:
 - for a drag: the final sibling order you want, so it gets reproduced in the source
   rather than faked with CSS
 
-So instead of *"the headline looks cramped"* reaching Claude as a guess, it arrives
+So instead of *"the headline looks cramped"* reaching Puku as a guess, it arrives
 as: this element, this crop, this file, this line, these styles.
 
-Claude runs it as an event stream (`annotate --events`), so every round you send
+Puku runs it as an event stream (`annotate --events`), so every round you send
 notifies it directly — there is no polling and nothing to re-arm.
 
-**Your window stays open.** Claude edits, the page reloads itself, and **every
+**Your window stays open.** Puku edits, the page reloads itself, and **every
 portion you commented on is highlighted again in place** — so you judge each change
 where it happened.
 
@@ -117,11 +117,11 @@ it doesn't close it and it doesn't reload. Get the app into the state you care
 about (a live view, an expanded panel, a menu open) and audit exactly that. Faults
 that only exist after you click into something are invisible to a page at rest.
 
-## When Claude finds something itself
+## When Puku finds something itself
 
-Claude can audit your UI and spot faults you never mentioned. It does **not** edit
+Puku can audit your UI and spot faults you never mentioned. It does **not** edit
 your project off its own judgement. Each finding arrives in the same review window
-as a dashed purple marker — *"Claude suggests"* — with the fix it wants to make
+as a dashed purple marker — *"Puku suggests"* — with the fix it wants to make
 written out. You answer it there:
 
 - **Go ahead** → it makes the change, then you judge the result like anything else
@@ -181,12 +181,12 @@ Snapshots are taken before every edit, so any round can be rolled back.
 
 |  | in-session (default) | standalone |
 |---|---|---|
-| brain | the Claude session you're in | spawned `claude -p` subprocesses |
+| brain | the Puku session you're in | spawned `puku -p` subprocesses |
 | cost | near-free — context is already warm | ~$1.50–3.30 per iteration |
 | use for | interactive work | CI, unattended runs |
-| entry | the `ayna` skill / `/ayna:loop` | `node bin/ayna.mjs loop -n 3` |
+| entry | the `ayna` skill / `/ayna-loop` | `node bin/ayna.mjs loop -n 3` |
 
-The in-session path is why the plugin form matters: Claude reads the PNG with its
+The in-session path is why the plugin form matters: Puku reads the PNG with its
 own Read tool and edits with its own Edit tool, so there are no extra model calls
 and no re-reading your source three times per round.
 
@@ -265,13 +265,13 @@ hundred. Frame a region and comment on it instead — the crop is the message.
 **Source mapping is a grep, not a compiler.** It matches ids, class names and text
 back through your files, which works well for plain HTML, JSX, Vue and Svelte. On
 CSS-in-JS with generated class names it will often find nothing. The selector,
-crop and computed styles still arrive, so Claude can work — it just has to find
+crop and computed styles still arrive, so Puku can work — it just has to find
 the file itself.
 
 **Cross-origin iframes are opaque.** Embedded widgets, payment fields, anything
 from another origin. Browser security, not something ayna can route around.
 
-**`ayna loop` has no tests.** It is the standalone path that spawns its own Claude
+**`ayna loop` has no tests.** It is the standalone path that spawns its own Puku
 sessions and costs real money. Everything else here is covered; that is not. Use
 the in-session flow unless you specifically want unattended runs.
 
@@ -286,7 +286,7 @@ absent, a platform-aware "open" — but they have never been run there.
 leaves the edit in your files. `restore --root <dir>` rolls back the whole round.
 Per-task revert is not built.
 
-**"Waiting for Claude" used to be a dead end.** It cleared only when something ran
+**"Waiting for Puku" used to be a dead end.** It cleared only when something ran
 `ayna applied`, so a session that never did left the window on a spinner over
 changes already on disk. It now notices the edits itself, and there is a
 **Changes are in** button for edits it cannot see.
@@ -310,9 +310,9 @@ edits a file — a background process that could do either would be a much large
 promise than this one.
 
 **It can do the work itself.** `ayna work` takes tasks off the queue and runs
-them through a brain of your choosing — `claude -p` by default, any command via
+them through a brain of your choosing — `puku -p` by default, any command via
 `brains` in the config, so nothing is tied to one vendor. It claims each task
-first, so a Claude session and a worker never do the same one; it checks whether
+first, so a Puku session and a worker never do the same one; it checks whether
 the fault still reproduces before spending anything on it; and it says
 `still-broken` rather than `applied` when a fix did not take. A proposal is never
 touched: `proposed` means found by a tool and not yet permitted.
@@ -332,7 +332,7 @@ would have made every button in a "successfully applied" theme unreadable.
 beats a rectangle — and the stroke travels with the comment, because "this node,
 the one I circled" is what a bounding box throws away.
 
-**You can see who else is working.** Another Claude session, a worker, or a
+**You can see who else is working.** Another Puku session, a worker, or a
 different tool entirely can be holding a task while you are looking at the page it
 belongs to. The console names them and says what they hold, so two of you do not
 do the same job. A claim that expires drops off by itself.
@@ -358,7 +358,7 @@ whose rule is that gates verify claims and never predictions, and check after th
 agent finishes.
 
 **The terminal comes to you.** A console runs down the left of the review window:
-Claude's progress, every event, and a box to type an instruction back — so a
+Puku's progress, every event, and a box to type an instruction back — so a
 review no longer means watching a window and a terminal at once. It collapses to a
 34px spine, and reserves its own space so it never covers what you are reviewing.
 A column costs about a sixth of the width; the same log across the bottom cost a
@@ -400,13 +400,17 @@ edges in proportion to that.
 ## Layout
 
 ```
-SKILL.md            the in-session loop — the plugin's actual behavior
-commands/           /ayna, /ayna:look, /ayna:review
-bin/ayna.mjs        CLI
-src/annotate.mjs    click-to-comment capture, crops, source mapping
-src/overlay.js      the in-page annotation UI (runs in the browser)
-src/browser.mjs     Chrome control, screenshots, diagnostics
-src/loop.mjs        standalone orchestration
-src/report.mjs      HTML report
-demo/               a deliberately mediocre landing page to improve
+SKILL.md                       the in-session loop (Claude Code)
+commands/                      /ayna, /ayna:look, /ayna:loop, /ayna:review, /ayna:fix (Claude Code)
+.puku-cli/
+├── settings.json              hook manifest (puku-cli)
+├── scripts/                   one shell script per hook event + _lib.sh
+└── skills/                    /ayna + /ayna-look, /ayna-loop, /ayna-review, /ayna-fix (puku-cli)
+bin/ayna.mjs                   CLI
+src/annotate.mjs               click-to-comment capture, crops, source mapping
+src/overlay.js                 the in-page annotation UI (runs in the browser)
+src/browser.mjs                Chrome control, screenshots, diagnostics
+src/loop.mjs                   standalone orchestration
+src/report.mjs                 HTML report
+demo/                          a deliberately mediocre landing page to improve
 ```

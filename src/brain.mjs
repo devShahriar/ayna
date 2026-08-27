@@ -1,23 +1,51 @@
 import { spawn } from 'node:child_process';
 
-const CLAUDE_BIN = process.env.AYNA_CLAUDE_BIN ?? 'claude';
+/*
+  The "brain" is whichever AI CLI ayna is driving this session. Puku is the
+  default; Claude Code is supported as well. Each agent has its own CLI surface,
+  so this module is the one place that knows how to talk to either. Everything
+  else picks an agent name and calls the dispatchers below.
+*/
 
-/**
- * One headless Claude Code turn. The prompt goes in on stdin (no argv escaping),
- * and the model works inside `cwd` with only the tools we hand it.
- *
- * This is the whole trick: Claude Code's Read tool accepts PNGs, so passing a
- * screenshot path is the same as showing it the rendered page.
- */
-export function runClaude({
-  prompt,
-  cwd,
-  tools = ['Read', 'Glob', 'Grep'],
-  model = 'opus',
-  schema = null,
-  timeoutMs = 15 * 60 * 1000,
-  onStderr = null,
-}) {
+const CLAUDE_BIN = process.env.AYNA_CLAUDE_BIN ?? 'claude';
+const PUKU_BIN = process.env.AYNA_PUKU_BIN ?? 'puku';
+
+/** Which agents ayna knows how to drive. */
+export const KNOWN_AGENTS = ['claude', 'puku'];
+
+/** Resolve which agent to use for this run. `requested` wins, then env, then config, then puku. */
+export function resolveAgent(requested, cfg) {
+  const fromArgs = typeof requested === 'string' ? requested : null;
+  const fromEnv = process.env.AYNA_AGENT ?? null;
+  const fromCfg = cfg?.agent ?? cfg?.brain ?? null;
+  const chosen = fromArgs ?? fromEnv ?? fromCfg ?? 'puku';
+  if (!KNOWN_AGENTS.includes(chosen)) {
+    throw new Error(
+      `unknown agent "${chosen}" — known: ${KNOWN_AGENTS.join(', ')} (set --agent, AYNA_AGENT, or "agent" in ayna.config.json)`,
+    );
+  }
+  return chosen;
+}
+
+/** Build the argv that drives a one-shot agent turn. */
+function buildArgs(agent, { model, tools, schema, prompt }) {
+  if (agent === 'puku') {
+    /*
+      Puku's CLI surface is assumed to mirror Claude's for the headless turn:
+      read a prompt from stdin, return JSON, restricted tool set, optional
+      schema. The exact flags are configurable via env so ayna can adapt
+      without code changes if Puku's CLI shifts.
+    */
+    const args = ['-p', '--output-format', 'json', '--model', model];
+    const mode = process.env.AYNA_PUKU_PERMISSION_MODE;
+    if (mode) args.push('--permission-mode', mode);
+    const toolsFlag = process.env.AYNA_PUKU_TOOLS_FLAG ?? '--allowedTools';
+    args.push(toolsFlag, tools.join(','));
+    const schemaFlag = process.env.AYNA_PUKU_SCHEMA_FLAG ?? '--json-schema';
+    if (schema) args.push(schemaFlag, JSON.stringify(schema));
+    args.push('--prompt-stdin-length', String(Buffer.byteLength(prompt, 'utf8')));
+    return args;
+  }
   const args = [
     '-p',
     '--output-format',
@@ -30,9 +58,25 @@ export function runClaude({
     tools.join(','),
   ];
   if (schema) args.push('--json-schema', JSON.stringify(schema));
+  return args;
+}
+
+/** Spawn the chosen agent and resolve with a normalised envelope. */
+export function runAgent({
+  agent,
+  prompt,
+  cwd,
+  tools = ['Read', 'Glob', 'Grep'],
+  model = 'opus',
+  schema = null,
+  timeoutMs = 15 * 60 * 1000,
+  onStderr = null,
+}) {
+  const binary = agent === 'puku' ? PUKU_BIN : CLAUDE_BIN;
+  const args = buildArgs(agent, { model, tools, schema, prompt });
 
   return new Promise((resolve, reject) => {
-    const child = spawn(CLAUDE_BIN, args, {
+    const child = spawn(binary, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
@@ -42,7 +86,7 @@ export function runClaude({
     let err = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      reject(new Error(`claude timed out after ${Math.round(timeoutMs / 1000)}s`));
+      reject(new Error(`${agent} timed out after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
 
     child.stdout.on('data', (d) => {
@@ -54,15 +98,15 @@ export function runClaude({
     });
     child.on('error', (e) => {
       clearTimeout(timer);
-      reject(new Error(`could not run "${CLAUDE_BIN}": ${e.message}`));
+      reject(new Error(`could not run "${binary}": ${e.message}`));
     });
     child.on('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(`claude exited ${code}: ${err.trim() || out.trim() || 'no output'}`));
+        reject(new Error(`${agent} exited ${code}: ${err.trim() || out.trim() || 'no output'}`));
         return;
       }
-      resolve(parseEnvelope(out, err));
+      resolve(parseEnvelope(agent, out, err));
     });
 
     child.stdin.write(prompt);
@@ -70,12 +114,17 @@ export function runClaude({
   });
 }
 
-function parseEnvelope(stdout, stderr) {
+/** Legacy name kept so explicit Claude callers still work. */
+export function runClaude(opts) {
+  return runAgent({ ...opts, agent: 'claude' });
+}
+
+function parseEnvelope(agent, stdout, stderr) {
   let envelope;
   try {
     envelope = JSON.parse(stdout);
   } catch {
-    throw new Error(`unparseable claude output: ${stdout.slice(0, 400) || stderr.slice(0, 400)}`);
+    throw new Error(`unparseable ${agent} output: ${stdout.slice(0, 400) || stderr.slice(0, 400)}`);
   }
   const text = typeof envelope.result === 'string' ? envelope.result : JSON.stringify(envelope.result);
   return {
@@ -106,14 +155,21 @@ function coerceJson(result) {
   }
 }
 
-export async function ensureClaudeAvailable() {
+/** Does the chosen agent's CLI exist on PATH? */
+export function ensureAgent(agent) {
+  const binary = agent === 'puku' ? PUKU_BIN : CLAUDE_BIN;
   return new Promise((resolve) => {
-    const child = spawn(CLAUDE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
     child.stdout.on('data', (d) => {
       out += d;
     });
-    child.on('error', () => resolve({ ok: false }));
-    child.on('close', (code) => resolve({ ok: code === 0, version: out.trim() }));
+    child.on('error', () => resolve({ ok: false, agent, binary }));
+    child.on('close', (code) => resolve({ ok: code === 0, agent, binary, version: out.trim() }));
   });
+}
+
+/** Legacy name — explicit Claude availability probe. */
+export function ensureClaudeAvailable() {
+  return ensureAgent('claude');
 }

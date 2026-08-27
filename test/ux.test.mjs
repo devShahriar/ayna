@@ -293,7 +293,7 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
   });
 });
 
-describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+describe('getting out of "waiting for Puku"', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
   before(async () => {
     browser = await openBrowser({ headless: true });
@@ -303,11 +303,11 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
   });
 
   /*
-    "Sent — waiting for Claude" cleared on one thing: a marker file written by
+    "Sent — waiting for Puku" cleared on one thing: a marker file written by
     `ayna applied`. A session that never ran it left the window on that spinner
     permanently, over changes that were already on disk — the user waiting for
     something that had happened. There are now three ways out, and all three must
-    keep working, because the failure is indistinguishable from Claude being slow.
+    keep working, because the failure is indistinguishable from Puku being slow.
   */
   async function reachesReview(escape) {
     const { srv, url } = await pollingServer('<h1 class="title">Hello</h1>');
@@ -370,7 +370,7 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
     assert.ok(reached, 'the marker path must keep working');
   });
 
-  test('ayna’s own output does not count as Claude finishing', async () => {
+  test('ayna’s own output does not count as Puku finishing', async () => {
     // Comments, screenshots and status all land under .ayna while the user is
     // still commenting. Counting those would reload the page mid-sentence.
     const reached = await reachesReview(async (_page, dir) => {
@@ -608,7 +608,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     const lines = [];
     await withConsole(async (page, dir) => {
       const { appendEvent, openDb } = await import('../src/db.mjs');
-      appendEvent(await openDb(dir), { event: 'message', from: 'claude', text: 'starting on the nav now' });
+      appendEvent(await openDb(dir), { event: 'message', from: 'puku', text: 'starting on the nav now' });
       await page.waitForTimeout(1500);
 
       await page.fill('.ayna-ov-console input', 'make it wider too');
@@ -621,7 +621,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     });
     assert.ok(
       lines.includes('message:starting on the nav now'),
-      `Claude's line never reached the window: ${lines.join(' | ')}`,
+      `Puku's line never reached the window: ${lines.join(' | ')}`,
     );
     assert.ok(lines.includes('you:make it wider too'), 'the reply typed on the page was lost');
   });
@@ -673,7 +673,7 @@ describe('what everyone else is doing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
 
   test('agents holding work are named in the window, with what they hold', async () => {
     /*
-      A review is no longer one person and one Claude. Another session, a worker,
+      A review is no longer one person and one Puku. Another session, a worker,
       or a different tool can be holding a task while you are looking at the page
       it belongs to, and the alternative to showing that is two of you doing the
       same job. Nothing new is tracked for this: a task already records who

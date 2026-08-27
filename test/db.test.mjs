@@ -2,7 +2,7 @@
   The failure this whole layer exists for.
 
   Comments were written, sent, and read by nobody. The window said "waiting for
-  Claude" while nine tasks sat unread, because delivery was a pipe between two
+  Puku" while nine tasks sat unread, because delivery was a pipe between two
   live processes and both had gone. Nothing here is about storage for its own
   sake — every test below is a way that work used to be able to disappear.
 */
@@ -64,14 +64,14 @@ describe('the event log', () => {
       const store = await openStore(dir);
       await store.create({ comment: 'first' });
 
-      const one = await drain(dir, 'claude');
+      const one = await drain(dir, 'puku');
       assert.equal(one.events.length, 1);
 
-      const nothingNew = await drain(dir, 'claude');
+      const nothingNew = await drain(dir, 'puku');
       assert.deepEqual(nothingNew.events, [], 'a second read must not replay what was delivered');
 
       await store.create({ comment: 'second' });
-      const two = await drain(dir, 'claude');
+      const two = await drain(dir, 'puku');
       assert.equal(two.events.length, 1);
       assert.equal(two.events[0].comment, 'second');
 
@@ -92,7 +92,7 @@ describe('two things wanting the same task', () => {
       const task = await store.create({ comment: 'widen the nav' });
 
       const worker = await store.claim(task.id, 'worker-1');
-      const session = await store.claim(task.id, 'claude-session-2');
+      const session = await store.claim(task.id, 'puku-session-2');
 
       assert.ok(worker, 'the first claimer takes it');
       assert.equal(session, null, 'the second is refused rather than doing the work twice');

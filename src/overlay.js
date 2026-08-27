@@ -42,6 +42,11 @@
       }
     })(),
     drag: null,
+    /*
+      The agent whose name lives on the Send button. Defaulted to Puku so the
+      first paint, before __aynaState resolves, looks the way it always did.
+    */
+    agent: 'puku',
   };
 
   // addInitScript runs at document-start, before <html> exists — build the UI only
@@ -208,7 +213,7 @@
     .${NS}-at { color: #55606f; font-style: normal; margin-right: 6px; }
     .${NS}-line b { font-weight: 600; margin-right: 6px; }
     .${NS}-line[data-lane=you] b { color: var(--ayna-you, #38bdf8); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #a78bfa); }
+    .${NS}-line[data-lane=puku] b { color: var(--ayna-agent, #a78bfa); }
     .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #2dd4bf); }
     .${NS}-phase {
       margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #161e29;
@@ -236,7 +241,7 @@
     */
     .${NS}-console { text-shadow: none; }
     .${NS}-line[data-lane=you] b { color: var(--ayna-you, #22d3ee); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c084fc); }
+    .${NS}-line[data-lane=puku] b { color: var(--ayna-agent, #c084fc); }
     .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #34d399); }
     .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f7fb); }
     .${NS}-line[data-kind=you] span { color: var(--ayna-you, #67e8f9); }
@@ -566,8 +571,18 @@
           state.seq = st.count;
           refreshCount();
         }
+        if (typeof st.agent === 'string' && st.agent && st.agent !== state.agent) {
+          state.agent = st.agent;
+          // The Send label depends on the agent name. Update the button text in
+          // place rather than rebuilding the bar, so the segmented control and
+          // any open panel keep their state.
+          const send = bar && bar.querySelector('[data-act=send]');
+          if (send) send.textContent = 'Send to ' + state.agent;
+          const waiting = bar && bar.querySelector('.' + NS + '-waiting');
+          if (waiting) waiting.textContent = 'Sent — waiting for ' + state.agent + ' to pick this up…';
+        }
         if (st.phase === 'reviewing') setPhase('review');
-        else if (st.phase === 'awaiting-claude') setPhase('waiting');
+        else if (st.phase === 'awaiting-agent' || st.phase === 'awaiting-puku' || st.phase === 'awaiting-claude') setPhase('waiting');
       })
       .catch(() => {});
   } else if (window.__aynaCount) {
@@ -583,7 +598,7 @@
   /*
     Three phases, so the window never closes out from under the user:
       comment — click things, leave notes, send them
-      waiting — Claude is editing; the page will reload itself when it's done
+      waiting — Puku is editing; the page will reload itself when it's done
       review  — the changes are on screen; approve, or ask for more
   */
   function setPhase(phase) {
@@ -655,7 +670,7 @@
         '<div class="' + NS + '-barside ' + NS + '-baractions">' +
           '<button data-act="tasks" class="' + NS + '-ghost" title="Everything still owed on this page">Tasks</button>' +
           '<button data-act="send"' + (state.seq ? '' : ' disabled') +
-            (state.seq ? '' : ' title="Comment on something first"') + '>Send to Claude</button>' +
+            (state.seq ? '' : ' title="Comment on something first"') + '>Send to ' + state.agent + '</button>' +
         '</div>';
 
       for (const b of bar.querySelectorAll('[data-act=setmode]')) {
@@ -684,14 +699,14 @@
 
     if (phase === 'waiting') {
       /*
-        "Claude is making your changes" was a promise the page could not keep: it
+        "Puku is making your changes" was a promise the page could not keep: it
         appeared the moment Send was pressed, whether or not anything was
         listening. When nothing was, the user sat watching a spinner that meant
         nothing. Say only what is true — sent — and speak up if it goes unanswered.
       */
       bar.innerHTML =
         '<span class="' + NS + '-spin" aria-hidden="true"></span>' +
-        '<span class="' + NS + '-waiting">Sent — waiting for Claude to pick this up…</span>' +
+        '<span class="' + NS + '-waiting">Sent — waiting for ' + state.agent + ' to pick this up…</span>' +
         '<button data-act="applied" title="Reload and show the result now">Changes are in</button>';
 
       /*
@@ -829,7 +844,7 @@
       state.pins = state.pins.filter((p) => p !== pin);
       state.seq = res.count;
       refreshTaskCount();
-      // Renumber what's left so the pins match the list Claude receives.
+      // Renumber what's left so the pins match the list Puku receives.
       state.pins.forEach((p, i) => {
         const label = p.querySelector('b');
         if (label) label.textContent = String(i + 1);
@@ -955,7 +970,7 @@
   }
 
   /*
-    Like describe(), but for prose aimed at Claude. Sibling elements usually share
+    Like describe(), but for prose aimed at Puku. Sibling elements usually share
     a class ("div.plan before div.plan" tells nobody anything), so lead with the
     element's own text — that is what actually identifies it in the source.
   */
@@ -1163,7 +1178,7 @@
     "Comment on this bit" is often about an area, not a single node — a cramped
     header block, a row of cards, the gap between two sections. Dragging a box
     captures that region as its own crop, plus every element substantially inside
-    it so Claude still gets selectors and source locations to edit.
+    it so Puku still gets selectors and source locations to edit.
   */
   /*
     Freehand marking.
@@ -1410,7 +1425,7 @@
     Deliberately limited to reordering among siblings. Freeform "drop it anywhere"
     dragging produces absolute positioning that maps back to unmaintainable CSS —
     a reorder maps to an actual source change (move this block before that one),
-    which is a thing Claude can apply cleanly.
+    which is a thing Puku can apply cleanly.
   */
   let dropLine = null;
 
@@ -1936,7 +1951,7 @@
       What you are commenting on goes first, as a picture.
 
       The box opened with a monospace CSS path across the top — the most valuable
-      line in the panel spent on a detail only Claude reads — and the crop of what
+      line in the panel spent on a detail only Puku reads — and the crop of what
       you had framed appeared as a 48px square below the buttons with an AUTO
       badge over it, which read as a broken image rather than a preview. On a
       canvas that crop is the entire comment, so it is now the first thing in the
@@ -2116,7 +2131,7 @@
   /*
     Review overlay.
 
-    After Claude's edits land, each comment is re-anchored on the *changed* page —
+    After Puku's edits land, each comment is re-anchored on the *changed* page —
     by selector where the element still exists, by its recorded rect otherwise — so
     you can see exactly which portion was touched and judge it in place. Approving
     doesn't delete the comment: it stays as a green marker you can click to read,
@@ -2286,9 +2301,9 @@
             : c.status === 'rejected'
               ? '↺ ' + c.n
               : c.status === 'in_progress'
-                ? '⋯ ' + c.n // Claude has picked this one up
+                ? '⋯ ' + c.n // Puku has picked this one up
                 : c.status === 'proposed'
-                  ? '? ' + c.n // Claude's own suggestion, awaiting a word
+                  ? '? ' + c.n // Puku's own suggestion, awaiting a word
                   : String(c.n);
         // Once judged, collapse to the badge — it stays as the record.
         ok.style.display = c.status === 'open' ? '' : 'none';
@@ -2334,7 +2349,7 @@
     const proposal = c.status === 'proposed';
 
     /*
-      A proposal is answered, not judged. Claude found this one itself, so the
+      A proposal is answered, not judged. Puku found this one itself, so the
       choices are go ahead, leave it, or say what to do instead — and that last
       one turns the suggestion into the user's own instruction rather than making
       them dismiss the card and write a comment from scratch.
@@ -2369,9 +2384,9 @@
         : c.status === 'rejected'
           ? 'needs work'
           : c.status === 'in_progress'
-            ? 'Claude is on this'
+            ? 'Puku is on this'
             : c.status === 'proposed'
-              ? 'Claude suggests'
+              ? 'Puku suggests'
               : 'comment ' + c.n;
     card.querySelector('.' + NS + '-text').textContent = c.comment;
     card.querySelector('.' + NS + '-when').textContent =
@@ -2461,14 +2476,14 @@
   }
 
   const WORDING = {
-    round: (e) => ['sent', e.comments ? `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Claude` : 'sent to Claude'],
+    round: (e) => ['sent', e.comments ? `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Puku` : 'sent to Puku'],
     applied: (e) => ['applied', `changes landed${e.via && e.via !== 'marker' ? ` (noticed by ${e.via.replace('-', ' ')})` : ''}`],
     task: (e) => ['task', `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}${e.comment ? ' — ' + e.comment : ''}`.trim()],
     rejected: (e) => ['back', `sent back: ${e.comment ?? ''}`],
     closed: (e) => ['closed', e.approved ? 'review finished' : 'window closed — pending work kept'],
     audit: (e) => ['audit', e.clean ? 'no layout faults' : `${Object.values(e.counts ?? {}).reduce((a, b) => a + b, 0)} faults found`],
     claimed: (e) => ['claimed', `${e.taskId ?? ''} taken by ${e.by ?? 'someone'}`],
-    message: (e) => (e.from === 'user' ? ['you', e.text] : ['claude', e.text]),
+    message: (e) => (e.from === 'user' ? ['you', e.text] : ['puku', e.text]),
     ready: (e) => ['owed', `${e.pending} still waiting`],
     gate: (e) => [
       'checked',
@@ -2488,12 +2503,12 @@
     factory: lanes for each actor and blocks on a time axis, rather than a flat
     log where a machine measurement and a person's instruction look the same.
 
-    Three lanes is the honest count here. The user, Claude, and ayna — which is
+    Three lanes is the honest count here. The user, Puku, and ayna — which is
     neither of them and is the only one making claims that can be checked.
   */
   const LANE = {
     round: 'you', message: 'you', closed: 'you',
-    task: 'claude', applied: 'claude', rejected: 'claude',
+    task: 'puku', applied: 'puku', rejected: 'puku',
     gate: 'ayna', audit: 'ayna', ready: 'ayna', claimed: 'ayna',
   };
 
@@ -2512,7 +2527,7 @@
     const [who, text] = wording(e);
     if (!text) return null;
 
-    const lane = e.event === 'message' && e.from !== 'user' ? 'claude' : LANE[e.event] ?? 'ayna';
+    const lane = e.event === 'message' && e.from !== 'user' ? 'puku' : LANE[e.event] ?? 'ayna';
     const row = document.createElement('div');
     row.className = NS + '-line';
     row.dataset.kind = e.event === 'message' ? (e.from === 'user' ? 'you' : 'message') : e.event;
@@ -2636,7 +2651,7 @@
       '</div>' +
       '<div class="' + NS + '-console-lines"></div>' +
       '<div class="' + NS + '-console-say">' +
-        '<input placeholder="Tell Claude something — no need for the terminal" />' +
+        '<input placeholder="Tell Puku something — no need for the terminal" />' +
         '<button data-act="say">Send</button>' +
       '</div>';
     document.documentElement.appendChild(consoleEl);

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { startTarget } from './target.mjs';
 import { openBrowser, captureRoutes } from './browser.mjs';
-import { runClaude, ensureClaudeAvailable } from './brain.mjs';
+import { runAgent, ensureAgent, resolveAgent } from './brain.mjs';
 import { snapshot, restore, changedFiles } from './snapshot.mjs';
 import { CRITIQUE_SCHEMA, VERIFY_SCHEMA, critiquePrompt, improvePrompt, verifyPrompt } from './prompts.mjs';
 import { writeReport } from './report.mjs';
@@ -19,14 +19,20 @@ function scoreColor(score) {
   return red;
 }
 
-export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
+export async function runLoop(cfg, { iterations, model, headless, open, agent } = {}) {
   const maxIterations = iterations ?? cfg.loop.iterations;
   const model_ = model ?? cfg.loop.model;
   const headless_ = headless ?? cfg.loop.headless;
 
-  const claude = await ensureClaudeAvailable();
-  if (!claude.ok) {
-    throw new Error('the `claude` CLI was not found on PATH — Ayna uses it as its brain');
+  /*
+    Pick the agent once, up front, and fail loudly if the CLI is not on PATH.
+    Picking it in a tighter scope would mean the run starts and then dies on
+    the first prompt — worse than the explicit gate.
+  */
+  const agentName = resolveAgent(agent, cfg);
+  const probe = await ensureAgent(agentName);
+  if (!probe.ok) {
+    throw new Error(`the \`${probe.binary}\` CLI was not found on PATH — set AYNA_${agentName === 'puku' ? 'PUKU' : 'CLAUDE'}_BIN or install it`);
   }
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -34,7 +40,7 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
   await mkdir(runDir, { recursive: true });
 
   banner(`ayna · ${cfg.target.name} · run ${runId}`);
-  info(`brain: claude ${claude.version ?? ''} (model: ${model_})`);
+  info(`brain: ${agentName} ${probe.version ?? ''} (model: ${model_})`);
 
   const target = await startTarget(cfg);
   info(`serving: ${target.url}`);
@@ -73,7 +79,8 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
 
         // 2. Critique what the screenshots show.
         step('critique', 'asking the design critic what is wrong');
-        const critiqueRun = await runClaude({
+        const critiqueRun = await runAgent({
+          agent: agentName,
           prompt: critiquePrompt({ cfg, capture: before, iteration: i }),
           cwd: cfg.rootDir,
           tools: READ_TOOLS,
@@ -113,7 +120,8 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
         await snapshot(cfg.targetDir, snapDir);
 
         step('improve', `applying ${critique.issues.length} fix(es)`);
-        const improveRun = await runClaude({
+        const improveRun = await runAgent({
+          agent: agentName,
           prompt: improvePrompt({ cfg, capture: before, critique, iteration: i }),
           cwd: cfg.rootDir,
           tools: EDIT_TOOLS,
@@ -202,7 +210,8 @@ export async function runLoop(cfg, { iterations, model, headless, open } = {}) {
         let verdict = null;
         if (cfg.loop.verify && !reverted) {
           step('verify', 'comparing before and after');
-          const verifyRun = await runClaude({
+          const verifyRun = await runAgent({
+            agent: agentName,
             prompt: verifyPrompt({ before, after, critique }),
             cwd: cfg.rootDir,
             tools: READ_TOOLS,

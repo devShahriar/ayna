@@ -30,8 +30,24 @@ import { appendEvent } from './db.mjs';
 /** Which command is the brain, and how to hand it a prompt. */
 export function brainFor(cfg, name) {
   const brains = cfg?.brains ?? {};
-  const chosen = name ?? cfg?.brain ?? 'claude';
-  const spec = brains[chosen] ?? (chosen === 'claude' ? { cmd: 'claude', args: ['-p'] } : null);
+  /*
+    Lookup order for the brain name:
+      1. an explicit --brain flag passed to `ayna work`
+      2. the resolved project agent (cfg.agent, set by the CLI from
+         --agent / AYNA_AGENT / "agent" in ayna.config.json)
+      3. the legacy cfg.brain key (kept so old configs still work)
+      4. puku — the default (claude still works via --brain claude or the legacy cfg.brain key)
+    A user who supplies --brain cursor keeps overriding whatever the project
+    picked for the worker, which is what the help text promises.
+  */
+  const chosen = name ?? cfg?.agent ?? cfg?.brain ?? 'puku';
+  const spec =
+    brains[chosen] ??
+    (chosen === 'claude'
+      ? { cmd: process.env.AYNA_CLAUDE_BIN ?? 'claude', args: ['-p'] }
+      : chosen === 'puku'
+      ? { cmd: process.env.AYNA_PUKU_BIN ?? 'puku', args: ['-p'] }
+      : null);
   if (!spec) throw new Error(`no brain called "${chosen}" — add it to ayna.config.json under "brains"`);
   return { name: chosen, ...spec };
 }

@@ -1,7 +1,7 @@
 {
   "name": "ayna",
   "version": "0.3.0",
-  "description": "A Claude Code plugin that lets Claude see the UI it builds. Screenshots the running page in real Chrome, and lets you click, comment on, and rearrange elements so Claude edits exactly what you meant.",
+  "description": "A Puku plugin (with Claude Code compatibility) that lets Puku see the UI it builds. Screenshots the running page in real Chrome, and lets you click, comment on, and rearrange elements so Puku edits exactly what you meant.",
   "type": "module",
   "license": "MIT",
   "author": "Shahriar",
@@ -20,6 +20,7 @@
     "bin",
     "src",
     "commands",
+    ".puku-cli",
     "SKILL.md",
     ".claude-plugin",
     "LICENSE",
@@ -39,6 +40,9 @@
     "node": ">=24"
   },
   "keywords": [
+    "puku",
+    "puku-cli",
+    "puku-plugin",
     "claude",
     "claude-code",
     "claude-code-plugin",

@@ -5,3 +5,5 @@ node_modules/
 
 # never commit personal images dropped in during a review
 demo/user-avatar.*
+
+.commandcode

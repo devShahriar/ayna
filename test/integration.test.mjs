@@ -249,7 +249,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.click('[data-act=close]');
           },
         });
-        assert.deepEqual(phases, ['awaiting-claude', 'reviewing']);
+        assert.deepEqual(phases, ['awaiting-agent', 'reviewing']);
       } finally {
         await server.close();
       }
@@ -294,7 +294,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.click('[data-act=close]');
           },
         });
-        assert.equal(phaseAfterSend, 'awaiting-claude', 'must wait for a fresh marker');
+        assert.equal(phaseAfterSend, 'awaiting-agent', 'must wait for a fresh marker');
       } finally {
         await server.close();
       }
@@ -822,7 +822,7 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
           },
         });
 
-        assert.equal(manifest.comments.length, 2, 'the removed comment never reaches Claude');
+        assert.equal(manifest.comments.length, 2, 'the removed comment never reaches Puku');
         assert.deepEqual(manifest.comments.map((c) => c.comment), ['first', 'third']);
         assert.deepEqual(manifest.comments.map((c) => c.n), [1, 2], 'renumbered server-side too');
       } finally {
@@ -1566,7 +1566,7 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
             await page.waitForTimeout(400);
 
             const p = await phase();
-            assert.equal(p.phase, 'awaiting-claude', 'the new round is announced');
+            assert.equal(p.phase, 'awaiting-agent', 'the new round is announced');
             assert.equal(p.round, 2);
             assert.equal(p.comments, 2);
             assert.equal(p.resolved, 1, 'the approved comment stays approved');
@@ -2181,7 +2181,7 @@ describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () =
   });
 });
 
-describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+describe('Puku proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
   before(async () => {
     browser = await openBrowser({ headless: true });
@@ -2200,15 +2200,15 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
       const store = await openStore(dir);
       const events = [];
 
-      // Two faults Claude found itself. Nothing has been edited.
+      // Two faults Puku found itself. Nothing has been edited.
       await store.create({
-        status: 'proposed', kind: 'proposal', source: 'claude',
+        status: 'proposed', kind: 'proposal', source: 'puku',
         comment: 'the heading is cut off at 390px',
         fix: 'let the container wrap below 640px',
         selector: '.title', url: server.url,
       });
       await store.create({
-        status: 'proposed', kind: 'proposal', source: 'claude',
+        status: 'proposed', kind: 'proposal', source: 'puku',
         comment: 'body copy is cramped', fix: 'raise the line-height',
         selector: '.lede', url: server.url,
       });
@@ -2233,7 +2233,7 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
             await page.waitForSelector('.ayna-ov-card');
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
-              /Claude suggests/,
+              /Puku suggests/,
             );
             assert.ok(
               await page.evaluate(() => !!document.querySelector('.ayna-ov-fix')),
@@ -2261,9 +2261,9 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
         const redirected = tasks.find((t) => t.comment.includes('hide it on mobile'));
 
         assert.equal(approved.status, 'open', 'approving a proposal authorises the work, it does not finish it');
-        assert.equal(approved.source, 'claude');
+        assert.equal(approved.source, 'puku');
         assert.ok(redirected, 'the user\'s words replaced the suggestion');
-        assert.equal(redirected.source, 'user', 'and it is now their instruction, not Claude\'s idea');
+        assert.equal(redirected.source, 'user', 'and it is now their instruction, not Puku\'s idea');
 
         const actions = events.filter((e) => e.event === 'task').map((e) => e.action);
         assert.deepEqual(actions, ['go-ahead', 'do-this-instead']);

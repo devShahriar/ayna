@@ -34,7 +34,7 @@ describe('who is here', () => {
     const { dir, dispose } = await tempDir();
     try {
       const sessions = await openSessions(dir);
-      const id = sessions.register({ tool: 'claude', pid: process.pid });
+      const id = sessions.register({ tool: 'puku', pid: process.pid });
       const tab = sessions.openTab({ url: 'http://x/', sessionId: id });
 
       assert.equal(sessions.sweep().sessions, 0, 'a live, talking session must be left alone');
@@ -93,7 +93,7 @@ describe('who is here', () => {
     const { dir, dispose } = await tempDir();
     try {
       const sessions = await openSessions(dir);
-      sessions.register({ tool: 'claude', pid: 999999 });
+      sessions.register({ tool: 'puku', pid: 999999 });
       sessions.sweep();
 
       const kinds = eventsSince(sessions.db, 0).map((e) => e.event);
@@ -149,7 +149,7 @@ describe('the bookkeeper', () => {
     const { dir, dispose } = await tempDir();
     try {
       const sessions = await openSessions(dir);
-      sessions.register({ tool: 'claude', pid: 999999 });
+      sessions.register({ tool: 'puku', pid: 999999 });
 
       const controller = new AbortController();
       const seen = [];

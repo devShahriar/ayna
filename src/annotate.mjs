@@ -184,7 +184,7 @@ function rankByPage(hits, pageUrl) {
 
 /**
  * Opens the page with the overlay and resolves once the user clicks
- * "Send to Claude" or closes the tab.
+ * "Send" or closes the tab.
  */
 export async function runAnnotate({
   browser,
@@ -195,6 +195,12 @@ export async function runAnnotate({
   projectDir,
   viewport,
   theme = null,
+  /*
+    The agent this window's work is owed to. Defaults to 'puku'; callers driven by
+    ayna's CLI pass `cfg.agent` here so the overlay and the row in the sessions
+    table name the right tool.
+  */
+  agent = 'puku',
   onReady,
   /*
     Called the moment anything happens that Claude should act on.
@@ -215,6 +221,12 @@ export async function runAnnotate({
 }) {
   await mkdir(outDir, { recursive: true });
 
+  // The agent name travels everywhere a string would have been hardcoded as
+  // 'puku' in the days when there was only one. Keeping a single variable in
+  // scope means the overlay, the session row, and the busy-workers panel stay
+  // in lockstep with whichever agent the caller asked for.
+  const agentName = String(agent || 'puku');
+
   /*
     Register the window, and keep saying so.
 
@@ -232,7 +244,7 @@ export async function runAnnotate({
     try {
       const { openSessions } = await import('./sessions.mjs');
       sessions = await openSessions(projectDir, { db: store.db });
-      sessionId = sessions.register({ tool: 'claude', pid: process.pid, project: projectDir });
+      sessionId = sessions.register({ tool: agentName, pid: process.pid, project: projectDir });
       tabId = sessions.openTab({ url, outDir, sessionId });
       beat = setInterval(() => {
         try {
@@ -417,9 +429,9 @@ export async function runAnnotate({
     return { ok: true, count: comments.length };
   });
 
-  // Phase is the contract between the browser, Node, and Claude:
-  //   commenting → awaiting-claude → reviewing → approved
-  // Claude polls status.json; the user never loses the window in between.
+  // Phase is the contract between the browser, Node, and the agent:
+  //   commenting → awaiting-agent → reviewing → approved
+  // The agent polls status.json; the user never loses the window in between.
   let phase = 'commenting';
   let round = 0;
   const statusFile = path.join(outDir, 'status.json');
@@ -566,7 +578,7 @@ export async function runAnnotate({
   // The user finished a round of comments and wants them acted on.
   await page.exposeFunction('__aynaDone', async () => {
     round += 1;
-    phase = 'awaiting-claude';
+    phase = 'awaiting-agent';
     appearance = await appearanceOf();
     watchProject();
     await writeManifest();
@@ -634,11 +646,11 @@ export async function runAnnotate({
       if (!busy.has(t.claimedBy)) busy.set(t.claimedBy, { agent: t.claimedBy, tasks: [] });
       busy.get(t.claimedBy).tasks.push({ id: t.id, comment: t.comment, status: t.status });
     }
-    // Claude is here whenever a round is owed, whether or not it claimed a row.
-    if (phase === 'awaiting-claude') {
-      const mine = busy.get('claude') ?? { agent: 'claude', tasks: [] };
-      mine.working = true;
-      busy.set('claude', mine);
+    // The agent is here whenever a round is owed, whether or not it claimed a row.
+    if (phase === 'awaiting-agent' || phase === 'awaiting-puku' || phase === 'awaiting-claude') {
+      const owner = busy.get(agentName) ?? { agent: agentName, tasks: [] };
+      owner.working = true;
+      busy.set(agentName, owner);
     }
     return [...busy.values()];
   });
@@ -783,6 +795,9 @@ export async function runAnnotate({
     count: comments.length,
     pending: comments.filter((c) => c.status !== 'approved').length,
     resumed,
+    // The agent name travels with every poll so the overlay can render
+    // "Send to Puku" without a second handshake.
+    agent: agentName,
   }));
 
   /*
@@ -934,7 +949,7 @@ export async function runAnnotate({
     // shows a half-finished screen and calls it the result.
     const editsSettled = editedAt > 0 && Date.now() - editedAt > 1800;
 
-    if (phase === 'awaiting-claude' && (existsSync(appliedFile) || editsSettled || saidApplied)) {
+    if ((phase === 'awaiting-agent' || phase === 'awaiting-puku' || phase === 'awaiting-claude') && (existsSync(appliedFile) || editsSettled || saidApplied)) {
       const reason = existsSync(appliedFile) ? 'marker' : saidApplied ? 'user' : 'file-change';
       saidApplied = false;
       stopWatchingProject();
