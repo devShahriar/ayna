@@ -50,10 +50,19 @@ function judge(flow, record, audit) {
     });
   }
 
+  // noConsoleErrors may be `true`, `false`, or { ignore: [substring, …] } so an
+  // app that hosts third-party code can say which sources are not its problem.
+  // Switching the gate off entirely would be the easy answer and would also stop
+  // it catching the app's OWN errors, which is the only thing it is for.
+  const ignoreConsole = Array.isArray(rules.noConsoleErrors?.ignore) ? rules.noConsoleErrors.ignore : [];
+  const consoleMine = (line) => !ignoreConsole.some((pat) => String(line).includes(pat));
+
   if (rules.noConsoleErrors) {
     const noisy = record.steps.filter((s) => s.newConsoleErrors.length);
     for (const s of noisy) {
-      failures.push({ rule: 'noConsoleErrors', detail: `step ${s.n}: ${s.newConsoleErrors[0]}` });
+      const mine = (s.newConsoleErrors ?? []).filter(consoleMine);
+      if (!mine.length) continue;
+      failures.push({ rule: 'noConsoleErrors', detail: `step ${s.n}: ${mine[0]}` });
     }
   }
 

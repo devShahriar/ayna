@@ -89,6 +89,40 @@ const SNAPSHOT = `(() => {
 
 /** One action. Returns a note for the record, or throws to fail the step. */
 export async function perform(page, step, baseUrl) {
+  // WHICH ONE. `.first()` is the right default and the wrong answer when the
+  // point is the thing that was just made: a canvas that already holds twenty
+  // cards answers "is there a card?" with one from last week. `nth: -1` is the
+  // newest, `nth: 2` the third, and the default stays first.
+  const pick = (sel, nth) => {
+    const loc = page.locator(sel);
+    if (nth == null) return loc.first();
+    return nth < 0 ? loc.last() : loc.nth(nth);
+  };
+
+  // THE ONE THE APP JUST TOOK YOU TO.
+  //
+  // On a canvas, neither "first" nor "last" means "the card that was just made":
+  // DOM order is creation order across the whole board's history, so a canvas
+  // holding twenty older cards answers every question with one of them. What IS
+  // reliable is the viewport — the agent calls focus_canvas and the thing it
+  // wants you to see ends up in the middle of the screen. So: the match nearest
+  // the centre of the window.
+  const nearestToCentre = async (sel) => {
+    const n = await page.locator(sel).count();
+    if (!n) throw new Error(`nothing matches ${sel}`);
+    const vp = page.viewportSize() ?? { width: 1440, height: 900 };
+    const cx = vp.width / 2, cy = vp.height / 2;
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < n; i++) {
+      const box = await page.locator(sel).nth(i).boundingBox();
+      if (!box) continue;
+      const dx = box.x + box.width / 2 - cx, dy = box.y + box.height / 2 - cy;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return page.locator(sel).nth(best);
+  };
+
   switch (step.do) {
     case 'goto': {
       const url = new URL(step.url, baseUrl).toString();
@@ -96,7 +130,9 @@ export async function perform(page, step, baseUrl) {
       return `went to ${step.url}`;
     }
     case 'click': {
-      const el = page.locator(step.on).first();
+      const el = step.nearest === 'center' || step.nearest === 'centre'
+        ? await nearestToCentre(step.on)
+        : pick(step.on, step.nth);
       await el.waitFor({ state: 'visible', timeout: step.timeout ?? 10_000 });
       const box = await el.boundingBox();
       await el.click({ timeout: step.timeout ?? 10_000 });
@@ -104,7 +140,7 @@ export async function perform(page, step, baseUrl) {
     }
     case 'type': {
       if (step.on) {
-        const el = page.locator(step.on).first();
+        const el = pick(step.on, step.nth);
         await el.waitFor({ state: 'visible', timeout: 10_000 });
         await el.fill(step.text ?? '');
       } else {
@@ -117,7 +153,7 @@ export async function perform(page, step, baseUrl) {
       await page.keyboard.press(step.key);
       return `pressed ${step.key}`;
     case 'hover':
-      await page.locator(step.on).first().hover({ timeout: 10_000 });
+      await pick(step.on, step.nth).hover({ timeout: 10_000 });
       return `hovered ${step.on}`;
     case 'scroll':
       if (step.to === 'bottom') await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -129,8 +165,65 @@ export async function perform(page, step, baseUrl) {
       else await page.waitForTimeout(step.ms ?? 500);
       return step.for ? `waited for ${step.for}` : `waited ${step.ms ?? 500}ms`;
     case 'expect': {
+      // ABSENCE IS AN ASSERTION. A card that renders the wrong thing is still a
+      // card: "no data" on a chart, "Unsupported component", an error string in
+      // a panel. Only a positive check existed, so every one of those passed a
+      // flow that asked whether the title was on screen — which it was.
+      //
+      // Deliberately not a waitForFunction: you cannot wait for something to
+      // stop being true without deciding how long "never" is. It settles, then
+      // looks once, which is what a human reviewer does.
+      const gone = step.absent ?? step.missing;
+      if (gone != null) {
+        await page.waitForTimeout(step.settle ?? 400);
+        const seen = await page.evaluate(
+          (t) => (document.body?.innerText || '').includes(t), String(gone));
+        if (seen) throw new Error(`expected "${gone}" to be absent — the page is showing it`);
+        return `absent "${gone}"`;
+      }
+      if (step.absentSelector) {
+        // WITH A TIMEOUT THIS WAITS FOR SOMETHING TO GO AWAY, which is how you
+        // wait for work to FINISH: an agent run shows a thinking state, and the
+        // run is over when that state is gone. Without a timeout it settles and
+        // looks once, which is the "this must not be on screen" assertion.
+        if (step.timeout) {
+          const deadline = Date.now() + step.timeout;
+          for (;;) {
+            const n = await page.locator(step.absentSelector).count();
+            if (n === 0) return `gone: ${step.absentSelector}`;
+            if (Date.now() > deadline) {
+              throw new Error(`${step.absentSelector} was still on the page after ${step.timeout}ms (${n} of them)`);
+            }
+            await page.waitForTimeout(1000);
+          }
+        }
+        await page.waitForTimeout(step.settle ?? 400);
+        if (await page.locator(step.absentSelector).count()) {
+          throw new Error(`expected no ${step.absentSelector} — the page has one`);
+        }
+        return `absent ${step.absentSelector}`;
+      }
       if (step.selector) {
-        await page.locator(step.selector).first().waitFor({ state: 'visible', timeout: step.timeout ?? 10_000 });
+        // HOW MANY, when the point is that several things landed. A flow that
+        // asks for three cards and checks that one exists is a flow that passes
+        // for the bug it was written to catch — the run that delivers only the
+        // last of three looks identical to the run that delivers all three.
+        const want = step.count ?? step.minCount;
+        if (want != null) {
+          const exact = step.count != null;
+          const deadline = Date.now() + (step.timeout ?? 10_000);
+          let n = 0;
+          for (;;) {
+            n = await page.locator(step.selector).count();
+            if (exact ? n === want : n >= want) break;
+            if (Date.now() > deadline) {
+              throw new Error(`expected ${exact ? '' : 'at least '}${want} × ${step.selector}, found ${n}`);
+            }
+            await page.waitForTimeout(500);
+          }
+          return `saw ${n} × ${step.selector}`;
+        }
+        await pick(step.selector, step.nth).waitFor({ state: 'visible', timeout: step.timeout ?? 10_000 });
         return `saw ${step.selector}`;
       }
       const needle = step.text ?? '';
@@ -159,9 +252,20 @@ export async function runFlow({ browser, context: providedContext, baseUrl, flow
 
   const consoleErrors = [];
   const pageErrors = [];
+  // KEEP THE SOURCE. The URL is right here at capture time and was being dropped
+  // one line before it was needed, so a console error could not be attributed.
+  //
+  // That matters for any app that HOSTS third-party code. kormo renders
+  // agent-authored artifacts in sandboxed iframes: a d3 call inside one of those
+  // throwing "negative value is not valid" is a defect in generated content, not
+  // a regression in the app under test — but with the source discarded, the two
+  // are indistinguishable and the gate fails on the wrong thing. Appended in
+  // parentheses so existing substring matching on the message still works.
   page.on('console', (m) => {
     const from = m.location()?.url ?? '';
-    if (m.type() === 'error' && !/favicon\.ico/.test(`${m.text()} ${from}`)) consoleErrors.push(m.text());
+    if (m.type() !== 'error') return;
+    if (/favicon\.ico/.test(`${m.text()} ${from}`)) return;
+    consoleErrors.push(from ? `${m.text()}  (${from})` : m.text());
   });
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
