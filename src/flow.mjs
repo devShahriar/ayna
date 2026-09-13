@@ -176,8 +176,7 @@ export async function perform(page, step, baseUrl) {
       const gone = step.absent ?? step.missing;
       if (gone != null) {
         await page.waitForTimeout(step.settle ?? 400);
-        const seen = await page.evaluate(
-          (t) => (document.body?.innerText || '').includes(t), String(gone));
+        const seen = await page.evaluate(SEES, String(gone));
         if (seen) throw new Error(`expected "${gone}" to be absent — the page is showing it`);
         return `absent "${gone}"`;
       }
@@ -227,17 +226,33 @@ export async function perform(page, step, baseUrl) {
         return `saw ${step.selector}`;
       }
       const needle = step.text ?? '';
-      await page.waitForFunction(
-        (t) => (document.body?.innerText || '').includes(t),
-        needle,
-        { timeout: step.timeout ?? 10_000 },
-      );
+      await page.waitForFunction(SEES, needle, { timeout: step.timeout ?? 10_000 });
       return `saw "${needle}"`;
     }
     default:
       throw new Error(`unknown step "${step.do}"`);
   }
 }
+
+// SEEN AS A PERSON SEES IT, NOT AS CSS RENDERED IT.
+//
+// innerText returns text with CSS text-transform APPLIED. A heading styled
+// `text-transform: uppercase` whose source reads "What it may do" comes back as
+// "WHAT IT MAY DO", so a flow asserting the words a developer can read in the
+// component fails on casing alone and looks exactly like a missing feature.
+//
+// MEASURED 14 Sep 2026: a kormo flow asserting "What it may do" failed for an
+// unknown length of time. The capability picker — the grant that bounds what an
+// agent may touch — was rendering perfectly the whole time.
+//
+// Both views are checked, case-insensitively: innerText is what is laid out,
+// textContent is what was written. A person asserting words means the words.
+const SEES = (t) => {
+  const needle = String(t).toLowerCase();
+  const rendered = (document.body?.innerText || '').toLowerCase();
+  const written = (document.body?.textContent || '').toLowerCase();
+  return rendered.includes(needle) || written.includes(needle);
+};
 
 export async function runFlow({ browser, context: providedContext, baseUrl, flow, outDir, viewport }) {
   await mkdir(outDir, { recursive: true });

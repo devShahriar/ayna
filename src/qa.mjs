@@ -39,7 +39,7 @@ export async function loadFlows(dir) {
   return flows;
 }
 
-function judge(flow, record, audit) {
+function judge(flow, record, audit, baseUrl) {
   const rules = { ...DEFAULT_ASSERT, ...(flow.assert ?? {}) };
   const failures = [];
 
@@ -55,7 +55,34 @@ function judge(flow, record, audit) {
   // Switching the gate off entirely would be the easy answer and would also stop
   // it catching the app's OWN errors, which is the only thing it is for.
   const ignoreConsole = Array.isArray(rules.noConsoleErrors?.ignore) ? rules.noConsoleErrors.ignore : [];
-  const consoleMine = (line) => !ignoreConsole.some((pat) => String(line).includes(pat));
+
+  // ownOriginOnly: an error whose SOURCE is not the app under test is not the
+  // app's defect. This is the rule an enumerated CDN list is always reaching for
+  // and never quite hitting: a list of hosts to ignore has to be extended every
+  // time a page loads a library from somewhere new. Measured here — the first
+  // pass ignored cdnjs.cloudflare.com, and the next run failed seven flows on
+  // the identical error served from d3js.org instead.
+  //
+  // The discriminator is the origin. The app's own bundles are same-origin;
+  // anything a sandboxed artifact pulls from a CDN is not. An error with no
+  // source at all stays the app's problem — silence must not become an excuse.
+  let ownOrigin = "";
+  if (rules.noConsoleErrors?.ownOriginOnly && baseUrl) {
+    try { ownOrigin = new URL(baseUrl).origin; } catch { ownOrigin = ""; }
+  }
+  const foreign = (line) => {
+    if (!ownOrigin) return false;
+    // ANY scheme, not just http — a browser extension reports itself as
+    // chrome-extension://…, and matching only http(s) let that through as the
+    // app's own error. Substring rather than URL.origin because a blob the app
+    // created reads as blob:http://localhost:3031/… and IS the app's: a revoked
+    // object URL is a real defect and must stay visible.
+    const m = String(line).match(/\(([a-z][a-z0-9+.-]*:[^)\s]+)\)\s*$/i);
+    if (!m) return false;              // no source recorded → still the app's problem
+    return !m[1].includes(ownOrigin);
+  };
+  const consoleMine = (line) =>
+    !ignoreConsole.some((pat) => String(line).includes(pat)) && !foreign(line);
 
   if (rules.noConsoleErrors) {
     const noisy = record.steps.filter((s) => s.newConsoleErrors.length);
@@ -127,7 +154,7 @@ export async function runSuite({ browser, context, baseUrl, flows, outDir, viewp
       }).catch(() => null);
     }
 
-    const failures = judge(flow, record, audit);
+    const failures = judge(flow, record, audit, baseUrl);
     results.push({
       name: flow.name,
       file: flow.file,
