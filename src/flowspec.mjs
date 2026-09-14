@@ -130,8 +130,20 @@ export function validateFlow(flow, { name = 'flow' } = {}) {
 
     if (step.do === 'expect') {
       asserts += 1;
-      if (step.text == null && step.selector == null && step.absent == null && step.missing == null) {
-        errors.push(at(i, 'expect needs one of `text`, `selector` or `absent`'));
+      // `absentSelector` is the fourth spelling and the validator did not know
+      // it, while src/flow.mjs has always run it (see the branch at
+      // "if (step.absentSelector)"). MEASURED 14 Sep 2026: every committed flow
+      // that waits for the agent to finish uses it —
+      //
+      //   { "do": "expect", "absentSelector": "[data-state='thinking']" }
+      //
+      // — so `ayna flow --flow ayna-flows/16-…json` rejected a flow that the
+      // same binary runs happily under `ayna qa --dir`. A validator stricter
+      // than the runtime turns working tests into unrunnable ones, which is the
+      // failure mode that matters: it rejects what works.
+      if (step.text == null && step.selector == null && step.absent == null &&
+          step.missing == null && step.absentSelector == null) {
+        errors.push(at(i, 'expect needs one of `text`, `selector`, `absent` or `absentSelector`'));
       }
     }
     if (step.do === 'goto' && !step.url) errors.push(at(i, 'goto needs a `url`'));
