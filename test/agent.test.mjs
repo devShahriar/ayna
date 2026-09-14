@@ -255,3 +255,40 @@ describe('transactions compose', () => {
     assert.deepEqual(events, ['kept', 'also-kept']);
   });
 });
+
+/*
+  An editor and its headless CLI, one letter apart.
+
+  ayna judged puku by the first binary on the PATH — `puku`, a 23-line wrapper
+  that opens the editor — and recorded that it had no headless mode. It has one:
+  `puku-cli`, which takes -p, --output-format json and --permission-mode, because
+  it is Claude Code shaped throughout (PUKU_CLI_SESSION_ID, PUKU_CLI_PLUGIN_ROOT,
+  .puku-plugin, PUKU.md). The mistake would have quietly excluded a working agent
+  from `ayna work`, and `cursor` / `cursor-agent` is the same trap.
+*/
+describe('telling an editor from the CLI beside it', () => {
+  test('the brain is the binary that does the work, not the one named after the product', async () => {
+    const { BRAINS, EDITORS } = await import('../src/brains.mjs');
+    for (const [name, expected] of [['puku', 'puku-cli'], ['cursor', 'cursor-agent']]) {
+      assert.equal(BRAINS[name].cmd, expected, `${name} must be driven through ${expected}`);
+      assert.equal(BRAINS[name].detect, expected, 'and detected by it too, or it reads as missing');
+    }
+    assert.ok(!EDITORS.puku, 'puku has a headless CLI — it is not an editor-only entry');
+  });
+
+  test('puku is identified by its own session variable', async () => {
+    const id = identify({ env: { PUKU_CLI_SESSION_ID: 'uuid-9' }, probeProcess: false });
+    assert.equal(id.tool, 'puku');
+    assert.equal(id.agentId, 'puku:uuid-9');
+    assert.equal(id.how, 'env:PUKU_CLI_SESSION_ID');
+  });
+
+  test('every brain resolves to a command, and a real editor still explains itself', async () => {
+    const { resolveBrain, BRAINS } = await import('../src/brains.mjs');
+    for (const name of Object.keys(BRAINS)) {
+      assert.ok(resolveBrain({}, name).cmd, `${name} must resolve`);
+    }
+    assert.throws(() => resolveBrain({}, 'antigravity'), /is an editor, not a headless brain/);
+    assert.throws(() => resolveBrain({}, 'nonesuch'), /no brain called "nonesuch"/);
+  });
+});

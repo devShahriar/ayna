@@ -4,10 +4,15 @@
 the screenshot tells you what the user gets. If you have not read the PNG, you
 have not seen the page.
 
-This file is the editor-agnostic version of `SKILL.md`. Claude Code loads the
-skill; Codex, Cursor, Gemini CLI, aider, Puku, Antigravity and anything else that
-reads `AGENTS.md` can work from this. Everything here is a shell command and a
-file path — there is nothing Claude-specific about any of it.
+This file is the editor-agnostic version of `SKILL.md`. Everything here is a
+shell command and a file path — there is nothing Claude-specific about any of it.
+
+**Claude Code and puku-cli load the skill directly.** Both read `SKILL.md` and
+`commands/`, so `/ayna`, `/ayna:look`, `/ayna:review`, `/ayna:fix` and `/ayna:qa`
+work in either; the plugin manifest is `.claude-plugin/plugin.json` and
+`.puku-plugin/plugin.json`, and every command resolves its own plugin root. Codex,
+Cursor, Gemini CLI, aider, Antigravity and anything else that reads `AGENTS.md`
+work from this file instead.
 
 ## Setup
 
@@ -25,8 +30,9 @@ ayna tracks one session and one browser tab per agent, so your commands share a
 window instead of opening a new one each time, and two agents working in the same
 project never take each other's tab.
 
-It recognises Claude Code automatically (`CLAUDE_CODE_SESSION_ID`). For anything
-else, export two variables once per session:
+It recognises Claude Code (`CLAUDE_CODE_SESSION_ID`) and puku-cli
+(`PUKU_CLI_SESSION_ID`) automatically. For anything else, export two variables
+once per session:
 
 ```bash
 export AYNA_AGENT=codex              # or cursor, puku, antigravity, whatever you are
@@ -101,6 +107,19 @@ Rules that keep a suite from rotting:
 - Assert absence where it matters — `{"do":"expect","absent":"undefined"}`. A
   panel reading "No data" is still a panel.
 - Use the selectors `--draft` gave you. A `fragile` one is a class guess.
+
+## Which binary is the agent
+
+Several tools ship an editor and a headless CLI under names one letter apart, and
+picking the wrong one is the difference between ayna driving your agent and ayna
+deciding your agent does not exist:
+
+| opens the editor | does the work |
+|---|---|
+| `puku` | `puku-cli -p` |
+| `cursor` | `cursor-agent -p` |
+
+`ayna brains` lists every CLI ayna can drive and whether this machine has it.
 
 ## Working alongside other agents
 

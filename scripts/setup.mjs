@@ -12,12 +12,25 @@
   Usage: npm run setup [-- --uninstall]
 */
 import { symlink, mkdir, rm, lstat, readlink, chmod } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const SKILL_LINK = path.join(homedir(), '.claude', 'skills', 'ayna');
+/*
+  Every host that reads SKILL.md gets a link.
+
+  puku-cli is Claude Code shaped and loads skills from ~/.puku/skills, so ayna
+  installs into both. A host that is not present costs nothing: the parent
+  directory is only created when its config directory already exists, so this
+  does not scatter empty folders for tools nobody has.
+*/
+const HOSTS = [
+  { name: 'Claude Code', config: path.join(homedir(), '.claude'), skills: path.join(homedir(), '.claude', 'skills', 'ayna') },
+  { name: 'puku-cli', config: path.join(homedir(), '.puku'), skills: path.join(homedir(), '.puku', 'skills', 'ayna') },
+];
+const SKILL_LINK = HOSTS[0].skills; // the documented fallback path
 const BIN_DIR = path.join(homedir(), '.local', 'bin');
 const BIN_LINK = path.join(BIN_DIR, 'ayna');
 
@@ -53,7 +66,7 @@ async function link(from, to, label) {
 
 async function main() {
   if (uninstall) {
-    for (const [l, name] of [[SKILL_LINK, 'skill'], [BIN_LINK, 'command']]) {
+    for (const [l, name] of [...HOSTS.map((h) => [h.skills, `${h.name} skill`]), [BIN_LINK, 'command']]) {
       const found = await inspect(l);
       if (found.exists && found.kind === 'ours') {
         await rm(l, { force: true });
@@ -66,15 +79,25 @@ async function main() {
   }
 
   console.log(`installing ayna from ${ROOT}`);
-  await mkdir(path.dirname(SKILL_LINK), { recursive: true });
   await mkdir(BIN_DIR, { recursive: true });
   await chmod(path.join(ROOT, 'bin', 'ayna.mjs'), 0o755).catch(() => {});
 
-  await link(ROOT, SKILL_LINK, 'skill');
+  const installed = [];
+  for (const host of HOSTS) {
+    // The first host is the documented fallback path, so it is always created.
+    // The others only when that tool is actually on this machine.
+    const present = host === HOSTS[0] || existsSync(host.config);
+    if (!present) {
+      console.log(`  · ${host.name}: not installed here — skipping`);
+      continue;
+    }
+    await mkdir(path.dirname(host.skills), { recursive: true });
+    if (await link(ROOT, host.skills, `${host.name} skill`)) installed.push(host.name);
+  }
   await link(path.join(ROOT, 'bin', 'ayna.mjs'), BIN_LINK, 'command');
 
   console.log('');
-  console.log('  Start a new Claude session, then try:  /ayna:fix');
+  console.log(`  Start a new ${installed[0] ?? 'Claude'} session, then try:  /ayna:fix`);
   if (!(process.env.PATH ?? '').split(':').includes(BIN_DIR)) {
     console.log('');
     console.log(`  Note: ${BIN_DIR} is not on your PATH. Claude does not need it —`);

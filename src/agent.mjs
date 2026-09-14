@@ -27,11 +27,12 @@ import { execFileSync } from 'node:child_process';
 /**
  * Tools that export a stable per-conversation id.
  *
- * `env` is the variable holding it. Only Claude Code's is verified here —
- * CLAUDE_CODE_SESSION_ID is set in every shell Claude Code spawns and matches
- * the session uuid. The rest are listed because they are the names those tools
- * use or would use, and because the alternative is pretending they do not exist;
- * each is harmless when absent, and AYNA_SESSION overrides all of them.
+ * `env` is the variable holding it. Two are verified against the installed
+ * binary: CLAUDE_CODE_SESSION_ID, and PUKU_CLI_SESSION_ID — puku-cli is a
+ * Claude-Code-shaped CLI and names everything the same way one prefix over
+ * (PUKU_CLI_PLUGIN_ROOT, .puku-plugin, PUKU.md). The rest are the names those
+ * tools use or would use; each is harmless when absent, and AYNA_SESSION
+ * overrides all of them.
  *
  * `proc` matches the executable name when walking the process tree, which is how
  * a tool with no session variable still gets one identity per running agent
@@ -41,7 +42,7 @@ export const KNOWN_AGENTS = [
   { tool: 'claude', env: ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID'], proc: /^claude$/i },
   { tool: 'cursor', env: ['CURSOR_SESSION_ID', 'CURSOR_TRACE_ID'], proc: /^cursor/i },
   { tool: 'codex', env: ['CODEX_SESSION_ID', 'CODEX_THREAD_ID'], proc: /^codex/i },
-  { tool: 'puku', env: ['PUKU_SESSION_ID'], proc: /^puku/i },
+  { tool: 'puku', env: ['PUKU_CLI_SESSION_ID'], proc: /^puku(-cli)?$/i },
   { tool: 'antigravity', env: ['ANTIGRAVITY_SESSION_ID'], proc: /^antigravity/i },
   { tool: 'gemini', env: ['GEMINI_CLI_SESSION_ID'], proc: /^gemini$/i },
   { tool: 'aider', env: ['AIDER_SESSION_ID'], proc: /^aider$/i },

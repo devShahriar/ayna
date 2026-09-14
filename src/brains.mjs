@@ -13,10 +13,12 @@ import path from 'node:path';
  *     waits for it to finish. The bar is much higher — it needs a non-interactive
  *     mode that takes a prompt, does the work and exits.
  *
- * An editor is the first and not the second. `puku` is a 23-line launcher whose
- * entire interface is --help and --version; it can use ayna perfectly well and
- * there is nothing for ayna to drive. Listing it as a brain would mean a task
- * claimed, a window opened, and a lease running out in silence.
+ * The trap is that several tools ship both, under names one letter apart. `cursor`
+ * opens the editor and `cursor-agent` is the headless one; `puku` opens the editor
+ * and `puku-cli` is the headless one. Judging a tool by the first binary on the
+ * PATH gets this exactly backwards — which is how puku-cli, a CLI with -p,
+ * --output-format json and --permission-mode, was written off here as an editor
+ * with no headless mode. `detect` names the binary that actually does the work.
  *
  * So: every entry here is a command that answers a prompt and exits, and a tool
  * absent from this list is not a tool that cannot work with ayna.
@@ -46,6 +48,12 @@ export const BRAINS = {
     detect: 'gemini',
     note: 'Gemini CLI.',
   },
+  puku: {
+    cmd: 'puku-cli',
+    args: ['-p'],
+    detect: 'puku-cli',
+    note: "Puku CLI — the same shape as Claude Code: -p, --output-format json, --permission-mode. The binary is `puku-cli`; plain `puku` opens the editor.",
+  },
   aider: {
     cmd: 'aider',
     args: ['--yes', '--message'],
@@ -62,7 +70,6 @@ export const BRAINS = {
  * run the commands from inside it, and ayna tracks your session like any other.
  */
 export const EDITORS = {
-  puku: 'Puku Editor — a launcher with no headless mode. Use ayna from its terminal.',
   antigravity: 'Antigravity — no documented headless prompt mode. Use ayna from its terminal.',
   cursor: 'the `cursor` binary opens the editor; the brain is `cursor-agent`.',
 };

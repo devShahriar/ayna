@@ -13,14 +13,14 @@ you the image, and loops until the page actually looks right.
 Read the screenshots with your own Read tool and edit with your own Edit tool. Your
 context carries across iterations, which is what makes this cheap.
 
-Set `AYNA=node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs"` mentally for the commands below.
+Set `AYNA=node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs"` mentally for the commands below.
 
 ## The loop
 
 ### 1. Shoot
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" shot --json --url <url>
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" shot --json --url <url>
 ```
 
 Omit `--url` to use `ayna.config.json`. It prints JSON: screenshot paths per
@@ -74,7 +74,7 @@ Score it 0–10. 10 means you'd ship it as a flagship page.
 ### 4. Snapshot, then fix
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" snapshot --root <ui-dir>
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" snapshot --root <ui-dir>
 ```
 
 Then edit. Work the issues in order, top-down.
@@ -97,7 +97,7 @@ Shoot again and **Read the new screenshots**. Then be skeptical about your own w
 If it's worse, roll back and try differently:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" restore --root <ui-dir>
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" restore --root <ui-dir>
 ```
 
 ### 6. Repeat or stop
@@ -113,13 +113,13 @@ specific parts"*, or their feedback is hard to pin down in words — hand them t
 mouse instead of guessing:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" annotate
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" annotate
 ```
 
 **Run it as an event stream, and let it notify you:**
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" annotate --events --url <the page>
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" annotate --events --url <the page>
 ```
 
 Run this under a **monitor** (a background process whose stdout lines become
@@ -159,10 +159,10 @@ deciding which file to edit.**
 
 ## On each `round` event
 
-1. `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" comments --json`
+1. `node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" comments --json`
 2. Act on every comment whose `status` is `open` or `rejected`. **Never touch a
    `resolved` one.**
-3. `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" applied` — reloads their page in place
+3. `node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" applied` — reloads their page in place
    so each change is highlighted where it happened, with **Looks right** /
    **Needs work** on it. **Say this the moment you have finished editing.** The
    window is showing them "waiting for Claude" until you do, and a spinner over
@@ -241,8 +241,8 @@ comment or say explicitly which you skipped and why.
 To produce the side-by-side HTML report:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" record --score 6.5 --note "fixed FAQ alignment"
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" report --open
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" record --score 6.5 --note "fixed FAQ alignment"
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" report --open
 ```
 
 ## Judging honestly
@@ -260,7 +260,7 @@ For CI or long runs with no human in the loop, the standalone loop spawns its ow
 critic/implementer/verifier as separate Claude sessions:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" loop -n 3 --open
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" loop -n 3 --open
 ```
 
 This costs several dollars per iteration. **In an interactive session, use the loop
@@ -273,7 +273,7 @@ When the user describes a journey — "log in, open a diagram, add a node" — t
 into steps and run it:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --flow steps.json --json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --flow steps.json --json
 ```
 
 Steps: `goto`, `click`, `type`, `press`, `hover`, `scroll`, `wait`, `expect`.
@@ -302,7 +302,7 @@ in a flow** — use the saved profile, and test the failure path with a wrong on
 Flows kept in `ayna-flows/*.json` are a test suite. Run them all:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" qa --json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" qa --json
 ```
 
 Each flow declares what must hold:
@@ -337,8 +337,8 @@ you already have the codebase open, which makes you the better author. What you
 are missing is what the page actually renders, and two commands supply it.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --schema
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --draft "<the test case, in their words>"
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --schema
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --draft "<the test case, in their words>"
 ```
 
 `--draft` loads the page and returns the step vocabulary plus every actionable
@@ -357,7 +357,7 @@ something only reachable after a click.
 Then write the flow, and check it before running it:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --check ayna-flows/pricing.json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --check ayna-flows/pricing.json
 ```
 
 `--check` validates without opening a browser, so a wrong flow fails in
@@ -379,7 +379,7 @@ Four habits that keep the suite worth running:
 ## Work that outlives the window
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" watch
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" watch
 ```
 
 Run this under a monitor **at the start of any session touching a project with
@@ -397,7 +397,7 @@ what is already owed:
 their marker turns blue and reads "Claude is on this":
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" task task-0004 --status in_progress
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" task task-0004 --status in_progress
 ```
 
 Leave the verdict to them. Move a task to `approved` only when they say so.
@@ -408,7 +408,7 @@ If a review window is open, `audit` measures **inside it** — the same window, 
 whatever state they have clicked into:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" audit --json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" audit --json
 ```
 
 This matters more than it sounds. Two Chromes cannot share a profile, so the
@@ -452,7 +452,7 @@ An audit that lands on a sign-in screen reports `blocked: "authentication"` and
 measures nothing. Do not try to get past it yourself:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" login --url <page>
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" login --url <page>
 ```
 
 That opens the app and waits for the user to sign in. Tell them it is open and
@@ -475,7 +475,7 @@ When a fix is a matter of taste — a size, a weight, a colour, spacing — do n
 guess once and edit. Put two or three versions on their page and let them look:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" preview \
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" preview \
   --selector ".hero h1" \
   --css "font-size: 34px; font-weight: 700" --label "bolder" \
   --css "font-size: 44px; letter-spacing: -0.02em" --label "much bigger"
@@ -497,7 +497,7 @@ The review window has a console docked under the app. Put a line in it as you
 work — they are watching the page, not your terminal:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" say "widening the nav now"
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" say "widening the nav now"
 ```
 
 Anything they type back arrives as a `message` event on the stream, with
@@ -513,7 +513,7 @@ contradicts.
 ## Before working a task, ask whether it still applies
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" verify
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" verify
 ```
 
 A measured fault that no longer reproduces closes itself — somebody fixed it, and
@@ -530,7 +530,7 @@ You have no hands. When you need to know whether the thing you just changed is
 still usable, name it:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" inspect --selector ".toolbar" --json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" inspect --selector ".toolbar" --json
 ```
 
 Headless, a second or so, no window taken. You get back a crop of exactly that
@@ -566,7 +566,7 @@ and `--out-dir` puts the files somewhere writable.
 ## Doing the queue without a person watching
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" work
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" work
 ```
 
 Takes tasks off the store one at a time, claims each so you and it never do the
@@ -581,7 +581,7 @@ permitted.
 ## Keeping the bookkeeping honest
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" watchd start
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" watchd start
 ```
 
 Optional, and dull on purpose. It notices sessions whose process is gone, frees
@@ -599,7 +599,7 @@ that — the icon-tile feature card, the hairline border with the wide shadow, t
 font every generator picks — with no model and no API key:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" taste --url <page> --propose
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" taste --url <page> --propose
 ```
 
 It is optional. Not installed means the check is skipped and said so, never an
@@ -617,7 +617,7 @@ When you find a fault the user did not ask about — from `audit`, or just from
 looking — **do not edit their app.** Put it to them first:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" propose \
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" propose \
   --comment "The Run button is cut off at 390px" \
   --fix "let .shot-query wrap so the button drops to its own line" \
   --selector ".shot-query" --url "<page>"
@@ -641,7 +641,7 @@ edit their project off your own judgement without a yes.
 
 ## Every command
 
-`A` below is `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs"`.
+`A` below is `node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs"`.
 
 | command | what it is for |
 |---|---|

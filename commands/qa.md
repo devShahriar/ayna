@@ -11,7 +11,7 @@ flow is a guessed selector. Read the page first.
 1. **Get the vocabulary and the page in one go:**
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --draft "$ARGUMENTS"
+   node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --draft "$ARGUMENTS"
    ```
 
    It returns the step schema plus every actionable element on the page with a
@@ -40,13 +40,13 @@ flow is a guessed selector. Read the page first.
    milliseconds with the reason:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --check ayna-flows/<name>.json
+   node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --check ayna-flows/<name>.json
    ```
 
 4. **Run it**, then read the step screenshots before telling me it passed:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --flow ayna-flows/<name>.json
+   node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" flow --flow ayna-flows/<name>.json
    ```
 
 5. Tell me what it proves and what it does not. If a step passed for a reason
