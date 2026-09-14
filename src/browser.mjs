@@ -322,6 +322,52 @@ export function routeSlug(route) {
  * can tell them apart, and the result keeps the flat `shots` shape of `capture()`
  * so single-route callers see no difference.
  */
+/**
+ * renderPDF — the page as a PDF, printed the way a person would see it.
+ *
+ * WHY THIS EXISTS. kormo's deck export was a browser `window.print()` from the
+ * canvas, which means the file lands in the person's Downloads and the agent
+ * that just built the deck cannot attach it to anything. MEASURED 14 Sep 2026:
+ * the whole chain "import a slide → edit → research → draft → email it" breaks
+ * at exactly that step, with six of its eight parts already working.
+ *
+ * `printBackground: true` is the entire reason the exported PDF looked wrong.
+ * Chrome drops background colours when printing unless it is asked not to, so a
+ * dark deck came out as white paper with its light text still light — legible
+ * as grey smudges, if at all. The canvas sets the background; the printer threw
+ * it away.
+ *
+ * No margin and an explicit page size, because a slide is not a letter: the
+ * caller states the geometry it composed for and gets that geometry back.
+ */
+export async function renderPDF({ browser, url, width = 1280, height = 720, settleMs = 2500, waitMs = 600 }) {
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2 });
+  const page = await context.newPage();
+  const consoleErrors = [];
+  const pageErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+  try {
+    await gotoSettled(page, url, { settleMs });
+    // Fonts and any entrance animation, exactly as the screenshot path waits.
+    await page.waitForTimeout(waitMs);
+    const buf = await page.pdf({
+      printBackground: true,
+      width: `${width}px`,
+      height: `${height}px`,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      pageRanges: '1',
+    });
+    return { ok: true, pdf: buf.toString('base64'), bytes: buf.length, consoleErrors, pageErrors };
+  } catch (err) {
+    // A page that would not load is the caller's problem to report, not ours to
+    // paper over with an empty file that looks like a successful export.
+    return { ok: false, error: err.message, consoleErrors, pageErrors };
+  } finally {
+    await context.close();
+  }
+}
+
 export async function captureRoutes({ browser, baseUrl, routes = ['/'], viewports, outDir, label, watchMs = 0 }) {
   const shots = [];
   const consoleErrors = [];
