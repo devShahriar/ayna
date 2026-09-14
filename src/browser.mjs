@@ -112,8 +112,18 @@ export async function reloadSettled(page, { timeout = 30_000, settleMs = SETTLE_
 /**
  * Loads `url` at each viewport, screenshots it, and collects the diagnostics a
  * screenshot alone cannot show: console errors, horizontal overflow, blank renders.
+ *
+ * `watchMs` KEEPS WATCHING AFTER THE SHOT. A screenshot is one frame, so the
+ * observation window is ~3.1s (settle 2500 + 600); anything that throws later is
+ * invisible. MEASURED 14 Sep 2026: two agent-authored cards reached a live canvas
+ * and threw on a LATE animation frame — a canvas gradient handed
+ * `rgba(56,217,196,aa` to addColorStop, and a d3 tick referencing an undefined
+ * `nRaw_x` at line 480 — inside a loop the card itself declared as 24 seconds
+ * long. Both were reported to the agent as rendered. Pass a window that covers
+ * the animation and the error lands in `consoleErrors`/`pageErrors` like any
+ * other, because the handlers below stay attached for the life of the page.
  */
-export async function capture({ browser, url, viewports, outDir, label }) {
+export async function capture({ browser, url, viewports, outDir, label, watchMs = 0 }) {
   await mkdir(outDir, { recursive: true });
   const shots = [];
   const consoleErrors = [];
@@ -185,6 +195,11 @@ export async function capture({ browser, url, viewports, outDir, label }) {
       loadError,
       transportError,
     });
+    // The dwell. Deliberately AFTER the screenshot and the metrics: this is only
+    // about catching what a loop throws on a frame nobody photographed, and it
+    // must not delay or alter the picture itself.
+    if (watchMs > 0) await page.waitForTimeout(watchMs);
+
     await context.close();
   }
 
@@ -257,7 +272,7 @@ export function routeSlug(route) {
  * can tell them apart, and the result keeps the flat `shots` shape of `capture()`
  * so single-route callers see no difference.
  */
-export async function captureRoutes({ browser, baseUrl, routes = ['/'], viewports, outDir, label }) {
+export async function captureRoutes({ browser, baseUrl, routes = ['/'], viewports, outDir, label, watchMs = 0 }) {
   const shots = [];
   const consoleErrors = [];
   const pageErrors = [];
@@ -270,6 +285,7 @@ export async function captureRoutes({ browser, baseUrl, routes = ['/'], viewport
       url,
       viewports,
       outDir,
+      watchMs,
       label: routes.length > 1 ? `${label}-${routeSlug(route)}` : label,
     });
 

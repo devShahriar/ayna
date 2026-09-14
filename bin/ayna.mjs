@@ -100,6 +100,7 @@ ${bold('OPTIONS')}
       --selector <sel>   What it applies to (propose)
       --headed           Show the Chrome window (default: headless)
       --keep-open        Leave the window open at the end so you can look (implies --headed)
+      --watch-ms <n>     After the shot, keep collecting errors for n ms (animated pages)
       --fresh-profile    Start annotate logged out (default: reuse the profile)
       --port <n>         Port to serve on (serve; default: config target.port)
       --open             Open the HTML report when done
@@ -133,6 +134,7 @@ const ARG_SPEC = {
     // what it left behind. A headless run has nothing to leave open, so this
     // implies --headed rather than silently doing nothing.
     'keep-open': { type: 'boolean' },
+    'watch-ms': { type: 'string' },
     url: { type: 'string' },
     open: { type: 'boolean' },
     json: { type: 'boolean' },
@@ -309,6 +311,9 @@ async function main() {
         viewports: cfg.viewports,
         outDir,
         label: 'shot',
+        // Keep watching after the shot, so a card that throws on a LATER
+        // animation frame is still reported. Default 0 = the old behaviour.
+        watchMs: Number(values['watch-ms'] || 0),
       });
       await close();
 
