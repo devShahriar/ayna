@@ -100,6 +100,7 @@ ${bold('OPTIONS')}
       --selector <sel>   What it applies to (propose)
       --headed           Show the Chrome window (default: headless)
       --fresh-profile    Start annotate logged out (default: reuse the profile)
+      --port <n>         Port to serve on (serve; default: config target.port)
       --open             Open the HTML report when done
   -h, --help             This
 
@@ -110,7 +111,17 @@ ${bold('EXAMPLES')}
   ayna loop -n 3 --open                                Unattended, several dollars
 `;
 
-const { values, positionals } = parseArgs({
+/*
+  Parse where the failure can be caught.
+
+  `parseArgs` throws, and it ran at module scope — above `main()` and outside the
+  `main().catch()` that turns every other failure into one clean line. So a single
+  mistyped flag printed a Node stack trace with internal frames, which reads like
+  ayna crashed rather than like a typo. `--port` did this on the first command
+  tried, and the right answer to a typo is the name of the flag and a pointer to
+  --help.
+*/
+const ARG_SPEC = {
   allowPositionals: true,
   options: {
     iterations: { type: 'string', short: 'n' },
@@ -139,6 +150,7 @@ const { values, positionals } = parseArgs({
     dir: { type: 'string' },
     baseline: { type: 'string' },
     keep: { type: 'string' },
+    port: { type: 'string' },
     status: { type: 'string' },
     comment: { type: 'string' },
     fix: { type: 'string' },
@@ -153,7 +165,27 @@ const { values, positionals } = parseArgs({
     note: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
-});
+};
+
+const { values, positionals } = (() => {
+  try {
+    return parseArgs(ARG_SPEC);
+  } catch (err) {
+    const flag = /Unknown option '([^']+)'/.exec(err.message)?.[1];
+    fail(flag ? `unknown option ${flag}` : err.message.split('\n')[0]);
+    if (flag) {
+      // Name the near misses. Most of these are a hyphen or a plural away, and
+      // listing sixty options at someone who typed one wrong is not help.
+      const bare = flag.replace(/^--?/, '');
+      const near = Object.keys(ARG_SPEC.options).filter(
+        (o) => o.includes(bare) || bare.includes(o) || o.replace(/-/g, '') === bare.replace(/-/g, ''),
+      );
+      if (near.length) info(`did you mean ${near.map((o) => `--${o}`).join(' or ')}?`);
+    }
+    info('`ayna --help` lists every option');
+    process.exit(1);
+  }
+})();
 
 // Where the user is working. When ayna runs as a plugin, this is their project —
 // not the plugin install dir — so screenshots and snapshots belong here.
@@ -253,7 +285,9 @@ async function main() {
     }
 
     case 'serve': {
-      const server = await serveStatic(cfg.targetDir, cfg.target.port);
+      const wanted = values.port ? Number(values.port) : cfg.target.port;
+      if (values.port && !Number.isInteger(wanted)) throw new Error(`--port wants a number, got "${values.port}"`);
+      const server = await serveStatic(cfg.targetDir, wanted);
       banner('ayna serve');
       ok(`${cfg.target.root}/ → ${server.url}`);
       info('ctrl-c to stop');
@@ -834,13 +868,34 @@ async function main() {
         variants: css.map((c, i) => ({ css: c, label: labels[i] ?? `variant ${i + 1}` })),
       });
 
-      if (values.json) console.log(JSON.stringify({ ok: true, previewId, seq, variants: css.length }));
-      else ok(`${css.length} variant${css.length === 1 ? '' : 's'} on the page — waiting for their answer`);
+      // Say where it actually went. A queued variant and a painted one are not
+      // the same claim, and only one of them has somebody looking at it.
+      const onScreen = Boolean(await liveWindow());
+      const n = `${css.length} variant${css.length === 1 ? '' : 's'}`;
+
+      if (values.json) {
+        console.log(JSON.stringify({ ok: true, previewId, seq, variants: css.length, live: onScreen }));
+      } else if (onScreen) {
+        ok(`${n} on the page — waiting for their answer`);
+      } else {
+        warn(`no review window is open — ${n} queued, and will paint when one opens (\`ayna annotate\`)`);
+      }
 
       /*
         Then wait for it, unless told not to. A preview nobody answers is a
         stylesheet left on someone's page, and the answer is the whole point.
       */
+      /*
+        Waiting for an answer nobody can give is a five-minute stall, so don't:
+        the variant is on the log either way and the next window will show it.
+        `--no-wait` stays the way to queue deliberately; this is the way to not
+        hang when there was never anyone there.
+      */
+      if (!values['no-wait'] && !onScreen) {
+        if (!values.json) info('not waiting — there is nobody to answer yet');
+        return;
+      }
+
       if (!values['no-wait']) {
         const { eventsSince } = await import('../src/db.mjs');
         const deadline = Date.now() + Number(values.timeout ?? 300) * 1000;
@@ -867,8 +922,12 @@ async function main() {
       const db = await openDb(PROJECT);
       const seq = appendEvent(db, { event: 'message', from: 'claude', text });
 
-      if (values.json) console.log(JSON.stringify({ ok: true, seq, text }));
-      else ok('said it — it is on the page now');
+      // Same honesty as `preview`: "it is on the page now" was printed with no
+      // page open, which is the one thing a progress message must never do.
+      const heard = Boolean(await liveWindow());
+      if (values.json) console.log(JSON.stringify({ ok: true, seq, text, live: heard }));
+      else if (heard) ok('said it — it is on the page now');
+      else warn('no review window is open — said it to the log, which the next window will show');
       return;
     }
 
@@ -1566,6 +1625,24 @@ async function readSession() {
     (existsSync(legacy) ? JSON.parse(await readFile(legacy, 'utf8').catch(() => '{}')) : null);
   if (!fallback?.file) return null;
   return { ...fallback, dir: path.dirname(fallback.file), live: alive(fallback.pid) };
+}
+
+/**
+ * Is there a window to paint on?
+ *
+ * `preview` and `say` both put something on the user's screen, and both used to
+ * report that they had done so the moment the event was written — with no window
+ * open, no page, and nobody able to answer. "1 variant on the page" was false in
+ * exactly the way the `!important` bug was false: a preview that lies about what
+ * it is showing is worse than no preview.
+ *
+ * The event log is durable on purpose, so queuing for a window that opens later
+ * is legitimate and nothing is dropped. What is not legitimate is calling that
+ * the same thing as a variant someone is looking at.
+ */
+async function liveWindow() {
+  const session = await readSession().catch(() => null);
+  return session?.live ? session : null;
 }
 
 /**

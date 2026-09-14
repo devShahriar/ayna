@@ -254,3 +254,161 @@ describe('cli: concurrency and housekeeping', () => {
     }
   });
 });
+
+/*
+  Telling the truth about where something went.
+
+  Both of these commands put something on the user's screen, and both reported
+  that they had done it the instant the event was written — with no window open,
+  no page, and nobody able to answer. `ayna preview` printed "1 variant on the
+  page" against a project whose own `ayna status` said the window was gone, and
+  then blocked for five minutes waiting for a reply that could not come.
+
+  It is the same failure as the one the preview feature was built to avoid: a
+  preview that lies about what it is showing. The event log is durable, so
+  queuing for a window that opens later is fine — calling that "on the page" is
+  not.
+*/
+describe('cli: saying where something actually went', () => {
+  const conf = (dir) =>
+    writeFile(
+      path.join(dir, 'ayna.config.json'),
+      JSON.stringify({ target: { name: 't', root: '.', port: 4199 }, viewports: [] }),
+    );
+
+  test('preview with no window queues, and says so instead of claiming the page', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf(dir);
+      const res = await ayna(dir, [
+        'preview', '--selector', '.hero h1', '--css', 'font-size: 44px', '--json',
+      ]);
+      assert.equal(res.code, 0, res.stderr);
+
+      const out = JSON.parse(res.stdout.trim().split('\n')[0]);
+      assert.equal(out.ok, true);
+      assert.equal(out.variants, 1);
+      assert.equal(out.live, false, 'no window is open, and the payload must say so');
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('preview does not block for an answer nobody can give', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf(dir);
+      const started = Date.now();
+      // No --no-wait: this is the path that used to sit for the full timeout.
+      const res = await ayna(dir, ['preview', '--selector', 'h1', '--css', 'color: red']);
+      const took = Date.now() - started;
+
+      assert.equal(res.code, 0, res.stderr);
+      assert.ok(took < 30_000, `waited ${took}ms for a window that was never open`);
+      assert.ok(!/on the page/.test(res.stdout), `must not claim the page:\n${res.stdout}`);
+      assert.match(res.stdout, /no review window is open/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('say with no window does not claim to be on the page', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf(dir);
+      const res = await ayna(dir, ['say', 'fixing the nav now', '--json']);
+      assert.equal(res.code, 0, res.stderr);
+
+      const out = JSON.parse(res.stdout.trim());
+      assert.equal(out.live, false);
+      assert.equal(out.text, 'fixing the nav now', 'the message still reaches the log');
+    } finally {
+      await dispose();
+    }
+  });
+
+  /*
+    The liveness probe is `process.kill(pid, 0)`, so a pointer file naming a pid
+    that really is running is indistinguishable from a real window — which is
+    exactly what makes it testable without launching Chrome.
+  */
+  test('with a live window it says the variant is on the page', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf(dir);
+      const sdir = path.join(dir, '.ayna', 'session');
+      await mkdir(sdir, { recursive: true });
+      await writeFile(
+        path.join(sdir, `session-${process.pid}.json`),
+        JSON.stringify({
+          pid: process.pid, // alive by definition: it is this test
+          startedAt: Date.now(),
+          file: path.join(dir, '.ayna', 'comments', 'now', 'comments.json'),
+        }),
+      );
+
+      const res = await ayna(dir, [
+        'preview', '--selector', 'h1', '--css', 'color: red', '--no-wait', '--json',
+      ]);
+      assert.equal(res.code, 0, res.stderr);
+      assert.equal(JSON.parse(res.stdout.trim().split('\n')[0]).live, true);
+
+      const said = await ayna(dir, ['say', 'hello', '--json']);
+      assert.equal(JSON.parse(said.stdout.trim()).live, true);
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+/*
+  A typo is not a crash.
+
+  `parseArgs` ran at module scope, above `main()` and outside the catch that
+  turns every other failure into one clean line — so `ayna serve --port 4711`
+  answered with a Node stack trace full of internal frames. It reads as though
+  ayna fell over, when the actual news is that one flag was wrong.
+*/
+describe('cli: a mistyped flag', () => {
+  test('is one line, not a stack trace', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const res = await ayna(dir, ['tasks', '--bogus']);
+      assert.equal(res.code, 1);
+
+      const all = res.stdout + res.stderr;
+      assert.match(all, /unknown option --bogus/);
+      assert.ok(!/parse_args|at checkOptionUsage|node:internal/.test(all), `leaked internals:\n${all}`);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('points at the flag that was probably meant', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const res = await ayna(dir, ['inspect', '--selectors', '.x']);
+      assert.match(res.stdout + res.stderr, /did you mean --selector\?/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('serve takes a --port, since that is the first thing anyone tries', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf2(dir);
+      const res = await ayna(dir, ['serve', '--port', 'abc']);
+      assert.equal(res.code, 1);
+      assert.match(res.stdout + res.stderr, /--port wants a number/);
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+const conf2 = (dir) =>
+  writeFile(
+    path.join(dir, 'ayna.config.json'),
+    JSON.stringify({ target: { name: 't', root: '.', port: 4199 }, viewports: [] }),
+  );
