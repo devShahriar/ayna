@@ -198,7 +198,57 @@ export async function capture({ browser, url, viewports, outDir, label, watchMs 
     // The dwell. Deliberately AFTER the screenshot and the metrics: this is only
     // about catching what a loop throws on a frame nobody photographed, and it
     // must not delay or alter the picture itself.
-    if (watchMs > 0) await page.waitForTimeout(watchMs);
+    if (watchMs > 0) {
+      await page.waitForTimeout(Math.floor(watchMs / 2));
+
+      // HIDE AND SHOW THE PAGE, because a viewer will.
+      //
+      // An animated card almost always pauses itself when the tab goes away and
+      // resumes when it comes back — that handler is ordinary, and it is also
+      // where a whole class of bug lives, because it runs on a path a passive
+      // watcher never takes. MEASURED 14 Sep 2026: a card shipped with
+      //
+      //   document.addEventListener('visibilitychange', () => {
+      //     if (document.hidden) { t.stop(); } else { t.restart(); }
+      //   });
+      //
+      // and d3's timer.restart() REQUIRES a callback, so returning to the tab
+      // threw `TypeError: callback is not a function`. The gate had watched the
+      // card for seconds and seen nothing, because it never left and came back.
+      // The person saw it immediately — switching tabs is the most ordinary
+      // thing a viewer does.
+      //
+      // document.hidden is a read-only accessor on the prototype, so it is
+      // overridden rather than assigned, and put back afterwards: a page left
+      // believing it is hidden would stop animating for every later check.
+      await page
+        .evaluate(async () => {
+          const proto = Object.getPrototypeOf(document);
+          const real = Object.getOwnPropertyDescriptor(proto, 'hidden');
+          const fake = (v) =>
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => v });
+          const settle = () => new Promise((r) => setTimeout(r, 150));
+
+          fake(true);
+          document.dispatchEvent(new Event('visibilitychange'));
+          await settle();
+          fake(false);
+          document.dispatchEvent(new Event('visibilitychange'));
+          await settle();
+
+          // Hand `hidden` back to the browser.
+          delete document.hidden;
+          if (real && !Object.getOwnPropertyDescriptor(document, 'hidden')) {
+            Object.defineProperty(proto, 'hidden', real);
+          }
+        })
+        // A page that refuses to be poked is not a failing page. Whatever it
+        // throws lands in pageErrors through the handler above, which is the
+        // point; this catch only stops the harness itself from falling over.
+        .catch(() => {});
+
+      await page.waitForTimeout(Math.ceil(watchMs / 2));
+    }
 
     await context.close();
   }
