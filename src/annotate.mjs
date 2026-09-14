@@ -231,9 +231,20 @@ export async function runAnnotate({
   if (store?.db) {
     try {
       const { openSessions } = await import('./sessions.mjs');
+      const { identify } = await import('./agent.mjs');
       sessions = await openSessions(projectDir, { db: store.db });
-      sessionId = sessions.register({ tool: 'claude', pid: process.pid, project: projectDir });
-      tabId = sessions.openTab({ url, outDir, sessionId });
+      /*
+        Resume, don't register.
+
+        One agent holds one conversation and should hold one window with it.
+        Registering minted a row per process, so a session that opened a review,
+        checked a task and sent a round looked like three participants with three
+        tabs — and `ayna status` could not answer "which window is mine?" because
+        every command had made a new one.
+      */
+      const agent = identify();
+      sessionId = sessions.resume({ agent, project: projectDir }).id;
+      tabId = sessions.tabFor({ sessionId, url, outDir }).id;
       beat = setInterval(() => {
         try {
           sessions.heartbeat(sessionId);

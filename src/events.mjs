@@ -36,15 +36,60 @@ export async function pending(projectDir, { db: given } = {}) {
   };
 }
 
-/** Everything after `since`. Returns the new cursor even when nothing happened. */
+/**
+ * Everything after `since`. Returns the new cursor even when nothing happened.
+ *
+ * `more` is the important field. A batch is capped, and this whole file exists on
+ * the promise that a consumer arriving late gets the full story — so when the cap
+ * is what ended the batch it has to say so. Measured on a log of 2000 events,
+ * `since(0)` returned 500 and moved the cursor to 500: the remaining 1500 were
+ * not delivered and nothing in the reply distinguished that from having caught
+ * up. Call again from `cursor` while `more` is true.
+ */
 export async function since(projectDir, { since: from = 0, limit = 500, db: given } = {}) {
   const db = given ?? (await openDb(projectDir));
   const events = eventsSince(db, from, limit);
   const owed = await pending(projectDir, { db });
+  const cursor = events.length ? events.at(-1).seq : Number(from) || 0;
+  const latest = latestSeq(db);
   return {
     events,
-    cursor: events.length ? events.at(-1).seq : Number(from) || 0,
-    latest: latestSeq(db),
+    cursor,
+    latest,
+    more: cursor < latest,
+    remaining: Math.max(0, latest - cursor),
+    pending: owed.pending,
+    tasks: owed.tasks,
+  };
+}
+
+/**
+ * The same, but keep going until there is nothing left.
+ *
+ * Most callers want the story, not a page of it, and paging is a detail they
+ * should not have to remember to implement correctly.
+ */
+export async function sinceAll(projectDir, { since: from = 0, batch = 500, max = 50_000, db: given } = {}) {
+  const db = given ?? (await openDb(projectDir));
+  const events = [];
+  let cursor = Number(from) || 0;
+
+  for (;;) {
+    const page = eventsSince(db, cursor, batch);
+    if (!page.length) break;
+    events.push(...page);
+    cursor = page.at(-1).seq;
+    if (events.length >= max) break;
+  }
+
+  const owed = await pending(projectDir, { db });
+  const latest = latestSeq(db);
+  return {
+    events,
+    cursor,
+    latest,
+    more: cursor < latest, // only when `max` stopped us
+    remaining: Math.max(0, latest - cursor),
     pending: owed.pending,
     tasks: owed.tasks,
   };

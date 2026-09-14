@@ -43,6 +43,7 @@ ${bold('TASKS')}
   work        Take tasks off the queue and do them (--brain claude|cursor|…)
   verify      Ask each open task whether it still applies; closes what is fixed
   preview     Try CSS variants in their window before writing any of it to source
+  agents      Who is working here, which tab each holds, and what they claimed
   say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
@@ -932,6 +933,70 @@ async function main() {
       return;
     }
 
+    /*
+      Who is here, and what each of them holds.
+
+      The database has known this since sessions became rows, and nothing
+      surfaced it — so "which window is mine?" and "is another agent already on
+      this?" had no answer short of reading the tables by hand.
+    */
+    case 'agents': {
+      const { openSessions } = await import('../src/sessions.mjs');
+      const { identify, describeAgent } = await import('../src/agent.mjs');
+      const { openStore, isPending } = await import('../src/tasks.mjs');
+
+      const sessions = await openSessions(PROJECT);
+      sessions.sweep();
+
+      const me = identify();
+      const live = sessions.live();
+      const tabs = sessions.tabs();
+      const store = await openStore(PROJECT, { db: sessions.db });
+      const all = await store.list();
+
+      if (values.json) {
+        console.log(
+          JSON.stringify({
+            me,
+            sessions: live.map((sn) => ({
+              ...sn,
+              mine: sn.agentId === me.agentId,
+              tabs: tabs.filter((t) => t.owner === sn.id),
+              working: all.filter((t) => t.claimedBy === sn.id).map((t) => t.id),
+            })),
+            unowned: tabs.filter((t) => !t.owner),
+          }),
+        );
+        return;
+      }
+
+      banner('ayna agents');
+      info(`you are ${describeAgent(me)}`);
+      if (!live.length) {
+        warn('nobody is holding a session here');
+      }
+      for (const sn of live) {
+        const mine = sn.agentId === me.agentId;
+        const held = tabs.filter((t) => t.owner === sn.id);
+        const working = all.filter((t) => t.claimedBy === sn.id);
+        console.log(
+          `  ${mine ? green('▸') : ' '} ${bold(sn.tool)} ${dim(String(sn.agentId ?? sn.id).slice(0, 44))}` +
+            `${mine ? green(' (you)') : ''}`,
+        );
+        for (const t of held) console.log(`      ${cyan('tab')} ${t.url ?? dim('(no url)')}`);
+        for (const t of working) console.log(`      ${yellow('working')} ${t.id} ${dim(t.comment ?? '')}`);
+        if (!held.length && !working.length) console.log(`      ${dim('idle')}`);
+      }
+
+      const loose = tabs.filter((t) => !t.owner);
+      for (const t of loose) console.log(`    ${dim('·')} unowned tab ${t.url ?? ''} ${dim('— free to claim')}`);
+
+      const owed = all.filter(isPending).length;
+      console.log('');
+      ok(`${live.length} agent(s) · ${tabs.length} tab(s) · ${owed} task(s) outstanding`);
+      return;
+    }
+
     case 'say': {
       const text = (values.comment ?? positionals.slice(1).join(' ')).trim();
       if (!text) throw new Error('nothing to say — ayna say "your message"');
@@ -1092,8 +1157,37 @@ async function main() {
         }
       }
 
+      /*
+        The database needs housekeeping too, and nothing was doing it. Events are
+        append-only and nothing ever removed one, and the write-ahead log keeps
+        its high-water mark — a busy afternoon left megabytes of -wal beside a
+        much smaller .db for as long as the project existed.
+
+        Pruning stops at the lowest cursor any consumer holds, so catch-up
+        nobody has collected yet is never what gets deleted.
+      */
+      let pruned = 0;
+      try {
+        const { openDb, pruneEvents, checkpoint } = await import('../src/db.mjs');
+        const { existsSync: has } = await import('node:fs');
+        const dbFile = path.join(PROJECT, '.ayna', 'ayna.db');
+        if (has(dbFile)) {
+          const db = await openDb(PROJECT);
+          const before = (await stat(dbFile).catch(() => ({ size: 0 }))).size;
+          const walBefore = (await stat(`${dbFile}-wal`).catch(() => ({ size: 0 }))).size;
+          pruned = pruneEvents(db).removed;
+          checkpoint(db);
+          const after = (await stat(dbFile).catch(() => ({ size: 0 }))).size;
+          const walAfter = (await stat(`${dbFile}-wal`).catch(() => ({ size: 0 }))).size;
+          freed += Math.max(0, before + walBefore - after - walAfter);
+        }
+      } catch {
+        // Housekeeping is not worth failing a clean over.
+      }
+
       ok(`removed ${removed} old run(s), freed ${(freed / 1024 / 1024).toFixed(1)} MB`);
-      info(`kept the newest ${keep} of each · tasks and the login profile untouched`);
+      if (pruned) info(`pruned ${pruned} event(s) older than 30 days that every consumer had already read`);
+      info(`kept the newest ${keep} of each · tasks, sessions and the login profile untouched`);
       return;
     }
 
@@ -1646,6 +1740,44 @@ async function readSession() {
       return false;
     }
   };
+
+  /*
+    Ask the database first.
+
+    Session identity was kept in pointer files and the database's own `sessions`
+    table went unread — so the schema built to answer "who is here?" was answered
+    instead by whichever JSON file happened to be newest, which is how a dead pid
+    once won over a live window two files away. The table knows the agent behind
+    the session and heartbeats, so it can tell a window that ended from one whose
+    process merely moved on.
+
+    The files stay as a fallback: a window opened by an older ayna, or one
+    running without a store, still has to be findable.
+  */
+  try {
+    const { openSessions } = await import('../src/sessions.mjs');
+    const sessions = await openSessions(PROJECT);
+    sessions.sweep();
+    const [current] = sessions.live();
+    if (current) {
+      const tab = sessions.tabs().find((t) => t.owner === current.id);
+      if (tab?.outDir) {
+        return {
+          file: path.join(tab.outDir, 'comments.json'),
+          dir: tab.outDir,
+          pid: current.agentPid ?? current.pid,
+          startedAt: current.startedAt,
+          agentId: current.agentId,
+          tool: current.tool,
+          tabId: tab.id,
+          live: true,
+          source: 'db',
+        };
+      }
+    }
+  } catch {
+    // No database yet, or a build that predates it — the files below still work.
+  }
 
   const candidates = [];
   for (const name of await readdir(SESSION_DIR).catch(() => [])) {

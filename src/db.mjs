@@ -37,7 +37,7 @@ process.emit = function (name, data, ...rest) {
 
 const { DatabaseSync } = await import('node:sqlite');
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -48,7 +48,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at    INTEGER NOT NULL,
   heartbeat_at  INTEGER NOT NULL,
   ended_at      INTEGER,
-  status        TEXT NOT NULL DEFAULT 'live'
+  status        TEXT NOT NULL DEFAULT 'live',
+  -- Who is asking, across processes.
+  --
+  -- pid is whichever short-lived ayna process happened to write the row, so it
+  -- identifies an invocation and not an agent. A Claude session runs dozens of
+  -- commands and every one of them looked like a brand new participant: a
+  -- session row and a tab each, none of them reused. agent_id is stable for the
+  -- whole of one Claude/Cursor/Codex run, and agent_pid is that agent's own
+  -- process -- the thing whose death actually means the work is abandoned.
+  agent_id      TEXT,
+  agent_pid     INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS tabs (
@@ -145,10 +155,53 @@ export async function openDb(projectDir, { file } = {}) {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
 
-  const version = db.prepare('PRAGMA user_version').get()?.user_version ?? 0;
-  if (version < SCHEMA_VERSION) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-
+  migrate(db);
   return db;
+}
+
+/**
+ * Schema changes, one step at a time.
+ *
+ * `user_version` was read and then simply stamped with the current number, which
+ * is not a migration — it is a note claiming one happened. A database created
+ * before a column existed would be marked current and then fail on the first
+ * query that used it. Each entry below moves the schema up exactly one version
+ * and the loop runs the ones this file has not seen.
+ *
+ * `CREATE TABLE IF NOT EXISTS` covers new tables on its own, so only changes to
+ * tables that already exist need a step here.
+ */
+/** MIGRATIONS[i] moves the schema from version i to version i + 1. */
+const MIGRATIONS = [
+  // 0 → 1: the original tables, which CREATE TABLE IF NOT EXISTS has already made.
+  () => {},
+
+  // 1 → 2: agent identity, so one agent keeps one session across many processes.
+  (db) => {
+    const columns = db.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name);
+    if (!columns.includes('agent_id')) db.exec('ALTER TABLE sessions ADD COLUMN agent_id TEXT');
+    if (!columns.includes('agent_pid')) db.exec('ALTER TABLE sessions ADD COLUMN agent_pid INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS sessions_agent ON sessions(agent_id)');
+  },
+];
+
+export function migrate(db) {
+  let version = db.prepare('PRAGMA user_version').get()?.user_version ?? 0;
+  const applied = [];
+
+  /*
+    A database written by a newer ayna must not be migrated backwards, nor have
+    its version quietly rewritten to a number this copy prefers. Stop, and let
+    whichever query needs a column this build has never heard of be the thing
+    that complains — with its own name on the error.
+  */
+  while (version < SCHEMA_VERSION && typeof MIGRATIONS[version] === 'function') {
+    MIGRATIONS[version](db);
+    version += 1;
+    db.exec(`PRAGMA user_version = ${version}`);
+    applied.push(version);
+  }
+  return applied;
 }
 
 /** JSON columns are stored as text; undefined and null both mean "not set". */
@@ -216,8 +269,45 @@ export const writeCursor = (db, consumer, seq) =>
  * node:sqlite has no transaction helper, and the whole event-with-its-change
  * guarantee depends on there being one.
  */
+let depth = 0;
+
 export function transact(db, fn) {
+  /*
+    Nesting has to work.
+
+    SQLite has no nested BEGIN, so an outer transact calling anything that also
+    transacts died with "cannot start a transaction within a transaction". The
+    rollback was correct, so nothing was ever corrupted — but it is a landmine
+    under every future caller, and the composition it forbids (verify inside a
+    worker claim, say) is exactly the composition this code wants.
+
+    SAVEPOINT nests. The outermost call still takes a real write transaction, so
+    the event-with-its-change guarantee is unchanged; inner calls become
+    savepoints that unwind to their own mark and let the outer one decide.
+  */
+  if (depth > 0) {
+    const name = `ayna_sp_${depth}`;
+    db.exec(`SAVEPOINT ${name}`);
+    depth += 1;
+    try {
+      const out = fn();
+      db.exec(`RELEASE ${name}`);
+      return out;
+    } catch (err) {
+      try {
+        db.exec(`ROLLBACK TO ${name}`);
+        db.exec(`RELEASE ${name}`);
+      } catch {
+        // The outer transaction is failing anyway; its rollback is what matters.
+      }
+      throw err;
+    } finally {
+      depth -= 1;
+    }
+  }
+
   db.exec('BEGIN IMMEDIATE');
+  depth = 1;
   try {
     const out = fn();
     db.exec('COMMIT');
@@ -230,5 +320,55 @@ export function transact(db, fn) {
       // real error with a confusing one.
     }
     throw err;
+  } finally {
+    depth = 0;
+  }
+}
+
+/**
+ * Keep the log from growing forever.
+ *
+ * Events are append-only and nothing ever removed one: 2000 of them is 200KB, and
+ * a project used daily for a year has a great many more. But a log is only
+ * useful because a consumer that arrives late can still read it, so pruning by
+ * age alone would silently delete the catch-up somebody had not collected yet.
+ *
+ * So the floor is the lowest cursor any registered consumer holds. Nothing at or
+ * above it is ever removed, however old, and `keepMin` keeps a tail for
+ * consumers that have no cursor at all.
+ */
+export function pruneEvents(db, { olderThanMs = 30 * 24 * 60 * 60 * 1000, keepMin = 2000, now = Date.now() } = {}) {
+  const cutoffAt = now - olderThanMs;
+
+  const oldest = db.prepare('SELECT MIN(seq) AS seq FROM cursors').get()?.seq;
+  const tail = db
+    .prepare('SELECT seq FROM events ORDER BY seq DESC LIMIT 1 OFFSET ?')
+    .get(keepMin - 1)?.seq;
+
+  // Nothing to do until there are more events than the tail we always keep.
+  if (tail === undefined || tail === null) return { removed: 0, floor: null };
+
+  const floor = oldest === null || oldest === undefined ? tail : Math.min(oldest, tail);
+
+  const info = transact(db, () =>
+    db.prepare('DELETE FROM events WHERE seq < ? AND at < ?').run(floor, cutoffAt),
+  );
+  return { removed: Number(info.changes), floor };
+}
+
+/**
+ * Return the WAL to the main database and shrink it.
+ *
+ * The write-ahead log keeps its high-water mark, so a busy afternoon leaves
+ * several megabytes of -wal sitting next to a much smaller .db for as long as
+ * the project exists. TRUNCATE is the only checkpoint mode that gives the space
+ * back; it is best-effort because another live reader legitimately blocks it.
+ */
+export function checkpoint(db) {
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    return true;
+  } catch {
+    return false;
   }
 }

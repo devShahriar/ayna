@@ -1,4 +1,5 @@
 import { openDb, appendEvent, transact } from './db.mjs';
+import { identify } from './agent.mjs';
 
 /**
  * Who is here, and who only used to be.
@@ -34,7 +35,7 @@ export async function openSessions(projectDir, { db: given } = {}) {
 
   /** Announce a session. The id is returned so it can heartbeat and be swept. */
   function register({ tool = 'claude', pid = process.pid, project = projectDir } = {}) {
-    const id = `${tool}-${pid}-${Date.now().toString(36)}`;
+    const id = `${tool}-${pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
     transact(db, () => {
       db.prepare(
@@ -43,6 +44,72 @@ export async function openSessions(projectDir, { db: given } = {}) {
       appendEvent(db, { event: 'session-started', sessionId: id, tool, pid });
     });
     return id;
+  }
+
+  /**
+   * The session for this agent, reusing the one it already has.
+   *
+   * `register` mints a row per call, which is right for a window and wrong for
+   * everything else: every `ayna` command is its own process, so a Claude
+   * session running twenty of them produced twenty sessions and twenty tabs. It
+   * is the same conversation throughout and should hold one of each.
+   *
+   * Reuse is conditional on the agent still being alive — an id can be handed
+   * back by a tool that restarted, and adopting a dead session's tab would point
+   * new work at a window that is gone.
+   */
+  function resume({ agent = identify(), project = projectDir, now = Date.now() } = {}) {
+    const existing = db
+      .prepare("SELECT * FROM sessions WHERE agent_id = ? AND status = 'live' ORDER BY started_at DESC")
+      .get(agent.agentId);
+
+    if (existing && alive(existing.agent_pid ?? existing.pid)) {
+      db.prepare('UPDATE sessions SET heartbeat_at = ?, pid = ? WHERE id = ?').run(now, process.pid, existing.id);
+      return { id: existing.id, agent, created: false };
+    }
+
+    const id = `${agent.tool}-${String(agent.agentId).replace(/[^\w.-]+/g, '-').slice(-40)}`;
+    transact(db, () => {
+      // A restarted agent can present an id whose row is still marked live.
+      db.prepare("UPDATE sessions SET status = 'dead', ended_at = ? WHERE agent_id = ? AND status = 'live'")
+        .run(now, agent.agentId);
+      db.prepare(
+        'INSERT OR REPLACE INTO sessions (id, tool, pid, project, started_at, heartbeat_at, status, agent_id, agent_pid) ' +
+          "VALUES (?,?,?,?,?,?, 'live', ?, ?)",
+      ).run(id, agent.tool, process.pid, project, now, now, agent.agentId, agent.agentPid ?? null);
+      appendEvent(db, {
+        event: 'session-started',
+        sessionId: id,
+        tool: agent.tool,
+        pid: process.pid,
+        agentId: agent.agentId,
+        how: agent.how,
+      });
+    });
+    return { id, agent, created: true };
+  }
+
+  /**
+   * The tab this session should be using.
+   *
+   * One agent testing one app wants one window, not a new one per command. An
+   * open tab belonging to this session is reused; `url` only has to match when
+   * the caller cares, because navigating an existing window is cheaper and far
+   * less disruptive than opening another.
+   */
+  function tabFor({ sessionId, url = null, outDir = null, matchUrl = false }) {
+    const open = db
+      .prepare('SELECT * FROM tabs WHERE owner_session = ? AND closed_at IS NULL ORDER BY opened_at DESC')
+      .all(sessionId);
+
+    const reusable = matchUrl && url ? open.find((t) => t.url === url) : open[0];
+    if (reusable) {
+      if (url && reusable.url !== url) {
+        db.prepare('UPDATE tabs SET url = ? WHERE id = ?').run(url, reusable.id);
+      }
+      return { id: reusable.id, created: false };
+    }
+    return { id: openTab({ url, outDir, sessionId }), created: true };
   }
 
   const heartbeat = (id) =>
@@ -57,7 +124,12 @@ export async function openSessions(projectDir, { db: given } = {}) {
 
   /** A window, so work can say which one it belongs to and who owns it now. */
   function openTab({ url, outDir, sessionId }) {
-    const id = `tab-${Date.now().toString(36)}`;
+    /*
+      A timestamp alone is not an id. Two agents opening a window in the same
+      millisecond — which is ordinary, not a race worth engineering around —
+      produced the same string and the second one failed on the primary key.
+    */
+    const id = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     transact(db, () => {
       db.prepare(
         'INSERT INTO tabs (id, url, out_dir, opened_by, owner_session, opened_at) VALUES (?,?,?,?,?,?)',
@@ -110,7 +182,15 @@ export async function openSessions(projectDir, { db: given } = {}) {
     const swept = { sessions: 0, tabs: 0, leases: 0 };
 
     for (const s of db.prepare("SELECT * FROM sessions WHERE status = 'live'").all()) {
-      const gone = !alive(s.pid) || now - s.heartbeat_at > staleAfter;
+      /*
+        Judge the agent, not the invocation.
+        `pid` is whichever ayna process last touched this row and it exits in
+        milliseconds, so checking it declared every session dead the instant the
+        command that opened it returned — taking its tab with it. The agent's own
+        process is the one whose death means the work is actually abandoned.
+      */
+      const watched = s.agent_pid ?? s.pid;
+      const gone = !alive(watched) || now - s.heartbeat_at > staleAfter;
       if (!gone) continue;
       transact(db, () => {
         db.prepare("UPDATE sessions SET ended_at = ?, status = 'dead' WHERE id = ?").run(now, s.id);
@@ -142,7 +222,15 @@ export async function openSessions(projectDir, { db: given } = {}) {
     db
       .prepare("SELECT * FROM sessions WHERE status = 'live' ORDER BY started_at DESC")
       .all()
-      .map((s) => ({ id: s.id, tool: s.tool, pid: s.pid, startedAt: s.started_at, heartbeatAt: s.heartbeat_at }));
+      .map((s) => ({
+        id: s.id,
+        tool: s.tool,
+        pid: s.pid,
+        agentId: s.agent_id,
+        agentPid: s.agent_pid,
+        startedAt: s.started_at,
+        heartbeatAt: s.heartbeat_at,
+      }));
 
   const tabs = () =>
     db
@@ -150,5 +238,5 @@ export async function openSessions(projectDir, { db: given } = {}) {
       .all()
       .map((t) => ({ id: t.id, url: t.url, outDir: t.out_dir, owner: t.owner_session, phase: t.phase }));
 
-  return { db, register, heartbeat, end, openTab, closeTab, claimTab, sweep, live, tabs };
+  return { db, register, resume, heartbeat, end, openTab, tabFor, closeTab, claimTab, sweep, live, tabs };
 }
