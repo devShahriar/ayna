@@ -99,6 +99,7 @@ ${bold('OPTIONS')}
       --fix <text>       How you would fix it (propose)
       --selector <sel>   What it applies to (propose)
       --headed           Show the Chrome window (default: headless)
+      --keep-open        Leave the window open at the end so you can look (implies --headed)
       --fresh-profile    Start annotate logged out (default: reuse the profile)
       --port <n>         Port to serve on (serve; default: config target.port)
       --open             Open the HTML report when done
@@ -128,6 +129,10 @@ const ARG_SPEC = {
     model: { type: 'string', short: 'm' },
     headless: { type: 'boolean' },
     headed: { type: 'boolean' },
+    // Leave the Chrome window open when the run ends, so a person can look at
+    // what it left behind. A headless run has nothing to leave open, so this
+    // implies --headed rather than silently doing nothing.
+    'keep-open': { type: 'boolean' },
     url: { type: 'string' },
     open: { type: 'boolean' },
     json: { type: 'boolean' },
@@ -429,6 +434,14 @@ async function main() {
         viewports: cfg.viewports,
       });
 
+      if (values['keep-open']) {
+        // THE WINDOW IS THE RESULT. A suite that closes on the last assertion
+        // leaves a person with a number and no way to see what it means; this
+        // leaves the browser on whatever the run finished looking at. The
+        // process stays alive holding it, so ctrl-c is how you finish.
+        info('--keep-open: leaving the browser open. ctrl-c when you are done looking.');
+        await new Promise(() => {});
+      }
       if (context) await context.close().catch(() => {});
       else await browser.close().catch(() => {});
       await server.close().catch(() => {});
@@ -1139,6 +1152,14 @@ async function main() {
         : [];
       const report = await auditPage({ browser, context, url: target, viewports: cfg.viewports, outDir, steps });
 
+      if (values['keep-open']) {
+        // THE WINDOW IS THE RESULT. A suite that closes on the last assertion
+        // leaves a person with a number and no way to see what it means; this
+        // leaves the browser on whatever the run finished looking at. The
+        // process stays alive holding it, so ctrl-c is how you finish.
+        info('--keep-open: leaving the browser open. ctrl-c when you are done looking.');
+        await new Promise(() => {});
+      }
       if (context) await context.close().catch(() => {});
       else await browser.close().catch(() => {});
       await server.close().catch(() => {});
@@ -1194,6 +1215,14 @@ async function main() {
         viewport: cfg.viewports[0],
       });
 
+      if (values['keep-open']) {
+        // THE WINDOW IS THE RESULT. A suite that closes on the last assertion
+        // leaves a person with a number and no way to see what it means; this
+        // leaves the browser on whatever the run finished looking at. The
+        // process stays alive holding it, so ctrl-c is how you finish.
+        info('--keep-open: leaving the browser open. ctrl-c when you are done looking.');
+        await new Promise(() => {});
+      }
       if (context) await context.close().catch(() => {});
       else await browser.close().catch(() => {});
       await server.close().catch(() => {});
@@ -1283,6 +1312,14 @@ async function main() {
         theme: cfg.theme,
       });
 
+      if (values['keep-open']) {
+        // THE WINDOW IS THE RESULT. A suite that closes on the last assertion
+        // leaves a person with a number and no way to see what it means; this
+        // leaves the browser on whatever the run finished looking at. The
+        // process stays alive holding it, so ctrl-c is how you finish.
+        info('--keep-open: leaving the browser open. ctrl-c when you are done looking.');
+        await new Promise(() => {});
+      }
       if (context) await context.close().catch(() => {});
       else await browser.close().catch(() => {});
       await server.close().catch(() => {});
@@ -1695,7 +1732,7 @@ async function followSession(statusFile, sessionDir, { settle = false } = {}) {
 
 /** `--headed` beats `--headless` beats the config default. */
 function headlessMode(cfg) {
-  if (values.headed) return false;
+  if (values.headed || values['keep-open']) return false;
   return values.headless ?? cfg.loop.headless;
 }
 
