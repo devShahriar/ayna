@@ -56,4 +56,8 @@ demo/               a deliberately mediocre landing page to improve
 - Plain ESM `.mjs`, no TypeScript, no build step.
 - Only dependency is `playwright-core` — it uses installed Chrome (`channel: 'chrome'`)
   rather than downloading a browser. Keep it that way.
-- The demo is *supposed* to start ugly. Don't pre-polish it.
+- The demo is the project's fixture, not a showcase. It is polished because the
+  README screenshots are taken from it, but it must keep *real, measurable*
+  faults for `audit` and `qa` to find — currently small hit targets, weak focus
+  rings and one sub-12px label. Fix a fault only when it is genuinely a fault;
+  never pre-polish it to the point where ayna has nothing to report.

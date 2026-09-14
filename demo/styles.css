@@ -882,6 +882,18 @@ h3 {
 
   .shot-chip { display: none; }
 
+  /*
+    The query row is svg + question + two filter chips + Run, and only the
+    question can shrink. At 390px the chips took the whole row: the question
+    collapsed to 0px wide — so the one thing this mock exists to show, a
+    sentence being asked in plain language, was invisible — and Run was pushed
+    11px past the right edge of the screen.
+
+    The filters are set dressing; the question and the button are the point.
+  */
+  .shot-filter,
+  .shot-select { display: none; }
+
   .shot-body { padding: var(--s2); gap: var(--s2); }
 
   .shot-row { grid-template-columns: 1fr auto; }
