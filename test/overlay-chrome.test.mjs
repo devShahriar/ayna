@@ -153,3 +153,68 @@ describe('the overlay must not sit on the app', { skip: !hasBrowser && 'AYNA_SKI
     }
   });
 });
+
+/*
+  Resizing must not play a slideshow of the page at two different heights.
+
+  The space reservation sets a height, forces a synchronous reflow to read the
+  result, and sets the height again to take off the overshoot a collapsed margin
+  causes. Once, that is a correction. On a resize it ran on every animation
+  frame, so going full screen laid the page out at one height and immediately
+  re-laid it at another, for the whole of the transition — which is what "there
+  is some flickering when we make the window full screen" describes. Not a
+  repaint: two layouts per frame.
+
+  The correction is deferred to the moment the window stops moving, so what has
+  to be proved is that it still happens — following cheaply is only acceptable
+  if the final geometry is the same one the expensive path would have produced.
+*/
+describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  // A first child with a top margin: the collapse the corrective pass exists for.
+  const MARGINY = '<main><h1 class="title" style="margin-top:40px">Hello</h1><p>body</p></main>';
+
+  test('the page still fits exactly once the window stops moving', async () => {
+    const { srv, url } = await serve(MARGINY);
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-resize-'));
+    try {
+      const sizes = [];
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          const overshootNow = () =>
+            page.evaluate(() => Math.round(document.body.getBoundingClientRect().bottom - innerHeight));
+
+          for (const [w, h] of [[1000, 700], [1400, 900], [820, 620], [1600, 1000]]) {
+            await page.setViewportSize({ width: w, height: h });
+            // Longer than the 120ms settle: this is the state the user is left in.
+            await page.waitForTimeout(500);
+            sizes.push({ w, h, overshoot: await overshootNow() });
+          }
+          await page.close();
+        },
+      });
+
+      for (const s of sizes) {
+        assert.ok(
+          s.overshoot <= 1,
+          `at ${s.w}x${s.h} the page ran ${s.overshoot}px past the window — the deferred correction never landed`,
+        );
+      }
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,6 +1,6 @@
 ---
 name: ayna
-description: Look at a UI and improve it from what is actually on screen. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — as well as via /ayna, /ayna:look, /ayna:review, or /ayna:fix — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
+description: Look at a UI and improve it from what is actually on screen, and write UI tests against the page rather than from memory of it. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — or to write a UI test, QA flow or end-to-end check from a described test case — as well as via /ayna, /ayna:look, /ayna:review, /ayna:fix or /ayna:qa — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
 ---
 
 # ayna — look at what you built
@@ -325,6 +325,56 @@ layout faults — rather than only what is.
 
 When the user asks for a flow to be tested, write it into `ayna-flows/` so it
 becomes a permanent check rather than a one-off run.
+
+## Turning a written test case into a flow
+
+This is the common QA request — *"check that a signed-out visitor can reach
+pricing"* — and the temptation is to write the JSON from what you remember of the
+page. Don't. Almost every broken generated flow is a guessed selector.
+
+**You write the flow. ayna gives you the page.** There is no model in this loop:
+you already have the codebase open, which makes you the better author. What you
+are missing is what the page actually renders, and two commands supply it.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --schema
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --draft "<the test case, in their words>"
+```
+
+`--draft` loads the page and returns the step vocabulary plus every actionable
+element on it: a stable selector for each (preferring `data-testid`, then `id`,
+then `name`/`aria-label`, and only then a class path), its visible text, and two
+flags worth obeying:
+
+| flag | what it means |
+|---|---|
+| `ambiguous: 6` | the selector matches six elements — add `nth`, or find a better one |
+| `fragile: true` | it is a class guess and a refactor will break it — prefer an id or a test hook |
+
+Add `--selector <sel>` to click into a state first, when the test case is about
+something only reachable after a click.
+
+Then write the flow, and check it before running it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}/bin/ayna.mjs" flow --check ayna-flows/pricing.json
+```
+
+`--check` validates without opening a browser, so a wrong flow fails in
+milliseconds with the reason rather than after a Chrome launch. It refuses a flow
+with no `expect` at all — a test that cannot fail proves nothing — and warns
+about `{"do":"wait","ms":3000}`, which is how a suite becomes flaky.
+
+Four habits that keep the suite worth running:
+
+- **Assert absence, not just presence.** `{"do":"expect","absent":"undefined"}`.
+  A panel rendering "No data", "NaN" or "Unsupported component" is still a panel,
+  and a presence-only check passes it happily.
+- **Wait for a thing, not a duration.** `{"do":"wait","for":".results"}`.
+- **Keep `noLayoutFaults`.** It is what catches a journey whose steps all pass
+  while a control has slid under a panel.
+- **Name it as the person said it.** `"A signed-out visitor can reach pricing"`,
+  not `"test_pricing_3"`. The name is what a failing CI run shows them.
 
 ## Work that outlives the window
 

@@ -1,9 +1,18 @@
 {
   "name": "ayna",
-  "version": "0.2.0",
-  "description": "Look at the UI you just built. Screenshots the running page in real Chrome, hands you the image, and loops critique → fix → re-shoot until it looks right.",
+  "version": "0.3.0",
+  "description": "Look at the UI you just built. Screenshots the running page in real Chrome, hands you the image, and loops critique → fix → re-shoot until it looks right. Also drives QA flows written against the live page.",
   "author": {
     "name": "Shahriar"
   },
-  "keywords": ["ui", "design", "screenshot", "chrome", "visual-review", "frontend"]
+  "keywords": [
+    "ui",
+    "design",
+    "screenshot",
+    "chrome",
+    "visual-review",
+    "frontend",
+    "qa",
+    "testing"
+  ]
 }

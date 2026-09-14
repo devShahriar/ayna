@@ -1,0 +1,12 @@
+{
+  "name": "A visitor can reach the pricing table and see the popular plan",
+  "start": "/",
+  "assert": { "noConsoleErrors": true, "noLayoutFaults": ["covered", "offscreen"] },
+  "steps": [
+    { "do": "click", "on": "a[href=\"#pricing\"]" },
+    { "do": "wait", "for": ".plan-featured" },
+    { "do": "expect", "text": "Most popular" },
+    { "do": "expect", "selector": ".plan-featured .plan-cta" },
+    { "do": "expect", "absent": "undefined" }
+  ]
+}

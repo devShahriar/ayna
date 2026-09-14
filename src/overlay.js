@@ -1632,7 +1632,20 @@
     cheap answer provably does not work.
   */
   let reserved = '';
-  function reserveForBar() {
+  let correctedFor = '';
+  /*
+    `correct: false` does the cheap pass only.
+
+    The corrective pass below sets a height, forces a synchronous reflow to read
+    the result, and sets the height again. That is fine once. On a resize it ran
+    on every animation frame, so going full screen played a whole transition's
+    worth of the page being laid out at one height and immediately re-laid at
+    another — which is the flicker: not a repaint, two layouts per frame.
+
+    During a drag the arithmetic alone is close enough to follow the window. The
+    measured correction happens once, when the window stops moving.
+  */
+  function reserveForBar({ correct = true } = {}) {
     if (!bar) return;
 
     /*
@@ -1667,8 +1680,14 @@
       viewportW(),
       viewportH(),
     ].join(':');
-    if (!h || key === reserved) return;
+    if (!h) return;
+    if (key === reserved) {
+      // Same geometry. Only the deferred correction can still be owed.
+      if (correct && correctedFor !== reserved) applyOvershoot();
+      return;
+    }
     reserved = key;
+    correctedFor = ''; // a new geometry has not been checked yet
 
     /*
       Move the page, not the root.
@@ -1749,10 +1768,31 @@
       is not a trade worth making for a margin. Measuring the result and taking
       the difference off costs one reflow and assumes nothing.
     */
+    if (correct) applyOvershoot();
+  }
+
+  /*
+    Take off what a collapsed margin added.
+
+    Self-contained on purpose. This began as a closure inside reserveForBar and
+    read `root` and `room` from it — but the deferred call arrives on the path
+    where the geometry has not changed, which returns before those are declared,
+    so every deferred correction threw a temporal-dead-zone ReferenceError inside
+    a setTimeout where nothing reports it. The symptom was the page sitting 40px
+    below the window after a resize, which is precisely the margin it exists to
+    remove, and silence everywhere else.
+  */
+  function applyOvershoot() {
+    if (!bar) return;
+    correctedFor = reserved;
+    const root = document.body;
+    const h = Math.round(bar.getBoundingClientRect().height);
+    const room = Math.max(120, viewportH() - h);
     const overshoot = Math.round(root.getBoundingClientRect().bottom - viewportH());
     if (overshoot > 0) {
-      root.style.setProperty('height', Math.max(120, room - overshoot) + 'px', 'important');
-      root.style.setProperty('min-height', Math.max(120, room - overshoot) + 'px', 'important');
+      const corrected = Math.max(120, room - overshoot) + 'px';
+      root.style.setProperty('height', corrected, 'important');
+      root.style.setProperty('min-height', corrected, 'important');
     }
   }
 
@@ -1883,6 +1923,7 @@
   */
   let relayoutQueued = false;
   let reviewSettleTimer = 0;
+  let settleTimer = 0;
   // True between pressing Close and the window actually going, so the bar is not
   // rebuilt out from under the one button that can call it off.
   let closing = false;
@@ -1893,7 +1934,10 @@
     requestAnimationFrame(() => {
       relayoutQueued = false;
       hide(); // the hover highlight is stale the moment anything moves
-      reserveForBar();
+      // Follow the window cheaply; measure once it stops. See reserveForBar.
+      reserveForBar({ correct: false });
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => reserveForBar({ correct: true }), 120);
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
       if (panel) {

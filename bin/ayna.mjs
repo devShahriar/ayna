@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { startTarget } from '../src/target.mjs';
-import { openBrowser, capture, captureRoutes, openPersistentContext } from '../src/browser.mjs';
+import { openBrowser, capture, captureRoutes, openPersistentContext, gotoSettled } from '../src/browser.mjs';
 import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
@@ -44,6 +44,7 @@ ${bold('TASKS')}
   verify      Ask each open task whether it still applies; closes what is fixed
   preview     Try CSS variants in their window before writing any of it to source
   agents      Who is working here, which tab each holds, and what they claimed
+  brains      Which agent CLIs can do the work here (claude, codex, cursor…)
   say         Put a line in the review window: ayna say "fixing the nav now"
   events      What happened since a cursor; --follow to stream (survives every process)
   watch       Announce work as it appears; outlives any window (run under a monitor)
@@ -58,6 +59,10 @@ ${bold('REVIEW')} — you point, Claude fixes
 ${bold('LOOK')}
   shot        Screenshot the target; --json prints paths + diagnostics to Read
   flow        Drive a described UI flow and measure every step
+              --check <file> validates it without a browser
+              --schema prints the step vocabulary to write against
+              --draft "<test case>" reads the page and returns everything an
+              agent needs to write the flow without guessing a selector
   taste       Design anti-patterns via impeccable, if installed (--propose to raise them)
   inspect     Look at one part of a page headlessly: --selector or --region
   audit       Find layout faults the page can prove: covered, cut off, overlapping
@@ -159,6 +164,9 @@ const ARG_SPEC = {
     baseline: { type: 'string' },
     keep: { type: 'string' },
     port: { type: 'string' },
+    schema: { type: 'boolean' },
+    check: { type: 'boolean' },
+    draft: { type: 'string' },
     status: { type: 'string' },
     comment: { type: 'string' },
     fix: { type: 'string' },
@@ -940,6 +948,39 @@ async function main() {
       surfaced it — so "which window is mine?" and "is another agent already on
       this?" had no answer short of reading the tables by hand.
     */
+    /* What can actually do the work on this machine, and what is only an editor. */
+    case 'brains': {
+      const { surveyBrains, EDITORS } = await import('../src/brains.mjs');
+      const rows = await surveyBrains(cfg);
+
+      if (values.json) {
+        console.log(JSON.stringify({ brains: rows, editors: EDITORS, chosen: cfg.brain ?? 'claude' }));
+        return;
+      }
+
+      banner('ayna brains');
+      info('a brain is a CLI ayna can hand a prompt and wait for — `ayna work --brain <name>`');
+      for (const b of rows) {
+        const mark = b.installed ? green('✓') : dim('·');
+        console.log(
+          `  ${mark} ${bold(b.name.padEnd(9))} ${dim((b.cmd + ' ' + b.args.join(' ')).padEnd(24))}` +
+            (b.installed ? '' : dim(' not installed')) +
+            (b.custom ? cyan(' (yours)') : ''),
+        );
+        console.log(`      ${dim(b.note)}`);
+      }
+
+      console.log('');
+      info('these use ayna but cannot be driven by it — run ayna from their terminal:');
+      for (const [name, why] of Object.entries(EDITORS)) console.log(`    ${dim('·')} ${bold(name)} ${dim('— ' + why)}`);
+
+      console.log('');
+      const ready = rows.filter((b) => b.installed);
+      if (ready.length) ok(`${ready.length} available · default is "${cfg.brain ?? 'claude'}"`);
+      else warn('none installed — ayna work has nothing to drive, but you can still fix tasks yourself');
+      return;
+    }
+
     case 'agents': {
       const { openSessions } = await import('../src/sessions.mjs');
       const { identify, describeAgent } = await import('../src/agent.mjs');
@@ -1290,9 +1331,81 @@ async function main() {
     }
 
     case 'flow': {
-      const spec = values.flow ?? values.file;
-      if (!spec) throw new Error('give me a flow: ayna flow --flow steps.json');
+      const { validateFlow, FLOW_SCHEMA, PROBE, briefFor } = await import('../src/flowspec.mjs');
+
+      /*
+        The vocabulary, for whoever is writing the flow.
+
+        It was documented only by the switch statement in src/flow.mjs, so an
+        agent asked to write a test would confidently produce {"do":"assert"} and
+        find out at run time, after a browser launch.
+      */
+      if (values.schema) {
+        console.log(JSON.stringify(FLOW_SCHEMA, null, 2));
+        return;
+      }
+
+      /*
+        Read the page and hand back everything needed to write a flow against it
+        without guessing. Almost every bad generated flow is a guessed selector,
+        and guessing is only necessary because nobody looked.
+
+        ayna does not call a model here on purpose: the editor's agent has the
+        codebase open and is the better author. It needs the page, not a rival.
+      */
+      if (values.draft != null) {
+        const server = values.url ? null : await startTarget(cfg);
+        const browser = await openBrowser({ headless: true });
+        try {
+          const ctx = await browser.newContext({ viewport: cfg.viewports[0] ?? { width: 1440, height: 900 } });
+          const page = await ctx.newPage();
+          const base = values.url ?? server.url;
+          await gotoSettled(page, base);
+          for (const s of values.selector ?? []) {
+            // Optional: click into the state the test is about before looking.
+            await page.locator(s).first().click({ timeout: 8000 }).catch(() => {});
+            await page.waitForTimeout(600);
+          }
+          const probe = await page.evaluate(PROBE);
+          const brief = briefFor(probe, typeof values.draft === 'string' ? values.draft : null);
+          console.log(JSON.stringify(brief, null, 2));
+        } finally {
+          await browser.close().catch(() => {});
+          await server?.close().catch(() => {});
+        }
+        return;
+      }
+
+      const spec = values.flow ?? values.file ?? positionals[1];
+      if (!spec) throw new Error('give me a flow: ayna flow --flow steps.json (or --schema, or --draft "test case")');
       const flow = JSON.parse(await readFile(path.resolve(PROJECT, spec), 'utf8'));
+
+      /*
+        Check without opening anything. A wrong flow should fail in milliseconds
+        with the reason, not after a Chrome launch with "nothing matches
+        .login-btn".
+      */
+      const verdict = validateFlow(flow, { name: spec });
+      if (values.check) {
+        if (values.json) console.log(JSON.stringify({ file: spec, ...verdict }));
+        else {
+          banner(`ayna flow --check ${path.basename(spec)}`);
+          for (const e of verdict.errors) console.log(`  ${red('✗')} ${e}`);
+          for (const w of verdict.warnings) console.log(`  ${yellow('!')} ${w}`);
+          if (verdict.ok && !verdict.warnings.length) ok('valid');
+          else if (verdict.ok) ok('valid, with notes');
+          else fail(`${verdict.errors.length} problem(s) — this flow cannot prove anything yet`);
+        }
+        process.exitCode = verdict.ok ? 0 : 1;
+        return;
+      }
+      if (!verdict.ok) {
+        throw new Error(
+          `${spec} is not a runnable flow:\n  ${verdict.errors.join('\n  ')}\n` +
+            '  `ayna flow --schema` prints the vocabulary.',
+        );
+      }
+      for (const w of verdict.warnings) warn(w);
 
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const outDir = path.join(PROJECT, '.ayna', 'flows', `${(flow.name ?? 'flow').replace(/[^\w-]+/g, '-').toLowerCase()}-${stamp}`);

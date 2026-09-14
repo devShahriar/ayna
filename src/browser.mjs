@@ -270,12 +270,47 @@ export async function capture({ browser, url, viewports, outDir, label, watchMs 
  * exactly like a normal browser profile. Ayna never sees or stores the
  * credentials themselves; the user types them into their own app.
  */
-export async function openPersistentContext({ profileDir, headless = false, viewport, followWindow }) {
+export async function openPersistentContext({
+  profileDir,
+  headless = false,
+  viewport,
+  followWindow,
+  maximized,
+}) {
   await mkdir(profileDir, { recursive: true });
   const args = launchArgs();
 
   const size = viewport ?? { width: 1440, height: 900 };
-  if (!headless) args.push(`--window-size=${size.width},${size.height}`);
+  /*
+    Open at the size of the screen, not at a guess.
+
+    1440x900 was a default chosen when the window was a preview; as the place you
+    actually work on your app it is a small box in the corner of a large display,
+    and every session began by resizing it — which, before the reservation
+    learned to re-measure, was also the moment the page stopped filling the
+    window. Starting maximised removes both the resize and the reason for it.
+
+    Not `--start-fullscreen`: that takes the whole screen and hides the tab strip
+    and the address bar, and a review window with no visible browser chrome is
+    disorienting and hard to get out of. Maximised fills the display and stays a
+    window. AYNA_WINDOW=1440x900 pins a size for anyone who wants one.
+  */
+  /*
+    Only a window that follows the window should be maximised. A context that
+    measures pins its viewport on purpose (followWindow: false), and opening it
+    at screen size would mean reporting numbers for a page rendered at one size
+    inside a window of another — the confusion that once labelled a 1440px audit
+    "mobile".
+  */
+  const follows = followWindow ?? !headless;
+  const fill = maximized ?? follows;
+
+  if (!headless) {
+    const pinned = /^(\d+)x(\d+)$/.exec(process.env.AYNA_WINDOW ?? '');
+    if (pinned) args.push(`--window-size=${pinned[1]},${pinned[2]}`);
+    else if (fill) args.push('--start-maximized');
+    else args.push(`--window-size=${size.width},${size.height}`);
+  }
 
   return chromium.launchPersistentContext(profileDir, {
     channel: chromeChannel(),
@@ -299,11 +334,11 @@ export async function openPersistentContext({ profileDir, headless = false, view
       labelled the results "mobile" and "desktop" regardless. Callers that
       measure pass followWindow: false and get the size they asked for.
     */
-    viewport: (followWindow ?? !headless) ? null : size,
+    viewport: follows ? null : size,
     // Playwright refuses deviceScaleFactor alongside a null viewport, and a null
     // viewport is the whole point of a window the user can resize — so it only
     // applies to the fixed-size headless case.
-    ...((followWindow ?? !headless) ? {} : { deviceScaleFactor: 1 }),
+    ...(follows ? {} : { deviceScaleFactor: 1 }),
     args,
   });
 }

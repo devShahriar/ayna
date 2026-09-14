@@ -27,14 +27,16 @@ import { appendEvent } from './db.mjs';
  * than being reported as done.
  */
 
-/** Which command is the brain, and how to hand it a prompt. */
-export function brainFor(cfg, name) {
-  const brains = cfg?.brains ?? {};
-  const chosen = name ?? cfg?.brain ?? 'claude';
-  const spec = brains[chosen] ?? (chosen === 'claude' ? { cmd: 'claude', args: ['-p'] } : null);
-  if (!spec) throw new Error(`no brain called "${chosen}" — add it to ayna.config.json under "brains"`);
-  return { name: chosen, ...spec };
-}
+/**
+ * Which command is the brain, and how to hand it a prompt.
+ *
+ * Only `claude` used to have a built-in, so every other tool needed a config
+ * entry before it could be tried at all — and the error when you had not written
+ * one said the brain did not exist, which is not the same as "it needs three
+ * lines of setup". The presets live in `src/brains.mjs` and config still wins
+ * over them.
+ */
+export { resolveBrain as brainFor } from './brains.mjs';
 
 /** Run the brain on one prompt. Its stdout is the record of what it did. */
 export function runBrain(brain, prompt, { cwd, timeoutMs = 15 * 60 * 1000 } = {}) {
