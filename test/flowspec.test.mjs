@@ -45,7 +45,14 @@ describe('checking a flow without opening anything', () => {
 
   test('an expect with nothing to check is rejected', () => {
     const r = validateFlow(flow([{ do: 'expect', settle: 100 }]));
-    assert.ok(r.errors.some((e) => /one of `text`, `selector` or `absent`/.test(e)));
+    // Asserted on the REJECTION and on the advice, not on the exact sentence.
+    // This pinned the literal wording "one of `text`, `selector` or `absent`"
+    // and broke when `absentSelector` was added to that list — a spelling the
+    // runtime had always implemented and the validator had always refused. The
+    // behaviour under test is that an empty expect is refused AND that the
+    // message names the spellings that work; both still hold.
+    assert.ok(r.errors.some((e) => /expect needs one of/.test(e)), 'an empty expect was accepted');
+    assert.ok(r.errors.some((e) => /absentSelector/.test(e)), 'the advice omits a spelling that works');
   });
 
   test('a step missing its target says which field', () => {
