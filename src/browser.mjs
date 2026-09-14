@@ -375,6 +375,91 @@ export function routeSlug(route) {
  * No margin and an explicit page size, because a slide is not a letter: the
  * caller states the geometry it composed for and gets that geometry back.
  */
+/**
+ * whyBlank — a rendered page that shows nothing, and the REASON.
+ *
+ * WHY THIS EXISTS. "The card is blank" is not actionable, and it is all any
+ * checker here has ever said. MEASURED 14 Sep 2026 on a card a person watched an
+ * agent fail to fix across several rounds:
+ *
+ *   - no JavaScript errors at all
+ *   - 85 elements and 1,353 characters of text in the DOM
+ *   - every row computed opacity:1, visibility:visible, a real bounding rect
+ *   - and nothing painted
+ *
+ * The cause was three lines of CSS compounding: every row was position:absolute,
+ * so the section had no in-flow content and computed to 1100x0; the wrapper was
+ * height:100% of that zero, and overflow:hidden clipped the lot. The reveal
+ * animation ran perfectly into a container with no height.
+ *
+ * NONE OF THAT IS VISIBLE IN THE SOURCE. An agent reading its own HTML sees a
+ * correct document, concludes it is fixed, and says so — which is exactly what
+ * happened, repeatedly. It needs a browser to compute the layout, and then it
+ * needs to be TOLD the shape of the problem rather than handed a black square.
+ *
+ * Reports the first cause that explains the blankness, most specific first.
+ */
+export async function whyBlank(page) {
+  return page.evaluate(() => {
+    const reasons = [];
+    const box = (e) => e.getBoundingClientRect();
+    const vis = (e) => getComputedStyle(e);
+
+    // A container that holds text but has no height clips everything inside it —
+    // the single most common way a correct-looking document renders as nothing.
+    const collapsed = [...document.querySelectorAll('body *')].filter((e) => {
+      const r = box(e);
+      const hasText = (e.textContent || '').trim().length > 20;
+      return hasText && r.width > 50 && r.height < 2;
+    });
+    for (const e of collapsed.slice(0, 3)) {
+      const c = vis(e);
+      const kids = [...e.children];
+      const allAbs = kids.length > 0 && kids.every((k) => {
+        const p = vis(k).position;
+        return p === 'absolute' || p === 'fixed';
+      });
+      reasons.push(
+        `<${e.tagName.toLowerCase()}${e.className ? '.' + String(e.className).trim().split(/\s+/)[0] : ''}> holds text but computes to ` +
+        `${Math.round(box(e).width)}x${Math.round(box(e).height)}` +
+        (c.overflow === 'hidden' || c.overflowY === 'hidden' ? ', and overflow is hidden so its contents are clipped' : '') +
+        (allAbs ? `. All ${kids.length} of its children are position:absolute, so nothing gives it height` : '') +
+        (c.height === '100%' || c.height === '0px' ? `. Its height is ${c.height}, which needs an ancestor with a real height to resolve against` : '')
+      );
+    }
+
+    // Everything faded out and left that way — an entrance animation that never
+    // ran, or ran while the element was not being observed.
+    const withText = [...document.querySelectorAll('body *')].filter((e) => (e.textContent || '').trim().length > 10);
+    const faded = withText.filter((e) => Number(vis(e).opacity) === 0);
+    if (faded.length && faded.length >= withText.length * 0.6) {
+      reasons.push(`${faded.length} of ${withText.length} elements carrying text are opacity:0 — an entrance animation has not run`);
+    }
+
+    // Laid out somewhere nobody is looking.
+    const off = withText.filter((e) => {
+      const r = box(e);
+      return r.width > 0 && r.height > 0 && (r.bottom < 0 || r.right < 0 || r.top > innerHeight * 3);
+    });
+    if (off.length && off.length >= withText.length * 0.6) {
+      reasons.push(`${off.length} of ${withText.length} elements carrying text are positioned outside the viewport`);
+    }
+
+    // Ink the colour of the paper.
+    const bg = vis(document.body).backgroundColor;
+    const sameInk = withText.filter((e) => vis(e).color === bg && bg !== 'rgba(0, 0, 0, 0)');
+    if (sameInk.length && sameInk.length >= withText.length * 0.6) {
+      reasons.push(`${sameInk.length} elements draw their text in ${bg}, the same colour as the background`);
+    }
+
+    return {
+      textLength: (document.body.innerText || '').trim().length,
+      elementCount: document.querySelectorAll('body *').length,
+      reasons,
+    };
+  });
+}
+
 export async function renderPDF({ browser, url, width = 1280, height = 720, settleMs = 2500, waitMs = 600 }) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2 });
   const page = await context.newPage();
