@@ -1,6 +1,6 @@
 ---
 name: ayna
-description: Look at a UI and improve it from what is actually on screen, and write UI tests against the page rather than from memory of it. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — or to write a UI test, QA flow or end-to-end check from a described test case — as well as via /ayna, /ayna:look, /ayna:review, /ayna:fix or /ayna:qa — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
+description: Look at a UI and improve it from what is actually on screen, review its design and offer taste fixes, and write UI tests against the page rather than from memory of it. Use when the user asks you to evaluate, audit, self-improve, self-review, or fix a UI yourself — "self improve the UI", "find and fix the UI issues", "check my UI for problems" — or to write a UI test, QA flow or end-to-end check from a described test case — as well as via /ayna, /ayna:look, /ayna:review, /ayna:fix, /ayna:design or /ayna:qa — follow the procedure here when one of those runs. Also applies if the user directly asks to screenshot, see, review, critique, or improve how a page LOOKS. Do not start this on your own after editing UI files; the user decides when to look.
 ---
 
 # ayna — look at what you built
@@ -589,6 +589,49 @@ their windows so the next session can adopt the work rather than finding a locke
 door, expires the leases of workers that crashed, and clears the pointer files
 that otherwise accumulate forever. It never opens a browser and never edits a
 file.
+
+## Reviewing the design, not just the layout
+
+`ayna audit` answers *what can this page prove is wrong*. That is the honest
+half, and it is not the whole review: a page can pass every layout check and
+still look like every other page an LLM has produced.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" design --json
+```
+
+One brief, two lists, and **the split is the point**:
+
+- **`fix`** — the page proved it. A control behind something, text cut off, 3.1:1
+  where 4.5:1 is needed. Reproducible, so **act on it**, then re-run and let the
+  measurement say whether it is fixed.
+- **`propose`** — a detector's opinion about how it *looks*: the icon-tile-above-
+  heading feature card, the eyebrow above every heading, the hairline border
+  under a wide shadow. **Never apply these silently.**
+
+Every entry says the same four things — what is wrong, where it lives
+(`selector`, and `file:line` when the scan saw source), what to do instead, and
+which of the two lists it is in.
+
+**Why the second list is offered and not applied.** Taste is unbounded and it is
+the user's call. Feed it into a termination test and the loop never ends; apply
+it without asking and you have redesigned someone's page because a tool had an
+opinion. So offer it the way ayna offers anything visual — by showing it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" preview \
+  --selector ".feature .icon-tile" \
+  --css "display:flex; align-items:center; gap:12px" --label "icon beside the heading" \
+  --css "background:none; padding:0"                 --label "icon in flow"
+```
+
+Nothing reaches source until they pick one. `ayna design --propose` files them as
+`proposed` tasks instead, for a queue rather than a conversation.
+
+The opinions come from **impeccable** (Apache-2.0), spawned rather than vendored —
+ayna's one dependency stays `playwright-core`. If it is not installed the brief
+says so in `note`; report that, rather than reporting a page with no design
+faults.
 
 ## The part ayna cannot measure
 

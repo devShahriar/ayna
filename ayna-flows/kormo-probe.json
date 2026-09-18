@@ -1,0 +1,10 @@
+{
+  "name": "kormo loads signed in",
+  "start": "/",
+  "viewport": { "width": 1920, "height": 1080 },
+  "steps": [
+    { "do": "goto", "url": "/" },
+    { "do": "wait", "ms": 4000 },
+    { "do": "expect", "absent": "Sign in" }
+  ]
+}

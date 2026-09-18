@@ -1,0 +1,11 @@
+{
+  "name": "the agent finished and the graph card is on the canvas",
+  "start": "/d/d-07df6e9393c6e9db",
+  "viewport": { "width": 1920, "height": 1080 },
+  "steps": [
+    { "do": "goto", "url": "/d/d-07df6e9393c6e9db" },
+    { "do": "wait", "ms": 20000 },
+    { "do": "wait", "ms": 20000 },
+    { "do": "expect", "absent": "undefined" }
+  ]
+}

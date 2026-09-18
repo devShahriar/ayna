@@ -113,10 +113,24 @@ function parse(stdout, target) {
         severity: f.severity ?? 'warning',
         category: f.category ?? 'design',
         where: [],
+        sites: [],
       });
     }
     const entry = byRule.get(key);
     if (f.snippet && entry.where.length < 8) entry.where.push(f.snippet);
+    /*
+      Keep where it lives, not just what it looked like.
+
+      impeccable 4.x reports `file` and `line` with every finding and this
+      parser dropped both, so a recommendation arrived as prose — "the icon tile
+      above a heading is the universal AI feature-card template" — with nothing
+      saying which of four cards, in which file. An agent then re-derives the
+      location that was already in the payload, which is slow when it works and
+      wrong when it does not. A finding worth acting on has to say where.
+    */
+    if (f.file && entry.sites.length < 8) {
+      entry.sites.push({ file: f.file, line: f.line ?? null, snippet: f.snippet ?? null });
+    }
   }
 
   const findings = [...byRule.values()].sort(

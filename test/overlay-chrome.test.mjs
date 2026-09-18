@@ -218,3 +218,115 @@ describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
     }
   });
 });
+
+/*
+  A resize must not re-lay the app out on every frame.
+
+  The user's report was that the website — not the overlay — flickers while the
+  window is resized. Measuring found no wrong values and no oscillation: through
+  a 24-step resize the bar stayed 53px and the rail stayed 216px, so nothing the
+  reservation decides actually changed. What changed was that it rewrote height,
+  width and transform on <body> in pixels on every animation frame, and a
+  transform on body makes it the containing block for every fixed descendant, so
+  each write re-rasterized that whole layer.
+
+  The page's box is a calc() against 100dvh/100dvw now, so the browser follows
+  the window itself. MEASURED after: 0 style writes during the drag, down from
+  three per frame, and one forced layout at the end for the collapsed-margin
+  correction.
+*/
+describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  test('dragging the window writes no styles and forces no layout', async () => {
+    const { srv, url } = await serve('<main><h1 class="title" style="margin-top:40px">Hi</h1><p>body</p></main>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-perframe-'));
+    try {
+      let during = null;
+      let after = null;
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          await page.waitForTimeout(700);
+          await page.evaluate(() => {
+            window.__w = { writes: 0, reads: 0 };
+            const sp = document.body.style.setProperty.bind(document.body.style);
+            document.body.style.setProperty = (...a) => {
+              window.__w.writes += 1;
+              return sp(...a);
+            };
+            const gbcr = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function (...a) {
+              if (this === document.body) window.__w.reads += 1;
+              return gbcr.apply(this, a);
+            };
+          });
+
+          for (let i = 0; i < 20; i++) {
+            await page.setViewportSize({ width: 1000 + i * 30, height: 700 + i * 10 });
+            await page.waitForTimeout(16);
+          }
+          during = await page.evaluate(() => ({ ...window.__w }));
+          await page.waitForTimeout(500); // past the 120ms settle
+          after = await page.evaluate(() => ({ ...window.__w }));
+          await page.close();
+        },
+      });
+
+      assert.equal(during.writes, 0, `${during.writes} style writes during a drag — the per-frame relayout is back`);
+      assert.equal(during.reads, 0, `${during.reads} forced layouts during a drag`);
+      // The correction still has to happen, just once, and only at the end.
+      assert.ok(after.reads <= 2, `${after.reads} forced layouts after settling — expected the single correction`);
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the page still tracks the window while nothing runs', async () => {
+    const { srv, url } = await serve('<main><h1 class="title">Hi</h1></main>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-track-'));
+    try {
+      const seen = [];
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1000, height: 700 },
+        onReady: async (page) => {
+          for (const [w, h] of [[1000, 700], [1500, 950], [820, 600]]) {
+            await page.setViewportSize({ width: w, height: h });
+            await page.waitForTimeout(400);
+            seen.push(
+              await page.evaluate(() => {
+                const b = document.body.getBoundingClientRect();
+                return { w: Math.round(b.width), h: Math.round(b.height), vw: innerWidth, vh: innerHeight };
+              }),
+            );
+          }
+          await page.close();
+        },
+      });
+
+      for (const s of seen) {
+        // The page occupies the window minus the rail and the bar, no more.
+        assert.ok(s.w <= s.vw && s.w > s.vw - 400, `width ${s.w} does not track a ${s.vw}px window`);
+        assert.ok(s.h <= s.vh && s.h > s.vh - 200, `height ${s.h} does not track a ${s.vh}px window`);
+      }
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

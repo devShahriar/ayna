@@ -1,0 +1,22 @@
+{
+  "name": "ask n2 about a real service and draw the d3 knowledge graph",
+  "start": "/",
+  "viewport": { "width": 1920, "height": 1080 },
+  "steps": [
+    { "do": "goto", "url": "/" },
+    { "do": "click", "on": "button[aria-label=\"Open the diagram list\"]" },
+    { "do": "click", "on": "button.rail__new" },
+    { "do": "wait", "for": "textarea[aria-label=\"Ask the agents\"]", "timeout": 20000 },
+    { "do": "click", "on": "textarea[aria-label=\"Ask the agents\"]" },
+    { "do": "type", "on": "textarea[aria-label=\"Ask the agents\"]",
+      "text": "Query n2 for the service o2o-cart-order-store-my-ppe. Use search_brain and get_entity - it IS in the brain, with datadog and ai:correlation sources. Tell me its pods, its dependencies and what is correlated to it, then draw a d3 knowledge graph of it on the canvas." },
+    { "do": "click", "on": "button.tekton-console__send" },
+    { "do": "wait", "ms": 60000 },
+    { "do": "wait", "ms": 60000 },
+    { "do": "wait", "ms": 60000 },
+    { "do": "wait", "ms": 60000 },
+    { "do": "wait", "ms": 60000 },
+    { "do": "wait", "ms": 60000 },
+    { "do": "expect", "absent": "zzzzz" }
+  ]
+}

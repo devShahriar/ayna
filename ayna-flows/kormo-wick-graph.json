@@ -1,0 +1,14 @@
+{
+  "name": "the WICK infra audit diagram with the d3 graph the agent built",
+  "start": "/d/d-44c6da48c3e3bf70",
+  "viewport": { "width": 1920, "height": 1080 },
+  "steps": [
+    { "do": "goto", "url": "/d/d-44c6da48c3e3bf70" },
+    { "do": "wait", "ms": 8000 },
+    { "do": "click", "on": "button[aria-label=\"Fold the chat\"]" },
+    { "do": "wait", "ms": 3000 },
+    { "do": "click", "on": "button.tekton-reset-view, button:has-text(\"Reset view\")" },
+    { "do": "wait", "ms": 4000 },
+    { "do": "expect", "absent": "zzzzz" }
+  ]
+}

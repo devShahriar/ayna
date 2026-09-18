@@ -1673,13 +1673,24 @@
       The one event that most obviously needs a re-measure was the one this
       skipped.
     */
+    /*
+      The window's size is deliberately NOT in this key any more.
+
+      It was, because the page's box was written in pixels and nothing else
+      recomputed it when the window changed. The cost was that every frame of a
+      resize invalidated the key and rewrote height, width and transform on
+      <body> — and a transform on body makes it the containing block for every
+      fixed descendant, so each write re-rasterized that whole layer. That is the
+      flicker: not wrong values, just the app being re-laid out on every frame of
+      a drag.
+
+      MEASURED across a 24-step resize: the bar stayed 53px and the rail stayed
+      216px for all of it. Nothing this function decides actually changed. The
+      page's box is expressed in calc() below so the browser follows the window
+      itself, which means a resize now does no work here at all.
+    */
     const h = Math.round(bar.getBoundingClientRect().height);
-    const key = [
-      h,
-      consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0,
-      viewportW(),
-      viewportH(),
-    ].join(':');
+    const key = [h, consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0].join(':');
     if (!h) return;
     if (key === reserved) {
       // Same geometry. Only the deferred correction can still be owed.
@@ -1730,7 +1741,9 @@
     */
     const rail = consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0;
 
-    root.style.setProperty('transform', 'translate(' + rail + 'px, ' + h + 'px)', 'important');
+    // Driven by the variables, so moving the bar moves the page without this
+    // function running again.
+    root.style.setProperty('transform', 'translate(var(--ayna-inset-left, 0px), var(--ayna-inset-top, 0px))', 'important');
     /*
       Viewport units, not percentages.
 
@@ -1751,11 +1764,24 @@
     document.documentElement.style.setProperty('--ayna-inset-left', rail + 'px');
     document.documentElement.style.setProperty('--ayna-inset-bottom', '0px');
 
-    const room = Math.max(120, viewportH() - h);
-    const across = Math.max(200, viewportW() - rail);
-    root.style.setProperty('height', room + 'px', 'important');
-    root.style.setProperty('min-height', room + 'px', 'important');
-    root.style.setProperty('width', across + 'px', 'important');
+    /*
+      Let the browser do the arithmetic.
+
+      This was `viewportH() - h` in pixels, rewritten from JS on every resize
+      frame. `100dvh` is the dynamic viewport and MEASURED in a real headed
+      window it matches innerHeight exactly (951 = 951, 1800 = 1800), so the
+      browser can track the window with no help. The old note here warned off
+      `100vh` — rightly, it is the *static* viewport and disagrees — but dvh is a
+      different unit and it is the correct one.
+
+      The overshoot correction rides as its own variable rather than overwriting
+      the height, so a measured fix survives the next time the bar changes size.
+    */
+    const tall = 'max(120px, calc(100dvh - var(--ayna-inset-top, 0px) - var(--ayna-overshoot, 0px)))';
+    const wide = 'max(200px, calc(100dvw - var(--ayna-inset-left, 0px)))';
+    root.style.setProperty('height', tall, 'important');
+    root.style.setProperty('min-height', tall, 'important');
+    root.style.setProperty('width', wide, 'important');
 
     /*
       Then check, because the arithmetic is not the whole story.
@@ -1785,15 +1811,19 @@
   function applyOvershoot() {
     if (!bar) return;
     correctedFor = reserved;
-    const root = document.body;
-    const h = Math.round(bar.getBoundingClientRect().height);
-    const room = Math.max(120, viewportH() - h);
-    const overshoot = Math.round(root.getBoundingClientRect().bottom - viewportH());
-    if (overshoot > 0) {
-      const corrected = Math.max(120, room - overshoot) + 'px';
-      root.style.setProperty('height', corrected, 'important');
-      root.style.setProperty('min-height', corrected, 'important');
-    }
+    /*
+      Publish the difference, do not overwrite the height.
+
+      This used to replace the computed height with a pixel value, which undid
+      the calc() that keeps the page tracking the window — one measurement and
+      the page stopped following the window again. As a variable the correction
+      composes with the calc instead of replacing it.
+    */
+    const docEl = document.documentElement;
+    const previous = parseFloat(getComputedStyle(docEl).getPropertyValue('--ayna-overshoot')) || 0;
+    const over = Math.round(document.body.getBoundingClientRect().bottom - viewportH());
+    const next = Math.max(0, previous + over);
+    if (Math.abs(next - previous) >= 1) docEl.style.setProperty('--ayna-overshoot', next + 'px');
   }
 
   /** Put the page back exactly as it was; a review must leave no trace. */
@@ -1803,6 +1833,7 @@
     document.documentElement.style.removeProperty('--ayna-inset-top');
     document.documentElement.style.removeProperty('--ayna-inset-bottom');
     document.documentElement.style.removeProperty('--ayna-inset-left');
+    document.documentElement.style.removeProperty('--ayna-overshoot');
     root.style.removeProperty('padding-top');
     root.style.removeProperty('transform');
     root.style.removeProperty('height');
@@ -1935,9 +1966,14 @@
       relayoutQueued = false;
       hide(); // the hover highlight is stale the moment anything moves
       // Follow the window cheaply; measure once it stops. See reserveForBar.
+      // Nothing to do per frame now; the page follows the window in CSS. The
+      // collapsed-margin correction is still re-measured once the drag stops.
       reserveForBar({ correct: false });
       clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => reserveForBar({ correct: true }), 120);
+      settleTimer = setTimeout(() => {
+        correctedFor = '';
+        reserveForBar({ correct: true });
+      }, 120);
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
       if (panel) {
