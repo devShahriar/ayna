@@ -590,6 +590,46 @@ door, expires the leases of workers that crashed, and clears the pointer files
 that otherwise accumulate forever. It never opens a browser and never edits a
 file.
 
+## When they press a direction instead of writing one
+
+The comment box carries a row of directions — **Bolder · Quieter · Polish ·
+Layout · Type · Colour**. Pressing one does not edit anything. It puts a
+`design-request` on the event log and waits for you:
+
+```json
+{"event":"design-request","action":"bolder","note":"but keep it on one line",
+ "selector":"#hero > .hero-inner > h1","wants":"css-variants",
+ "respondWith":"ayna preview --selector <sel> --css <css> --label <label>"}
+```
+
+**Answer it with variants, not with an edit.** Three of them, each varying a
+*different* axis, all recognisably the same brand:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" preview \
+  --selector "#hero > .hero-inner > h1" \
+  --css "font-size: 4rem; letter-spacing: -.03em"      --label "scale" \
+  --css "font-weight: 800; font-size: 3.2rem"          --label "weight" \
+  --css "font-size: 3.4rem; color: var(--accent)"      --label "colour"
+```
+
+They render in their window and **nothing reaches source until they keep one**.
+The command blocks and tells you which.
+
+Four things that make the answer good rather than merely present:
+
+- **Vary different axes.** Three variants of "slightly tighter" is one variant
+  offered three times. Hierarchy, layout topology, type, colour, density,
+  structure — pick three, not one three ways.
+- **Stay inside the identity.** Read the page's existing tokens and computed
+  styles first and work within them. New fonts and new hues are a redesign, and
+  nobody asked for one — `note` saying "redesign this" is the only thing that
+  does.
+- **`note` is half the brief.** "bolder" plus "but keep it on one line" is a
+  better instruction than either piece alone.
+- **Never file a task for it.** A pressed button is a question. If the answer is
+  "this needs a real change, not CSS", say so in `ayna say` and let them decide.
+
 ## Reviewing the design, not just the layout
 
 `ayna audit` answers *what can this page prove is wrong*. That is the honest

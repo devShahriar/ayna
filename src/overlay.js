@@ -282,7 +282,7 @@
     .${NS}-line[data-lane=you] b { color: var(--ayna-you, #e8b478); }
     .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c9a2e8); }
     .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #79d4c0); }
-    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f7fb); }
+    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f2ef); }
     .${NS}-line[data-kind=you] span { color: var(--ayna-you, #e8b478); }
     .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #7bc47f); }
     .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #e0b978); }
@@ -411,6 +411,23 @@
     }
     .${NS}-sel:empty { display: none; }
     .${NS}-hint { color: var(--ayna-dim, rgba(255,255,255,.46)); font-size: 12px; margin: 8px 0; }
+    .${NS}-acts {
+      display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 2px;
+      padding-top: 10px; border-top: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+    }
+    .${NS}-act {
+      font: 500 11.5px/1 -apple-system, system-ui, sans-serif;
+      padding: 6px 10px; border-radius: 999px; cursor: pointer;
+      background: transparent; color: var(--ayna-muted, rgba(255,255,255,.62));
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+    }
+    /* The one warm fill that is legitimate: it marks state, not a surface. */
+    .${NS}-act:hover {
+      color: var(--ayna-text, #f4f2ef);
+      border-color: var(--ayna-accent, #de9446);
+      background: rgba(222,148,70,.12);
+    }
+    .${NS}-act[data-busy] { opacity: .55; pointer-events: none; }
     .${NS}-attach { color: var(--ayna-accent, #de9446); text-decoration: underline; cursor: pointer; }
     .${NS}-pop.${NS}-dragover { outline: 2px dashed var(--ayna-accent, #de9446); outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
@@ -436,7 +453,7 @@
       border: 1px solid var(--ayna-accent, #de9446);
     }
     .${NS}-cancel {
-      background: transparent; color: var(--ayna-panel-text, #374151);
+      background: transparent; color: var(--ayna-panel-text, #f4f2ef);
       border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     /*
@@ -2071,6 +2088,24 @@
     return { x, y, width: right - x, height: bottom - y };
   }
 
+  /*
+    The directions worth naming.
+
+    Borrowed from impeccable (Apache-2.0), whose live mode is built on the same
+    observation: on an existing surface the job is nearly always variation
+    WITHIN an identity rather than a new identity, and there are only so many
+    axes that variation runs along. A short list you can point at beats a
+    sentence you have to compose.
+  */
+  const ACTIONS = [
+    { id: 'bolder', label: 'Bolder', hint: 'more presence — scale, weight or contrast' },
+    { id: 'quieter', label: 'Quieter', hint: 'pull it back — less colour, ornament or weight' },
+    { id: 'polish', label: 'Polish', hint: 'same design, better rhythm and detail' },
+    { id: 'layout', label: 'Layout', hint: 'rearrange it — a different structure, not different spacing' },
+    { id: 'typeset', label: 'Type', hint: 'pairing, scale and weight' },
+    { id: 'colorize', label: 'Colour', hint: 'a different colour strategy, from the palette already here' },
+  ];
+
   function openPopover(el, region) {
     closePopover();
     state.picking = false;
@@ -2122,6 +2157,25 @@
       '<div class="' + NS + '-hint">Paste or ' +
       '<label class="' + NS + '-attach">attach an image<input type="file" accept="image/*" multiple hidden></label>' +
       ' to show what you mean</div>' +
+      /*
+        Or ask for a direction instead of describing one.
+
+        Writing "make this bolder" and waiting for an edit is the slow path, and
+        the words are the lossy part: the intent is one of a small number of
+        directions, and naming it is faster and less ambiguous than a sentence
+        about it. The vocabulary is impeccable's, because it is a good one and
+        because a design tool this sits next to already speaks it.
+
+        These do not edit anything. Each asks for VARIANTS, which arrive through
+        the preview bar that already exists — rendered in this window, source
+        untouched until one is kept. That is the same promise the rest of the
+        review makes, so an action is a question here, never a change.
+      */
+      '<div class="' + NS + '-acts">' +
+        ACTIONS.map((a) =>
+          '<button class="' + NS + '-act" data-action="' + a.id + '" title="' + a.hint + '">' + a.label + '</button>',
+        ).join('') +
+      '</div>' +
       '<div class="' + NS + '-sel"></div>' +
       '</div>' +
       '<div class="' + NS + '-row">' +
@@ -2222,6 +2276,39 @@
         if (evt === 'drop') {
           for (const f of (ev.dataTransfer && ev.dataTransfer.files) || []) attach(f);
         }
+      });
+    }
+
+    /*
+      An action asks for variants; it does not edit.
+
+      The request goes out on the same event log everything else uses, so
+      whichever agent is listening answers it — and it answers with
+      `ayna preview`, which puts the variants in THIS window and leaves the
+      source alone until one is kept. The note the user typed rides along when
+      there is one: "bolder" plus "but keep it on one line" is a better brief
+      than either half.
+    */
+    for (const button of pop.querySelectorAll('.' + NS + '-act')) {
+      button.addEventListener('click', async () => {
+        if (!window.__aynaDesignRequest) return;
+        const note = pop.querySelector('textarea').value.trim();
+        for (const b of pop.querySelectorAll('.' + NS + '-act')) b.setAttribute('data-busy', '1');
+
+        await window
+          .__aynaDesignRequest({
+            action: button.dataset.action,
+            note: note || null,
+            selector: sel,
+            url: location.href,
+            rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+            html: (described[0]?.outerHTML ?? '').slice(0, 1200),
+            styles: described[0]?.styles ?? null,
+          })
+          .catch(() => {});
+
+        clearSelection();
+        closePopover();
       });
     }
 

@@ -330,3 +330,144 @@ describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_B
     }
   });
 });
+
+/*
+  ayna's own chrome, held to ayna's own floor.
+
+  The contrast check exists and is applied to everybody else's UI; it had never
+  been pointed at the review panel. Repainting the popover from white to
+  near-black left one control behind — Cancel kept `#374151`, a dark grey from
+  the light-panel era, measuring 1.82:1 where 4.5 is required. It was invisible
+  in the place it was most likely to matter and nowhere else: the theme
+  overrides that fallback, so only the paths that pass no theme showed it, which
+  is every test, every probe, and any project that never wrote a config.
+
+  A fallback is not a detail. It is what an unconfigured install looks like.
+*/
+describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  // Deliberately no `theme`: this measures the fallbacks, which is what an
+  // install with no ayna.config.json actually renders.
+  test('every control in the comment box is readable with no theme configured', async () => {
+    const { srv, url } = await serve('<main style="padding:60px"><h1 class="title">Hello</h1><p>Body copy.</p></main>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-selfcontrast-'));
+    try {
+      let rows = [];
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        viewport: { width: 1200, height: 820 },
+        onReady: async (page) => {
+          await page.click('.title');
+          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          await page.waitForTimeout(350);
+
+          rows = await page.evaluate(() => {
+            const lum = (c) => {
+              const m = /rgba?\(([^)]+)\)/.exec(c);
+              if (!m) return null;
+              const [r, g, b] = m[1].split(',').map(Number);
+              const f = (x) => {
+                const v = x / 255;
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+              };
+              return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+            };
+            /*
+              Composite the translucent layers, do not stop at the first one.
+
+              src/audit.mjs refuses to guess here and skips the element, which
+              is right when auditing somebody else's page: an invented number is
+              worse than an honest gap. But ayna's own chrome is deliberately
+              translucent — a 6% white pill on a near-black bar, a rail tinted
+              over the app — so stopping at the first painted ancestor read
+              rgba(255,255,255,.06) as WHITE and reported three readable buttons
+              at 1.12:1. Skipping them would test nothing at all.
+
+              So: gather the translucent layers, then composite them over the
+              first opaque one. That is what the eye sees.
+            */
+            const parse = (v) => {
+              const m = /rgba?\(([^)]+)\)/.exec(v || '');
+              if (!m) return null;
+              const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+              if (p.length < 3 || p.some(Number.isNaN)) return null;
+              return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+            };
+            const backdrop = (el) => {
+              const stack = [];
+              for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+                const st = getComputedStyle(n);
+                if (st.backgroundImage && st.backgroundImage !== 'none') return null; // unmeasurable
+                const bg = parse(st.backgroundColor);
+                if (!bg || bg.a === 0) continue;
+                if (bg.a === 1) {
+                  // Fold the translucent layers down onto this opaque base.
+                  let base = bg;
+                  for (const over of stack.reverse()) {
+                    base = {
+                      r: over.r * over.a + base.r * (1 - over.a),
+                      g: over.g * over.a + base.g * (1 - over.a),
+                      b: over.b * over.a + base.b * (1 - over.a),
+                      a: 1,
+                    };
+                  }
+                  return `rgb(${Math.round(base.r)}, ${Math.round(base.g)}, ${Math.round(base.b)})`;
+                }
+                stack.push(bg);
+              }
+              return null; // never reached an opaque layer: not measurable
+            };
+            const out = [];
+            for (const el of document.querySelectorAll('[data-ayna] button, [data-ayna] textarea, [data-ayna] .ayna-ov-hint, [data-ayna] .ayna-ov-sel')) {
+              const r = el.getBoundingClientRect();
+              if (r.width < 2 || r.height < 2) continue;
+              const cs = getComputedStyle(el);
+              const fg = parse(cs.color);
+              // A translucent foreground is composited too; the audit skips
+              // those and so does this.
+              if (!fg || fg.a < 1) continue;
+              const under = backdrop(el);
+              if (!under) continue;
+              const a = lum(cs.color);
+              const b = lum(under);
+              if (a === null || b === null) continue;
+              const [hi, lo] = [a, b].sort((x, y) => y - x);
+              const size = parseFloat(cs.fontSize);
+              const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
+              out.push({
+                what: (el.className || el.tagName).toString().slice(0, 40),
+                text: (el.textContent || '').trim().slice(0, 24),
+                ratio: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2)),
+                needs: large ? 3 : 4.5,
+              });
+            }
+            return out;
+          });
+          await page.close();
+        },
+      });
+
+      assert.ok(rows.length >= 4, `only measured ${rows.length} controls — the panel did not open`);
+      const failed = rows.filter((r) => r.ratio < r.needs);
+      assert.deepEqual(
+        failed,
+        [],
+        `ayna's own controls fail the contrast floor it enforces:\n` +
+          failed.map((f) => `  ${f.what} "${f.text}" ${f.ratio}:1 needs ${f.needs}`).join('\n'),
+      );
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

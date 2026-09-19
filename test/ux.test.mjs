@@ -16,7 +16,7 @@ import path from 'node:path';
 import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
-import { pending as pendingWork } from '../src/events.mjs';
+import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
 import { hasBrowser } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
@@ -905,5 +905,97 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
     assert.ok(answer, 'a refusal is an answer and has to travel too');
     assert.equal(answer.css, null, 'nothing to write when nothing was chosen');
     assert.equal(answer.action, 'try-something-else');
+  });
+});
+
+/*
+  Asking for a direction, instead of describing one.
+
+  Writing "make this bolder" and waiting for an edit is the slow path, and the
+  words are the lossy part: the intent is almost always one of a small number of
+  directions, and naming it is faster and less ambiguous than a sentence about
+  it. The vocabulary is impeccable's, whose live mode rests on the same
+  observation — on an existing surface the job is variation WITHIN an identity,
+  and there are only so many axes it runs along.
+
+  The load-bearing property is that pressing one changes nothing. It asks for
+  variants, which arrive through the preview bar that already exists: rendered
+  in the window, source untouched until one is kept. An action that filed work,
+  or edited a file, would be a redesign nobody agreed to.
+*/
+describe('asking for a design direction', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  async function pressAction(action, { note = null } = {}) {
+    const { srv, url } = await pollingServer(
+      CARD_CSS + '<div class="card" id="c0"><h3>Ask in plain language</h3></div>',
+    );
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-act-'));
+    try {
+      const store = await openStore(dir);
+      let offered = [];
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store,
+        viewport: { width: 1100, height: 780 },
+        onReady: async (page) => {
+          await page.click('#c0 h3');
+          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          await page.waitForTimeout(300);
+          offered = await page.$$eval('.ayna-ov-act', (els) => els.map((e) => e.dataset.action));
+          if (note) await page.fill('.ayna-ov-pop textarea', note);
+          await page.click(`.ayna-ov-act[data-action=${action}]`);
+          await page.waitForTimeout(500);
+          await page.close();
+        },
+      });
+      const { events } = await pendingEvents(dir);
+      return { offered, events, tasks: await store.list() };
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('the directions are offered, and pressing one asks for variants', async () => {
+    const { offered, events } = await pressAction('bolder');
+    assert.deepEqual(offered, ['bolder', 'quieter', 'polish', 'layout', 'typeset', 'colorize']);
+
+    const req = events.find((e) => e.event === 'design-request');
+    assert.ok(req, 'no design-request reached the log');
+    assert.equal(req.action, 'bolder');
+    assert.equal(req.wants, 'css-variants');
+    assert.match(req.respondWith, /ayna preview/);
+    assert.ok(req.selector, 'the agent needs to know what was pointed at');
+  });
+
+  /*
+    "bolder" plus "but keep it on one line" is a better brief than either half,
+    and the note is already typed — throwing it away would make the button the
+    worse option whenever the user had anything to add.
+  */
+  test('anything typed rides along with the direction', async () => {
+    const { events } = await pressAction('typeset', { note: 'but keep it on one line' });
+    const req = events.find((e) => e.event === 'design-request');
+    assert.equal(req.action, 'typeset');
+    assert.equal(req.note, 'but keep it on one line');
+  });
+
+  test('it files no work and edits nothing — an action is a question', async () => {
+    const { tasks, events } = await pressAction('polish');
+    assert.equal(tasks.length, 0, 'an action must not become a task nobody approved');
+    assert.ok(
+      !events.some((e) => e.event === 'applied' || e.event === 'round'),
+      'nothing may be edited or sent on the strength of a button press',
+    );
   });
 });

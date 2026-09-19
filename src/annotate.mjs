@@ -665,6 +665,43 @@ export async function runAnnotate({
   });
 
   /*
+    "Make this bolder" as a button rather than a sentence.
+
+    The overlay offers a short list of directions — impeccable's vocabulary,
+    which is a good one — and this is how pressing one reaches an agent. It
+    emits a request and nothing else: no edit, no file written, no preview
+    conjured here. The answer is expected to come back as `ayna preview`, which
+    renders variants in this same window and leaves the source alone until the
+    user keeps one.
+
+    That indirection is deliberate. ayna does not generate designs; the agent
+    already reading this log has the codebase and the taste references open, and
+    it is the better author. What it was missing was a way to be asked.
+  */
+  await page.exposeFunction('__aynaDesignRequest', async (req) => {
+    const action = String(req?.action ?? '').trim();
+    if (!action) return { ok: false };
+
+    emit({
+      event: 'design-request',
+      action,
+      note: req.note ?? null,
+      selector: req.selector ?? null,
+      url: req.url ?? url,
+      rect: req.rect ?? null,
+      html: req.html ?? null,
+      styles: req.styles ?? null,
+      // Said plainly, because an agent reading this must not go and edit a file.
+      wants: 'css-variants',
+      respondWith: 'ayna preview --selector <sel> --css <css> --label <label>',
+      action_hint:
+        `Offer three variants for "${action}" on ${req.selector ?? 'the selection'} — ` +
+        'vary a different axis in each, keep the existing identity, and write nothing to source.',
+    });
+    return { ok: true };
+  });
+
+  /*
     A verdict on something the user could see before it was written.
 
     Every other path here edits the source first and asks afterwards, which makes
