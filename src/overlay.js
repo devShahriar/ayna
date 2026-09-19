@@ -56,7 +56,7 @@
   css.textContent = `
     .${NS}-hl {
       position: absolute; pointer-events: none; z-index: 2147483640;
-      border: 2px solid var(--ayna-accent, #2563eb); background: rgba(59,130,246,.12);
+      border: 2px solid var(--ayna-accent, #de9446); background: rgba(222,148,70,.14);
       border-radius: 3px;
     }
     /*
@@ -75,7 +75,7 @@
       position: fixed; z-index: 2147483647; left: var(--ayna-inset-left, 0px); right: 0; top: 0;
       display: flex; align-items: center; gap: 12px;
       flex-wrap: wrap; justify-content: center;
-      background: var(--ayna-bar, #111418); color: var(--ayna-text, #f2f4f8); padding: 10px 16px;
+      background: var(--ayna-bar, #0d0d0f); color: var(--ayna-text, #f4f2ef); padding: 10px 16px;
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
       box-shadow: 0 2px 18px rgba(0,0,0,.35);
     }
@@ -88,23 +88,23 @@
     .${NS}-hint { opacity: .62; }
     /* A segmented control: which mode is on is a fact, not something to infer. */
     .${NS}-modes {
-      display: flex; gap: 2px; background: #23272f; border-radius: 999px; padding: 2px;
+      display: flex; gap: 2px; background: rgba(255,255,255,.06); border-radius: 999px; padding: 2px;
     }
 
     /* The crop leads the box: on a canvas it is the entire comment. */
     .${NS}-preview:empty { display: none; }
     .${NS}-preview {
       position: relative; margin-bottom: 10px; border-radius: 8px; overflow: hidden;
-      background: #f1f3f7; border: 1px solid #dfe3ea; min-height: 34px;
+      background: var(--ayna-panel, #121214); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10)); min-height: 34px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 12px; color: #5b6472;
+      font-size: 12px; color: var(--ayna-dim, rgba(255,255,255,.46));
     }
     .${NS}-preview img { display: block; width: 100%; max-height: 150px; object-fit: contain; }
     .${NS}-cap {
-      position: absolute; left: 6px; bottom: 6px; background: rgba(17,20,24,.82);
+      position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.72);
       color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
     }
-    .${NS}-esc { margin-right: auto; font-size: 12px; color: #6b7280; }
+    .${NS}-esc { margin-right: auto; font-size: 12px; color: var(--ayna-dim, rgba(255,255,255,.46)); }
     /* The verdict buttons appear at two sizes; the card is the comfortable one. */
     .${NS}-card .${NS}-ok, .${NS}-card .${NS}-no {
       height: auto; padding: 7px 14px; border-radius: 8px;
@@ -142,11 +142,31 @@
     .${NS}-console {
       position: fixed; left: 0; top: 0; bottom: 0; z-index: 2147483646;
       width: 216px;
-      background: color-mix(in srgb, var(--ayna-surface, #0b0f14) 70%, transparent);
-      color: var(--ayna-text, #e6e9ef);
-      border-right: 1px solid var(--ayna-line, #1b2431);
+      /*
+        Translucent, and still dark over a white app.
+
+        70% of a near-black over a WHITE page averages to mid-grey — which is
+        exactly what a screenshot showed: a flat #4a4a4a slab down the left,
+        reading as broken rather than as glass. Transparency alone cannot hold a
+        dark rail over a light page; the blur is what makes it read as a pane
+        with the app behind it instead of a grey fill.
+
+        A backdrop blur does not fix it either: blurring a uniform white page
+        returns white. So the tint is chosen from what is actually behind —
+        see setRailTint. A dark app gets the asked-for ~30% see-through; a light
+        one gets enough opacity to stay dark, because a grey slab is not glass.
+      */
+      background: color-mix(in srgb, var(--ayna-surface, #0a0a0b) var(--ayna-rail-tint, 88%), transparent);
+      color: var(--ayna-text, #f4f2ef);
+      border-right: 1px solid var(--ayna-line, rgba(255,255,255,.075));
       display: flex; flex-direction: column;
       font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+      .${NS}-console {
+        -webkit-backdrop-filter: blur(22px) saturate(1.4);
+        backdrop-filter: blur(22px) saturate(1.4);
+      }
     }
     /* Collapsed to a spine: still legible, costs 34px. */
     .${NS}-console.${NS}-min { width: 34px; }
@@ -155,38 +175,62 @@
     .${NS}-console.${NS}-min .${NS}-console-head { padding: 8px 4px; justify-content: center; }
     .${NS}-console-head {
       display: flex; align-items: center; gap: 7px; padding: 7px 10px; flex-wrap: wrap;
-      border-bottom: 1px solid #161e29; flex: none;
+      border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075)); flex: none;
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
     .${NS}-console-head .${NS}-dotlive {
-      width: 7px; height: 7px; border-radius: 50%; background: var(--ayna-good, #34d399); flex: none;
+      width: 7px; height: 7px; border-radius: 50%; background: var(--ayna-good, #7bc47f); flex: none;
     }
     .${NS}-console-head button {
-      background: transparent; border: 0; color: #9aa4b2; cursor: pointer;
+      background: transparent; border: 0; color: var(--ayna-muted, rgba(255,255,255,.62)); cursor: pointer;
       font: inherit; padding: 2px 8px; border-radius: 6px;
     }
-    .${NS}-console-head button:hover { background: #161e29; color: #e6e9ef; }
+    .${NS}-console-head button:hover { background: var(--ayna-line, rgba(255,255,255,.075)); color: var(--ayna-text, #f4f2ef); }
     .${NS}-console-head .${NS}-spacer { margin-left: auto; }
     .${NS}-agents { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; flex: 1 1 100%; }
     .${NS}-agents:empty { display: none; }
     .${NS}-agent {
       display: inline-flex; align-items: center; gap: 6px;
-      border: 1px solid var(--ayna-line, #2a3444); border-radius: 999px; padding: 1px 7px;
+      border: 1px solid var(--ayna-line, rgba(255,255,255,.075)); border-radius: 999px; padding: 1px 7px;
       font: 500 10.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-      color: var(--ayna-muted, #9aa4b2);
+      color: var(--ayna-muted, rgba(255,255,255,.62));
     }
     .${NS}-agent i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
-    .${NS}-agent b { color: #cfd6e0; font-weight: 600; }
+    .${NS}-agent b { color: var(--ayna-text, #f4f2ef); font-weight: 600; }
     /* Running gets the pulse; idle is just outlined. Straight from the legend:
        queued, running, done are three readable states, not one. */
-    .${NS}-agent.${NS}-busy { border-color: var(--ayna-live, #22d3ee); }
+    .${NS}-agent.${NS}-busy { border-color: var(--ayna-live, #e0b978); }
     .${NS}-agent.${NS}-busy i { animation: ${NS}-pulse 2.4s ease-in-out infinite; }
     @keyframes ${NS}-pulse {
-      0%, 100% { box-shadow: 0 0 2px rgba(34,211,238,.30); }
-      50% { box-shadow: 0 0 9px rgba(34,211,238,.75); }
+      0%, 100% { box-shadow: 0 0 2px rgba(224,185,120,.30); }
+      50% { box-shadow: 0 0 9px rgba(224,185,120,.75); }
     }
     .${NS}-console-lines {
       overflow-y: auto; padding: 8px 11px; flex: 1 1 auto; min-height: 0;
+    }
+    .${NS}-empty { padding: 4px 0 0; }
+    .${NS}-empty p { margin: 0; }
+    .${NS}-empty-lead {
+      color: var(--ayna-muted, rgba(255,255,255,.62));
+      font: 600 11.5px/1.5 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-empty dl {
+      margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr;
+      gap: 3px 9px; align-items: baseline;
+    }
+    .${NS}-empty dt {
+      color: var(--ayna-accent, #de9446);
+      font: 600 10.5px/1.5 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-empty dd {
+      margin: 0; color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 10.5px/1.5 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-empty-foot {
+      margin-top: 14px; padding-top: 10px;
+      border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+      color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 10.5px/1.5 -apple-system, system-ui, sans-serif;
     }
     /*
       Let a line be a line.
@@ -205,26 +249,26 @@
       terminal line has always been.
     */
     .${NS}-line { display: block; padding: 2px 0; word-break: break-word; }
-    .${NS}-at { color: var(--ayna-dim, #767f8f); font-style: normal; margin-right: 6px; }
+    .${NS}-at { color: var(--ayna-dim, rgba(255,255,255,.46)); font-style: normal; margin-right: 6px; }
     .${NS}-line b { font-weight: 600; margin-right: 6px; }
-    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #38bdf8); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #a78bfa); }
-    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #2dd4bf); }
+    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #e8b478); }
+    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c9a2e8); }
+    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #79d4c0); }
     .${NS}-phase {
-      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #161e29;
-      color: #7c8798; font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
+      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+      color: var(--ayna-dim, rgba(255,255,255,.46)); font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
       text-transform: uppercase; letter-spacing: .06em;
     }
     .${NS}-phase:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
 
-    .${NS}-line[data-kind=message] span { color: #fff; }
-    .${NS}-line[data-kind=you] b { color: #60a5fa; }
-    .${NS}-line[data-kind=you] span { color: #cfd6e0; }
-    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #34d399); }
-    .${NS}-line[data-kind=audit] span { color: var(--ayna-warn, #f59e0b); }
+    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f2ef); }
+    .${NS}-line[data-kind=you] b { color: var(--ayna-you, #e8b478); }
+    .${NS}-line[data-kind=you] span { color: var(--ayna-text, #f4f2ef); }
+    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #7bc47f); }
+    .${NS}-line[data-kind=audit] span { color: var(--ayna-warn, #e0a458); }
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
-    .${NS}-line[data-kind=gate] b { color: var(--ayna-live, #22d3ee); }
-    .${NS}-line[data-kind=gate] span { color: #a5f3fc; }
+    .${NS}-line[data-kind=gate] b { color: var(--ayna-live, #e0b978); }
+    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #e0b978); }
     /*
       Neon, in the sense that matters: saturated ink on near-black.
 
@@ -235,42 +279,42 @@
       readable, which a glow actively works against.
     */
     .${NS}-console { text-shadow: none; }
-    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #22d3ee); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c084fc); }
-    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #34d399); }
+    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #e8b478); }
+    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c9a2e8); }
+    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #79d4c0); }
     .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f7fb); }
-    .${NS}-line[data-kind=you] span { color: var(--ayna-you, #67e8f9); }
-    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #4ade80); }
-    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #67e8f9); }
-    .${NS}-phase { color: var(--ayna-accent, #d4ff3f); }
+    .${NS}-line[data-kind=you] span { color: var(--ayna-you, #e8b478); }
+    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #7bc47f); }
+    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #e0b978); }
+    .${NS}-phase { color: var(--ayna-accent, #de9446); }
     /* Anchored to the bottom centre: near the element without covering it, and
        in the same place every time so the eye stops hunting for it. */
     .${NS}-preview-bar {
       position: fixed; z-index: 2147483647; left: 50%; bottom: 24px;
       transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
-      background: var(--ayna-bar, #111418); color: var(--ayna-text, #f2f4f8);
-      border: 1px solid var(--ayna-line, #2a3444); border-radius: 999px;
+      background: var(--ayna-bar, #0d0d0f); color: var(--ayna-text, #f4f2ef);
+      border: 1px solid var(--ayna-line, rgba(255,255,255,.075)); border-radius: 999px;
       padding: 7px 9px 7px 15px;
       font: 600 12px/1 -apple-system, system-ui, sans-serif;
       box-shadow: 0 3px 10px rgba(0,0,0,.35);
     }
     .${NS}-preview-bar button {
       border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer;
-      font: inherit; background: #2b313d; color: #e5e7eb;
+      font: inherit; background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef);
     }
     .${NS}-preview-bar button[data-act=prev],
     .${NS}-preview-bar button[data-act=next] { padding: 6px 10px; }
-    .${NS}-preview-bar .${NS}-ok { background: var(--ayna-good, #15803d); color: var(--ayna-on-good, #fff); }
-    .${NS}-preview-bar .${NS}-no { background: #2b313d; color: #e5e7eb; }
-    .${NS}-console-say { display: flex; gap: 6px; padding: 9px 10px; flex-wrap: wrap; border-top: 1px solid #161e29; flex: none; }
+    .${NS}-preview-bar .${NS}-ok { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-preview-bar .${NS}-no { background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef); }
+    .${NS}-console-say { display: flex; gap: 6px; padding: 9px 10px; flex-wrap: wrap; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075)); flex: none; }
     .${NS}-console-say input {
-      flex: 1; background: #0f151c; border: 1px solid #2a3444; border-radius: 8px;
-      color: #e6e9ef; padding: 8px 11px; font: inherit; outline: none;
+      flex: 1; background: rgba(0,0,0,.32); border: 1px solid var(--ayna-line, rgba(255,255,255,.075)); border-radius: 8px;
+      color: var(--ayna-text, #f4f2ef); padding: 8px 11px; font: inherit; outline: none;
     }
-    .${NS}-console-say input:focus { border-color: var(--ayna-you, #38bdf8); }
+    .${NS}-console-say input:focus { border-color: var(--ayna-you, #e8b478); }
     .${NS}-console-say input { flex: 1 1 100%; }
     .${NS}-console-say button {
-      background: var(--ayna-accent, #1f6feb); color: var(--ayna-on-accent, #fff);
+      background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a);
       border: 0; border-radius: 8px; flex: 1 1 100%;
       padding: 7px 12px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
     }
@@ -278,8 +322,8 @@
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
     .${NS}-bar button {
       font: inherit; font-weight: 600; border: 0; border-radius: 999px;
-      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #2563eb);
-      color: var(--ayna-on-accent, #fff);
+      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #de9446);
+      color: var(--ayna-on-accent, #0a0a0a);
     }
     /*
       After the generic rule on purpose: same specificity, so source order
@@ -287,18 +331,18 @@
       and the bar showed four buttons all claiming to be the main action.
     */
     .${NS}-modes button {
-      background: transparent; color: #cbd2df; font-weight: 600;
+      background: transparent; color: var(--ayna-text, #f4f2ef); font-weight: 600;
       padding: 5px 13px; border-radius: 999px;
     }
-    .${NS}-modes button:hover { background: #2d323c; color: #fff; }
-    .${NS}-modes button.${NS}-on { background: #f2f4f8; color: #14171c; }
+    .${NS}-modes button:hover { background: rgba(255,255,255,.12); color: var(--ayna-text, #f4f2ef); }
+    .${NS}-modes button.${NS}-on { background: var(--ayna-text, #f4f2ef); color: var(--ayna-on-accent, #0a0a0a); }
     .${NS}-count { opacity: .7; }
     .${NS}-progress { font-weight: 600; opacity: .8; }
-    .${NS}-progress.${NS}-done { color: #4ade80; opacity: 1; }
-    .${NS}-warn { color: #fbbf24; }
+    .${NS}-progress.${NS}-done { color: var(--ayna-good, #7bc47f); opacity: 1; }
+    .${NS}-warn { color: var(--ayna-warn, #e0a458); }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      background: var(--ayna-accent, #2563eb); color: var(--ayna-on-accent, #fff);
+      background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a);
       border-radius: 4px; padding: 2px 7px;
       font: 500 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.2);
@@ -310,7 +354,7 @@
     }
     .${NS}-marquee {
       position: absolute; z-index: 2147483641; pointer-events: none;
-      border: 2px dashed var(--ayna-accent, #2563eb); background: rgba(59,130,246,.10); border-radius: 3px;
+      border: 2px dashed var(--ayna-accent, #de9446); background: rgba(222,148,70,.12); border-radius: 3px;
       display: flex; align-items: flex-end; justify-content: flex-end; padding: 4px;
       font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff;
     }
@@ -319,20 +363,20 @@
     .${NS}-marquee { text-shadow: 0 1px 2px rgba(0,0,0,.6); }
     .${NS}-drop {
       position: absolute; z-index: 2147483642; pointer-events: none;
-      background: #f59e0b; border-radius: 2px;
+      background: var(--ayna-warn, #e0a458); border-radius: 2px;
       box-shadow: 0 0 0 2px rgba(245,158,11,.25);
     }
     .${NS}-picked {
       position: absolute; pointer-events: none; z-index: 2147483639;
-      border: 2px dashed #f59e0b; background: rgba(245,158,11,.10); border-radius: 3px;
+      border: 2px dashed var(--ayna-warn, #e0a458); background: rgba(222,148,70,.12); border-radius: 3px;
     }
     .${NS}-bar button:disabled { opacity: .4; cursor: not-allowed; }
     .${NS}-bar button.${NS}-ghost {
-      background: transparent; color: #cdd3e0; border: 1px solid #3a4150;
+      background: transparent; color: var(--ayna-text, #f4f2ef); border: 1px solid var(--ayna-line, rgba(255,255,255,.075));
     }
     .${NS}-spin {
       width: 13px; height: 13px; border-radius: 50%; display: inline-block;
-      border: 2px solid #3a4150; border-top-color: #6ea8ff;
+      border: 2px solid var(--ayna-line, rgba(255,255,255,.075)); border-top-color: var(--ayna-you, #e8b478);
       animation: ${NS}-rot .7s linear infinite;
     }
     @keyframes ${NS}-rot { to { transform: rotate(360deg); } }
@@ -340,9 +384,9 @@
       position: fixed; z-index: 2147483646; width: 320px; max-width: calc(100vw - 16px);
       /* The panels follow the app too: a white card in a black UI is ayna
          announcing itself rather than fitting in. */
-      background: var(--ayna-panel, #fff); color: var(--ayna-panel-text, #111);
+      background: var(--ayna-panel, #121214); color: var(--ayna-panel-text, #f4f2ef);
       border-radius: 12px; padding: 14px;
-      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid var(--ayna-panel-line, #c9cfd9);
+      box-shadow: 0 6px 20px rgba(0,0,0,.55); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
       font: 13px/1.5 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column; gap: 0;
     }
@@ -351,34 +395,34 @@
     .${NS}-body { overflow: auto; min-height: 0; }
     .${NS}-pop textarea {
       width: 100%; min-height: 78px; resize: vertical; padding: 9px;
-      color: var(--ayna-panel-text, #111);
-      border: 1px solid var(--ayna-panel-line, #dfe3ea); border-radius: 8px; font: inherit;
-      background: var(--ayna-panel, #fff);
+      color: var(--ayna-panel-text, #f4f2ef);
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10)); border-radius: 8px; font: inherit;
+      background: var(--ayna-panel, #121214);
     }
-    .${NS}-pop textarea:focus { outline: 2px solid var(--ayna-accent, #2563eb); outline-offset: -1px; }
+    .${NS}-pop textarea:focus { outline: 2px solid var(--ayna-accent, #de9446); outline-offset: -1px; }
     /*
       A footnote, not a field. Boxed and grey at the top of the panel it read as
       an input you were meant to fill in, and it occupied the line the crop should
       have had.
     */
     .${NS}-sel {
-      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #6b7280;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ayna-dim, rgba(255,255,255,.46));
       margin-top: 8px; word-break: break-all; max-height: 30px; overflow: hidden;
     }
     .${NS}-sel:empty { display: none; }
-    .${NS}-hint { color: #5b6472; font-size: 12px; margin: 8px 0; }
-    .${NS}-attach { color: var(--ayna-accent, #2563eb); text-decoration: underline; cursor: pointer; }
-    .${NS}-pop.${NS}-dragover { outline: 2px dashed var(--ayna-accent, #2563eb); outline-offset: 3px; }
+    .${NS}-hint { color: var(--ayna-dim, rgba(255,255,255,.46)); font-size: 12px; margin: 8px 0; }
+    .${NS}-attach { color: var(--ayna-accent, #de9446); text-decoration: underline; cursor: pointer; }
+    .${NS}-pop.${NS}-dragover { outline: 2px dashed var(--ayna-accent, #de9446); outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     .${NS}-auto { position: relative; display: inline-flex; }
     .${NS}-auto b {
       position: absolute; left: 2px; bottom: 2px; font-size: 8px; font-weight: 700;
       letter-spacing: .06em; text-transform: uppercase; color: #fff;
-      background: #15803d; border-radius: 3px; padding: 1px 3px;
+      background: var(--ayna-good, #7bc47f); border-radius: 3px; padding: 1px 3px;
     }
     .${NS}-thumbs img {
       width: 48px; height: 48px; object-fit: cover;
-      border-radius: 6px; border: 1px solid #dfe3ea;
+      border-radius: 6px; border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     .${NS}-row {
       display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
@@ -388,12 +432,12 @@
       font: inherit; font-weight: 600; border-radius: 8px; padding: 7px 13px; cursor: pointer;
     }
     .${NS}-save {
-      background: var(--ayna-accent, #2563eb); color: var(--ayna-on-accent, #fff);
-      border: 1px solid var(--ayna-accent, #2563eb);
+      background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a);
+      border: 1px solid var(--ayna-accent, #de9446);
     }
     .${NS}-cancel {
       background: transparent; color: var(--ayna-panel-text, #374151);
-      border: 1px solid var(--ayna-panel-line, #dfe3ea);
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     /*
       A comment you have just filed is not a warning.
@@ -405,13 +449,13 @@
     */
     .${NS}-pin {
       position: absolute; z-index: 2147483645; width: 24px; height: 24px;
-      border-radius: 999px 999px 999px 2px; background: var(--ayna-accent, #2563eb);
-      color: var(--ayna-on-accent, #fff);
+      border-radius: 999px 999px 999px 2px; background: var(--ayna-accent, #de9446);
+      color: var(--ayna-on-accent, #0a0a0a);
       font: 700 12px/24px -apple-system, system-ui, sans-serif; text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
     }
     /* Hover is where it says what clicking will do: remove it. */
-    .${NS}-pin:hover { background: #dc2626; color: #fff; }
+    .${NS}-pin:hover { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-rev {
       position: absolute; z-index: 2147483638; pointer-events: none;
       /*
@@ -422,26 +466,26 @@
         and the colour carried no information because everything had it. Amber and
         red now mean what they say. Blue means "your turn".
       */
-      border: 2px solid var(--ayna-accent, #2563eb); background: rgba(59,130,246,.07);
+      border: 2px solid var(--ayna-accent, #de9446); background: rgba(59,130,246,.07);
       border-radius: 4px; transition: border-color .2s, background-color .2s;
     }
-    .${NS}-rev[data-status=approved] { border-color: #16a34a; background: rgba(22,163,74,.08); }
-    .${NS}-rev[data-status=in_progress] { border-color: #38bdf8; background: rgba(56,189,248,.08); }
-    .${NS}-rev[data-status=proposed] { border-color: #a78bfa; background: rgba(167,139,250,.10); border-style: dashed; }
-    .${NS}-rev[data-status=rejected] { border-color: #ef4444; background: rgba(239,68,68,.10); }
+    .${NS}-rev[data-status=approved] { border-color: var(--ayna-good, #7bc47f); background: rgba(123,196,127,.10); }
+    .${NS}-rev[data-status=in_progress] { border-color: var(--ayna-you, #e8b478); background: rgba(232,180,120,.10); }
+    .${NS}-rev[data-status=proposed] { border-color: var(--ayna-agent, #c9a2e8); background: rgba(201,162,232,.10); border-style: dashed; }
+    .${NS}-rev[data-status=rejected] { border-color: var(--ayna-bad, #e0685f); background: rgba(239,68,68,.10); }
     .${NS}-revbar {
       position: absolute; z-index: 2147483644; display: flex; align-items: center; gap: 4px;
-      padding: 3px; border-radius: 999px; background: #111418;
+      padding: 3px; border-radius: 999px; background: var(--ayna-bar, #0d0d0f);
       box-shadow: 0 4px 14px rgba(0,0,0,.32); user-select: none;
       font: 600 11px/1 -apple-system, system-ui, sans-serif;
     }
     .${NS}-revpin {
       min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px;
-      background: #2563eb; color: #fff; display: flex; align-items: center;
+      background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a); display: flex; align-items: center;
       justify-content: center; cursor: pointer; white-space: nowrap;
     }
-    .${NS}-revpin[data-status=resolved] { background: #15803d; color: #fff; }
-    .${NS}-revpin[data-status=rejected] { background: #dc2626; color: #fff; }
+    .${NS}-revpin[data-status=resolved] { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-revpin[data-status=rejected] { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-revbar button {
       border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
       font: inherit; white-space: nowrap;
@@ -451,14 +495,14 @@
       in the card that opens from it — the same decision painted two ways
       depending on where you happened to click.
     */
-    .${NS}-ok { background: var(--ayna-good, #15803d); color: var(--ayna-on-good, #fff); }
-    .${NS}-no { background: #2b313d; color: #e5e7eb; }
+    .${NS}-ok { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-no { background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef); }
     .${NS}-ok:hover { background: #166534; }
-    .${NS}-no:hover { background: #dc2626; color: #fff; }
+    .${NS}-no:hover { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-panel {
       position: fixed; z-index: 2147483646; right: 16px; width: 340px;
       max-width: calc(100vw - 32px);
-      background: #111418; color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
+      background: var(--ayna-bar, #0d0d0f); color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
       box-shadow: 0 3px 8px rgba(0,0,0,.30); display: flex; flex-direction: column;
       font: 13px/1.5 -apple-system, system-ui, sans-serif; overflow: hidden;
     }
@@ -472,7 +516,7 @@
     }
     .${NS}-panel-list { overflow: auto; min-height: 0; }
     .${NS}-group {
-      padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: #7d8697;
+      padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: var(--ayna-dim, rgba(255,255,255,.46));
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .${NS}-task {
@@ -481,33 +525,33 @@
     }
     .${NS}-task:hover { background: #171b22; }
     .${NS}-dot {
-      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: #2563eb;
+      width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--ayna-accent, #de9446);
     }
-    .${NS}-task[data-status=approved] .${NS}-dot { background: #15803d; }
-    .${NS}-task[data-status=in_progress] .${NS}-dot { background: #38bdf8; }
-    .${NS}-task[data-status=proposed] .${NS}-dot { background: #a78bfa; }
-    .${NS}-task[data-status=rejected] .${NS}-dot { background: #dc2626; }
-    .${NS}-task[data-status=approved] .${NS}-task-text { color: #7d8697; text-decoration: line-through; }
+    .${NS}-task[data-status=approved] .${NS}-dot { background: var(--ayna-good, #7bc47f); }
+    .${NS}-task[data-status=in_progress] .${NS}-dot { background: var(--ayna-you, #e8b478); }
+    .${NS}-task[data-status=proposed] .${NS}-dot { background: var(--ayna-agent, #c9a2e8); }
+    .${NS}-task[data-status=rejected] .${NS}-dot { background: var(--ayna-bad, #e0685f); }
+    .${NS}-task[data-status=approved] .${NS}-task-text { color: var(--ayna-dim, rgba(255,255,255,.46)); text-decoration: line-through; }
     .${NS}-task-text { flex: 1; min-width: 0; }
-    .${NS}-task-meta { font-size: 11px; color: #7d8697; margin-top: 2px; }
+    .${NS}-task-meta { font-size: 11px; color: var(--ayna-dim, rgba(255,255,255,.46)); margin-top: 2px; }
     .${NS}-task-acts { display: flex; gap: 4px; flex: none; }
     .${NS}-task-acts button {
       border: 0; border-radius: 6px; padding: 2px 7px; font: 600 11px/1.6 inherit; cursor: pointer;
-      background: #232a36; color: #cdd3e0;
+      background: #232a36; color: var(--ayna-text, #f4f2ef);
     }
-    .${NS}-task-acts button:hover { background: #15803d; color: #fff; }
-    .${NS}-task-acts button.${NS}-no:hover { background: #dc2626; }
-    .${NS}-empty { padding: 18px 14px; color: #7d8697; }
+    .${NS}-task-acts button:hover { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-task-acts button.${NS}-no:hover { background: var(--ayna-bad, #e0685f); }
+    .${NS}-empty { padding: 18px 14px; color: var(--ayna-dim, rgba(255,255,255,.46)); }
     .${NS}-flash { animation: ${NS}-flash 1.1s ease-out 2; }
     @keyframes ${NS}-flash {
       0%, 100% { box-shadow: none; }
-      40% { box-shadow: 0 0 0 3px #f59e0b; }
+      40% { box-shadow: 0 0 0 3px var(--ayna-warn, #e0a458); }
     }
     .${NS}-card {
       position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
-      background: var(--ayna-panel, #fff); color: var(--ayna-panel-text, #111);
+      background: var(--ayna-panel, #121214); color: var(--ayna-panel-text, #f4f2ef);
       border-radius: 12px; padding: 14px;
-      box-shadow: 0 2px 6px rgba(17,20,24,.14); border: 1px solid var(--ayna-panel-line, #c9cfd9);
+      box-shadow: 0 6px 20px rgba(0,0,0,.55); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
       font: 13px/1.55 -apple-system, system-ui, sans-serif;
       display: flex; flex-direction: column;
     }
@@ -523,8 +567,8 @@
     .${NS}-card[data-status=proposed] .${NS}-badge { background: #ede9fe; color: #5b21b6; }
     .${NS}-card textarea {
       width: 100%; min-height: 54px; resize: vertical; padding: 8px; margin-top: 8px;
-      border: 1px solid var(--ayna-panel-line, #dfe3ea); border-radius: 8px; font: inherit;
-      color: var(--ayna-panel-text, #111); background: var(--ayna-panel, #fff);
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10)); border-radius: 8px; font: inherit;
+      color: var(--ayna-panel-text, #f4f2ef); background: var(--ayna-panel, #121214);
     }
     .${NS}-fix {
       background: #f4f5f8; border-radius: 8px; padding: 8px 10px; margin: 8px 0;
@@ -533,7 +577,7 @@
     .${NS}-card p { margin: 0 0 10px; }
     /* The selector under a comment is a line of prose to the reader, whatever it
        is to the machine — it gets the same floor as the rest. */
-    .${NS}-card .${NS}-when { color: #6b7280; font-size: 12px; margin-bottom: 10px; }
+    .${NS}-card .${NS}-when { color: var(--ayna-dim, rgba(255,255,255,.46)); font-size: 12px; margin-bottom: 10px; }
     .${NS}-pin i { font-style: normal; display: none; }
     .${NS}-pin:hover b { display: none; }
     .${NS}-pin:hover i { display: inline; }
@@ -1244,7 +1288,7 @@
     const g = c.getContext('2d');
     g.clearRect(0, 0, c.width, c.height);
     if (inkPath.length < 2) return;
-    g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ayna-warn').trim() || '#f59e0b';
+    g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ayna-warn').trim() || 'var(--ayna-warn, #e0a458)';
     g.lineWidth = 3;
     g.lineJoin = 'round';
     g.lineCap = 'round';
@@ -2782,7 +2826,7 @@
     the same colour every time for the same name. Hashing the name gives that for
     free and needs no registry of who exists.
   */
-  const AGENT_COLOURS = ['#a78bfa', '#4795c4', '#2dd4bf', '#f59e0b', '#38bdf8', '#f0561f'];
+  const AGENT_COLOURS = ['var(--ayna-agent, #c9a2e8)', '#4795c4', 'var(--ayna-ayna, #79d4c0)', 'var(--ayna-warn, #e0a458)', 'var(--ayna-you, #e8b478)', '#f0561f'];
   const agentColour = (name) => {
     let n = 0;
     for (let i = 0; i < name.length; i++) n = (n * 31 + name.charCodeAt(i)) >>> 0;
@@ -2826,6 +2870,7 @@
     if (!events || !events.length) return;
 
     const lines = consoleEl.querySelector('.' + NS + '-console-lines');
+    lines.querySelector('.' + NS + '-empty')?.remove();
     // Only follow the tail when the reader is already at it; yanking someone back
     // down while they are reading further up is the reason logs get closed.
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 40;
@@ -2844,6 +2889,38 @@
     if (atBottom) lines.scrollTop = lines.scrollHeight;
   }
 
+  /*
+    How see-through the rail can afford to be.
+
+    Transparency is not a look, it is an average with whatever is underneath.
+    Over kormo's near-black canvas 72% reads as glass; over a white landing page
+    the same 72% averages to #4e4e4e — a flat grey slab that reads as a panel
+    which failed to load, which is exactly what a screenshot of it showed.
+
+    So the tint follows the page: dark behind, stay see-through; light behind,
+    take enough opacity to still be dark. Measured off the first ancestor that
+    actually paints a background, the same way the contrast checks resolve a
+    backdrop, because `transparent` on body tells you nothing.
+  */
+  function setRailTint() {
+    const paints = (c) => c && c !== 'transparent' && !/^rgba\(0, 0, 0, 0\)$/.test(c);
+    let el = document.body;
+    let colour = null;
+    while (el && !colour) {
+      const bg = getComputedStyle(el).backgroundColor;
+      if (paints(bg)) colour = bg;
+      el = el.parentElement;
+    }
+    const m = /rgba?\(([^)]+)\)/.exec(colour ?? '');
+    // No painted backdrop at all: the browser's own white is what shows.
+    const [r, g, b] = m ? m[1].split(',').map(Number) : [255, 255, 255];
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+    // 72% over something dark, ramping to 94% over white.
+    const tint = Math.round(72 + Math.max(0, Math.min(1, lum)) * 22);
+    document.documentElement.style.setProperty('--ayna-rail-tint', tint + '%');
+  }
+
   function buildConsole() {
     if (consoleEl || !window.__aynaFeed) return;
     consoleEl = document.createElement('div');
@@ -2856,12 +2933,35 @@
         '<span class="' + NS + '-spacer"></span>' +
         '<button data-act="fold">Hide</button>' +
       '</div>' +
-      '<div class="' + NS + '-console-lines"></div>' +
+      /*
+        An empty rail has to say it is empty.
+
+        Before anything happens this is 700px of flat ground between a header
+        and an input, which reads as a panel that failed to load rather than one
+        with nothing in it yet. It is also the first thing anyone sees, so it is
+        the cheapest place to say what the three modes do — the information a
+        first-time user needs at exactly the moment they have it least.
+
+        It is removed by the first real line, and never comes back.
+      */
+      '<div class="' + NS + '-console-lines">' +
+        '<div class="' + NS + '-empty">' +
+          '<p class="' + NS + '-empty-lead">Nothing yet.</p>' +
+          '<dl>' +
+            '<dt>Comment</dt><dd>click anything, say what should change</dd>' +
+            '<dt>Draw</dt><dd>drag a box round an area instead</dd>' +
+            '<dt>Move</dt><dd>drag to reorder, to show the layout you meant</dd>' +
+            '<dt>Browse</dt><dd>use the app normally, links and all</dd>' +
+          '</dl>' +
+          '<p class="' + NS + '-empty-foot">Work lands here as it happens — yours and every agent\'s.</p>' +
+        '</div>' +
+      '</div>' +
       '<div class="' + NS + '-console-say">' +
         '<input placeholder="Tell Claude something — no need for the terminal" />' +
         '<button data-act="say">Send</button>' +
       '</div>';
     document.documentElement.appendChild(consoleEl);
+    setRailTint();
 
     consoleEl.querySelector('[data-act=fold]').addEventListener('click', () => setConsoleMinimised(!consoleMin));
 

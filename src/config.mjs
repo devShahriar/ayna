@@ -69,26 +69,64 @@ function deepMerge(base, override) {
   theme — one line to change the accent is the common case.
 */
 export const DEFAULT_THEME = {
-  surface: '#0b0f14',
-  line: '#1b2431',
-  text: '#e6e9ef',
-  muted: '#9aa4b2',
   /*
-    4.76:1 on the surface, not 3.01.
+    One material, lit in one place.
+
+    The rule is borrowed from kormoOS, which states it in its own stylesheet:
+    black is the MATERIAL, the warm tone is only the LIGHT. Surfaces stay
+    neutral near-black and differ only by elevation; the warm value appears on
+    edges, active states and the one call to action, never as a large fill.
+    When every layer is the same warm family nothing separates from anything,
+    which is the whole of the "muddy" reading.
+
+    What was here before was not a palette at all. `surface`, `line` and `text`
+    were themed while `bar` and `panel` were not in this object, so they fell
+    back to literals in overlay.js that nobody had reconciled: a #111418 bar, a
+    #4a4a4a-reading rail and a pure #fff comment box, three unrelated surfaces
+    on screen at once. A screenshot of it settles the argument — the white card
+    is the loudest thing in the window and it is the least important.
+
+    Anything unset still falls back, so a one-line theme is a valid theme, and
+    a project that wants ayna to wear its own colours still can.
+  */
+
+  // ── surfaces: neutral, separated only by elevation ──────────────────────
+  surface: '#0a0a0b', // the rail and the deepest ground
+  bar: '#0d0d0f', // the docked control bar, one step up
+  panel: '#121214', // popovers and the task list, the raised plane
+  line: 'rgba(255,255,255,0.075)', // an ivory hairline, never a coloured stroke
+
+  // ── ink: neutral, so the warmth on screen is only ever the light ────────
+  text: '#f4f2ef',
+  muted: 'rgba(255,255,255,0.62)',
+  /*
+    4.6:1 on `surface`, not 3.0.
 
     The dimmest ink is still ink somebody has to read — these are the timestamps
-    down the rail — and the first value chosen for it failed the contrast floor
+    down the rail — and the value first chosen for it failed the contrast floor
     ayna enforces on everyone else's UI.
   */
-  dim: '#767f8f',
-  accent: '#1f6feb',
-  live: '#22d3ee',
-  good: '#34d399',
-  warn: '#f59e0b',
-  bad: '#ef4444',
-  you: '#38bdf8',
-  agent: '#a78bfa',
-  ayna: '#2dd4bf',
+  dim: 'rgba(255,255,255,0.46)',
+
+  // The popover is the same material, so it needs no separate ink; these exist
+  // because overlay.js asks for them by name.
+  'panel-text': '#f4f2ef',
+  'panel-line': 'rgba(255,255,255,0.10)',
+
+  // ── the light ───────────────────────────────────────────────────────────
+  // Sampled from kormoOS's gold ramp. Luminance 0.42, so the computed
+  // `--ayna-on-accent` comes out near-black, which is the treatment kormo uses
+  // for its own gold CTAs rather than an accident.
+  accent: '#de9446',
+  live: '#e0b978',
+  you: '#e8b478',
+  agent: '#c9a2e8',
+  ayna: '#79d4c0',
+
+  // ── state ───────────────────────────────────────────────────────────────
+  good: '#7bc47f',
+  warn: '#e0a458',
+  bad: '#e0685f',
 };
 
 export async function loadConfig(rootDir) {
