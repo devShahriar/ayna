@@ -14,6 +14,17 @@
   window.__aynaLoaded = true;
 
   const NS = 'ayna-ov';
+  /*
+    The rail's width, as the browser's arithmetic rather than a number.
+
+    A fixed 264px was an eighth of a 2000px window — prose wrapped at thirty-odd
+    characters while the page beside it had 1700px it was not using. A share of
+    the window, bounded at both ends, follows the window by itself, and because
+    the page's inset points at this same expression a window resize still costs
+    no script at all. Dragging the rail's edge overrides it with --ayna-rail-w.
+  */
+  const RAIL_AUTO = 'clamp(300px, 24vw, 480px)';
+  const RAIL_W = `var(--ayna-rail-w, ${RAIL_AUTO})`;
   const state = {
     picking: true,
     target: null,
@@ -82,10 +93,22 @@
     /* Left group, mode group, actions: the bar is a layout, not a queue. */
     .${NS}-bar > .${NS}-barside { display: flex; align-items: center; gap: 10px; flex: 1 1 0; }
     .${NS}-bar > .${NS}-baractions { justify-content: flex-end; }
+    /*
+      When the bar runs short, the hint gives way — never a button label.
+
+      A 1000px window used to fold "Send to Claude" onto two lines, which made
+      the bar 15px taller at that width and only that width, so dragging the
+      window across it changed what the page had to be moved down by on every
+      frame. The hint is the one thing on the bar that can be cut and still
+      leave every control usable.
+    */
+    .${NS}-bar button { white-space: nowrap; }
+    .${NS}-bar > .${NS}-barside:not(.${NS}-baractions) { min-width: 0; }
     .${NS}-brand {
       font-weight: 700; letter-spacing: .02em; opacity: .55; text-transform: lowercase;
     }
     .${NS}-hint { opacity: .62; }
+    .${NS}-bar .${NS}-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* A segmented control: which mode is on is a fact, not something to infer. */
     .${NS}-modes {
       display: flex; gap: 2px; background: rgba(255,255,255,.06); border-radius: 999px; padding: 2px;
@@ -141,7 +164,10 @@
     */
     .${NS}-console {
       position: fixed; left: 0; top: 0; bottom: 0; z-index: 2147483646;
-      width: 216px;
+      /* See RAIL_AUTO: a share of the window, or whatever the edge was dragged to.
+         border-box because the page is inset by this same expression: with the
+         1px border outside the width, the rail covered the app's first pixel. */
+      width: ${RAIL_W}; box-sizing: border-box;
       /*
         Translucent, and still dark over a white app.
 
@@ -160,7 +186,9 @@
       color: var(--ayna-text, #f4f2ef);
       border-right: 1px solid var(--ayna-line, rgba(255,255,255,.075));
       display: flex; flex-direction: column;
-      font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+      /* Prose in the sans; monospace is kept for what is machine-shaped —
+         times, ids, the round marker — the way a terminal UI uses it. */
+      font: 13px/1.5 -apple-system, system-ui, sans-serif;
     }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       .${NS}-console {
@@ -173,8 +201,21 @@
     .${NS}-console.${NS}-min .${NS}-console-title,
     .${NS}-console.${NS}-min .${NS}-agents { display: none; }
     .${NS}-console.${NS}-min .${NS}-console-head { padding: 8px 4px; justify-content: center; }
+    .${NS}-console.${NS}-min .${NS}-console-head .${NS}-spacer { display: none; }
+    .${NS}-console.${NS}-min .${NS}-console-head button { padding: 2px 6px; font-size: 14px; }
+    /* The edge you drag to make it wider. Double-click puts it back. */
+    .${NS}-grip {
+      position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 1;
+      cursor: col-resize; touch-action: none;
+    }
+    .${NS}-grip::after {
+      content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+      background: transparent; transition: background .15s;
+    }
+    .${NS}-grip:hover::after, .${NS}-grip.${NS}-dragging::after { background: var(--ayna-accent, #de9446); }
+    .${NS}-console.${NS}-min .${NS}-grip { display: none; }
     .${NS}-console-head {
-      display: flex; align-items: center; gap: 7px; padding: 7px 10px; flex-wrap: wrap;
+      display: flex; align-items: center; gap: 7px; padding: 8px 14px; flex-wrap: wrap;
       border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075)); flex: none;
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
@@ -206,31 +247,31 @@
       50% { box-shadow: 0 0 9px rgba(224,185,120,.75); }
     }
     .${NS}-console-lines {
-      overflow-y: auto; padding: 8px 11px; flex: 1 1 auto; min-height: 0;
+      overflow-y: auto; padding: 12px 14px; flex: 1 1 auto; min-height: 0;
     }
     .${NS}-empty { padding: 4px 0 0; }
     .${NS}-empty p { margin: 0; }
     .${NS}-empty-lead {
       color: var(--ayna-muted, rgba(255,255,255,.62));
-      font: 600 11.5px/1.5 -apple-system, system-ui, sans-serif;
+      font: 600 13px/1.5 -apple-system, system-ui, sans-serif;
     }
     .${NS}-empty dl {
       margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr;
-      gap: 3px 9px; align-items: baseline;
+      gap: 6px 10px; align-items: baseline;
     }
     .${NS}-empty dt {
       color: var(--ayna-accent, #de9446);
-      font: 600 10.5px/1.5 -apple-system, system-ui, sans-serif;
+      font: 600 12px/1.45 -apple-system, system-ui, sans-serif;
     }
     .${NS}-empty dd {
       margin: 0; color: var(--ayna-dim, rgba(255,255,255,.46));
-      font: 10.5px/1.5 -apple-system, system-ui, sans-serif;
+      font: 12px/1.45 -apple-system, system-ui, sans-serif;
     }
     .${NS}-empty-foot {
       margin-top: 14px; padding-top: 10px;
       border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
       color: var(--ayna-dim, rgba(255,255,255,.46));
-      font: 10.5px/1.5 -apple-system, system-ui, sans-serif;
+      font: 12px/1.45 -apple-system, system-ui, sans-serif;
     }
     /*
       Let a line be a line.
@@ -248,27 +289,78 @@
       to wrap inside, one word per line. Text flows instead — which is what a
       terminal line has always been.
     */
-    .${NS}-line { display: block; padding: 2px 0; word-break: break-word; }
-    .${NS}-at { color: var(--ayna-dim, rgba(255,255,255,.46)); font-style: normal; margin-right: 6px; }
-    .${NS}-line b { font-weight: 600; margin-right: 6px; }
-    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #e8b478); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c9a2e8); }
-    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #79d4c0); }
-    .${NS}-phase {
-      margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
-      color: var(--ayna-dim, rgba(255,255,255,.46)); font: 600 11px/1.6 -apple-system, system-ui, sans-serif;
-      text-transform: uppercase; letter-spacing: .06em;
-    }
-    .${NS}-phase:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+    /*
+      A conversation and an instrument, told apart.
 
-    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f2ef); }
-    .${NS}-line[data-kind=you] b { color: var(--ayna-you, #e8b478); }
-    .${NS}-line[data-kind=you] span { color: var(--ayna-text, #f4f2ef); }
-    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #7bc47f); }
-    .${NS}-line[data-kind=audit] span { color: var(--ayna-warn, #e0a458); }
+      Every entry was the same 11.5px monospace line — time, lane, text — so
+      "make the hook bigger" and "3 faults found" read as the same kind of thing,
+      and the person's own words, inked amber, were the hardest line on the rail
+      to read. Now what somebody said is prose under their name, and what
+      happened is a step: a glyph, a title, the detail dimmed beneath it.
+
+      The DOM order is unchanged — time, who, text — and the grid places it, so
+      anything reading a line's first span still gets the text.
+    */
+    .${NS}-line {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+      grid-template-areas: "who at" "text text";
+      padding: 8px 0 4px; word-break: break-word;
+    }
+    .${NS}-line > b { grid-area: who; font: 600 12px/1.5 -apple-system, system-ui, sans-serif; }
+    .${NS}-at {
+      grid-area: at; align-self: center; font-style: normal;
+      color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .${NS}-line > span { grid-area: text; color: var(--ayna-text, #f4f2ef); }
+    .${NS}-line[data-lane=you] > b { color: var(--ayna-you, #e8b478); }
+    .${NS}-line[data-lane=claude] > b { color: var(--ayna-agent, #c9a2e8); }
+    /* Their words, set apart the way a quoted message is — not recoloured. */
+    .${NS}-line[data-kind=you] > span {
+      margin-top: 4px; padding: 7px 10px; border-radius: 8px;
+      background: rgba(255,255,255,.045);
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+    }
+    /* The same speaker again is a new paragraph, not a new header. */
+    .${NS}-line.${NS}-cont { grid-template-areas: "text text"; padding-top: 2px; }
+    .${NS}-line.${NS}-cont > b,
+    .${NS}-line.${NS}-cont > .${NS}-at { display: none; }
+
+    .${NS}-line[data-step] {
+      grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px;
+      grid-template-areas: "glyph text" "glyph detail";
+      padding: 8px 0; margin-top: 4px;
+      border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-line[data-step] + .${NS}-line[data-step] { margin-top: 0; }
+    .${NS}-phase + .${NS}-line[data-step] { border-top: 0; }
+    .${NS}-line[data-step] > b {
+      grid-area: glyph; text-align: center;
+      color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 600 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    /* A step's time is in its tooltip; on every row it was 40px of "00:00". */
+    .${NS}-line[data-step] > .${NS}-at { display: none; }
+    .${NS}-line[data-step] > span { font-weight: 500; font-size: 12.5px; }
+    .${NS}-line[data-step] > small {
+      grid-area: detail; color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 11.5px/1.45 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-line[data-tone=good] > b { color: var(--ayna-good, #7bc47f); }
+    .${NS}-line[data-tone=warn] > b { color: var(--ayna-warn, #e0a458); }
+    .${NS}-line[data-tone=live] > b { color: var(--ayna-live, #e0b978); }
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
-    .${NS}-line[data-kind=gate] b { color: var(--ayna-live, #e0b978); }
-    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #e0b978); }
+    .${NS}-line[data-kind=gate][data-tone=warn] > span { color: var(--ayna-warn, #e0a458); }
+
+    .${NS}-phase {
+      display: flex; align-items: center; gap: 8px; margin: 16px 0 2px;
+      color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 500 10.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .${NS}-phase::after {
+      content: ''; flex: 1; height: 1px; background: var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-phase:first-child { margin-top: 0; }
     /*
       Neon, in the sense that matters: saturated ink on near-black.
 
@@ -279,14 +371,6 @@
       readable, which a glow actively works against.
     */
     .${NS}-console { text-shadow: none; }
-    .${NS}-line[data-lane=you] b { color: var(--ayna-you, #e8b478); }
-    .${NS}-line[data-lane=claude] b { color: var(--ayna-agent, #c9a2e8); }
-    .${NS}-line[data-lane=ayna] b { color: var(--ayna-ayna, #79d4c0); }
-    .${NS}-line[data-kind=message] span { color: var(--ayna-text, #f4f2ef); }
-    .${NS}-line[data-kind=you] span { color: var(--ayna-you, #e8b478); }
-    .${NS}-line[data-kind=applied] span { color: var(--ayna-good, #7bc47f); }
-    .${NS}-line[data-kind=gate] span { color: var(--ayna-live, #e0b978); }
-    .${NS}-phase { color: var(--ayna-accent, #de9446); }
     /* Anchored to the bottom centre: near the element without covering it, and
        in the same place every time so the eye stops hunting for it. */
     .${NS}-preview-bar {
@@ -306,17 +390,33 @@
     .${NS}-preview-bar button[data-act=next] { padding: 6px 10px; }
     .${NS}-preview-bar .${NS}-ok { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
     .${NS}-preview-bar .${NS}-no { background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef); }
-    .${NS}-console-say { display: flex; gap: 6px; padding: 9px 10px; flex-wrap: wrap; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075)); flex: none; }
-    .${NS}-console-say input {
-      flex: 1; background: rgba(0,0,0,.32); border: 1px solid var(--ayna-line, rgba(255,255,255,.075)); border-radius: 8px;
-      color: var(--ayna-text, #f4f2ef); padding: 8px 11px; font: inherit; outline: none;
+    /*
+      One box, the send inside it.
+
+      An input over a full-width orange bar was two controls for one act, and
+      the bar was the loudest thing on the rail whether or not there was
+      anything to send. The arrow only lights once there is.
+    */
+    .${NS}-console-say { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075)); }
+    .${NS}-say-box {
+      display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px;
+      background: rgba(0,0,0,.32); border-radius: 10px;
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
-    .${NS}-console-say input:focus { border-color: var(--ayna-you, #e8b478); }
-    .${NS}-console-say input { flex: 1 1 100%; }
+    .${NS}-say-box:focus-within { border-color: var(--ayna-you, #e8b478); }
+    .${NS}-console-say input {
+      flex: 1; min-width: 0; background: transparent; border: 0; outline: none; padding: 6px 0;
+      color: var(--ayna-text, #f4f2ef); font: 13px/1.4 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-console-say input::placeholder { color: var(--ayna-dim, rgba(255,255,255,.46)); }
     .${NS}-console-say button {
+      flex: none; width: 30px; height: 30px; border: 0; border-radius: 7px; cursor: pointer;
+      display: grid; place-items: center;
       background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a);
-      border: 0; border-radius: 8px; flex: 1 1 100%;
-      padding: 7px 12px; font: 600 12px/1 -apple-system, system-ui, sans-serif; cursor: pointer;
+      font: 600 15px/1 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-console-say input:placeholder-shown + button {
+      background: rgba(255,255,255,.08); color: var(--ayna-dim, rgba(255,255,255,.46)); cursor: default;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
@@ -1751,7 +1851,13 @@
       itself, which means a resize now does no work here at all.
     */
     const h = Math.round(bar.getBoundingClientRect().height);
-    const key = [h, consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0].join(':');
+    /*
+      The rail is keyed by what it was told to be, not by what it measures. Its
+      measured width now follows the window, and keying on that would bring back
+      exactly the per-frame rewrite described above.
+    */
+    const railSetting = !consoleEl ? 'none' : consoleMin ? 'min' : railWidth || 'auto';
+    const key = [h, railSetting].join(':');
     if (!h) return;
     if (key === reserved) {
       // Same geometry. Only the deferred correction can still be owed.
@@ -1800,7 +1906,9 @@
       weightless: a strip resting on someone's app is still ayna covering
       something.
     */
-    const rail = consoleEl ? Math.round(consoleEl.getBoundingClientRect().width) : 0;
+    // An expression, not a measurement, so the page follows the rail as the
+    // window resizes without this function running.
+    const rail = !consoleEl ? '0px' : consoleMin ? '34px' : RAIL_W;
 
     // Driven by the variables, so moving the bar moves the page without this
     // function running again.
@@ -1822,7 +1930,7 @@
       pixels below the console no matter what the arithmetic said. Measuring the
       viewport the same way everything else here measures it removes the argument.
     */
-    document.documentElement.style.setProperty('--ayna-inset-left', rail + 'px');
+    document.documentElement.style.setProperty('--ayna-inset-left', rail);
     document.documentElement.style.setProperty('--ayna-inset-bottom', '0px');
 
     /*
@@ -2807,31 +2915,111 @@
   } catch {
     // Private mode; it just opens expanded each time.
   }
+  // A width somebody dragged to, in px; '' means "follow the window".
+  // localStorage, not session: a preferred width is a preference, not a state.
+  let railWidth = '';
+  try {
+    const saved = Number(localStorage.getItem('ayna-rail-w'));
+    if (saved >= 240) railWidth = Math.round(saved) + 'px';
+  } catch {
+    // Unreadable storage; the rail follows the window instead.
+  }
 
+  function setRailWidth(px) {
+    railWidth = px ? Math.round(px) + 'px' : '';
+    const rootStyle = document.documentElement.style;
+    if (railWidth) rootStyle.setProperty('--ayna-rail-w', railWidth);
+    else rootStyle.removeProperty('--ayna-rail-w');
+  }
+
+  /*
+    Drag the right edge to set the width; double-click to hand it back to the
+    window. Bounded so the rail can neither vanish nor take the page: 240px
+    still fits a message box, and past 60% of the window the app under review
+    is the thing being squeezed.
+  */
+  function wireGrip(grip) {
+    const bound = (x) => Math.max(240, Math.min(x, Math.round(innerWidth * 0.6)));
+    grip.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      grip.setPointerCapture(ev.pointerId);
+      grip.classList.add(NS + '-dragging');
+      const move = (m) => setRailWidth(bound(m.clientX));
+      const up = () => {
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        grip.removeEventListener('pointercancel', up);
+        grip.classList.remove(NS + '-dragging');
+        try {
+          localStorage.setItem('ayna-rail-w', String(parseInt(railWidth, 10)));
+        } catch {
+          // It still holds for this window; it just will not be remembered.
+        }
+        reserveForBar();
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+      grip.addEventListener('pointercancel', up);
+    });
+    grip.addEventListener('dblclick', (ev) => {
+      ev.stopPropagation();
+      setRailWidth(0);
+      try {
+        localStorage.removeItem('ayna-rail-w');
+      } catch {
+        // Nothing was remembered, then.
+      }
+      reserveForBar();
+    });
+  }
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const faultList = (counts) =>
+    Object.entries(counts ?? {})
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(' · ');
+
+  /*
+    A message is somebody's words; everything else is a step, which says what
+    happened in a title and keeps the particulars for the line under it — the
+    split that lets the eye run down the titles and stop only where it matters.
+  */
   const WORDING = {
-    round: (e) => ['sent', e.comments ? `${e.comments} comment${e.comments === 1 ? '' : 's'} sent to Claude` : 'sent to Claude'],
-    applied: (e) => ['applied', `changes landed${e.via && e.via !== 'marker' ? ` (noticed by ${e.via.replace('-', ' ')})` : ''}`],
-    task: (e) => ['task', `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}${e.comment ? ' — ' + e.comment : ''}`.trim()],
-    rejected: (e) => ['back', `sent back: ${e.comment ?? ''}`],
-    closed: (e) => ['closed', e.approved ? 'review finished' : 'window closed — pending work kept'],
-    audit: (e) => ['audit', e.clean ? 'no layout faults' : `${Object.values(e.counts ?? {}).reduce((a, b) => a + b, 0)} faults found`],
-    claimed: (e) => ['claimed', `${e.taskId ?? ''} taken by ${e.by ?? 'someone'}`],
-    message: (e) => (e.from === 'user' ? ['you', e.text] : ['claude', e.text]),
-    ready: (e) => ['owed', `${e.pending} still waiting`],
-    preview: (e) => ['preview', `${e.variants?.length ?? 0} to try on ${e.selector}`],
-    'preview-accepted': (e) => ['kept', `${e.label ?? 'variant ' + ((e.variant ?? 0) + 1)} — write it in`],
-    'preview-rejected': () => ['dropped', 'none of them — try something else'],
-    gate: (e) => [
-      'checked',
+    message: (e) => ({ text: e.text }),
+    round: (e) => ({ glyph: '↑', text: 'Sent to Claude', detail: e.comments ? plural(e.comments, 'comment') : '' }),
+    applied: (e) => ({
+      glyph: '✓', tone: 'good', text: 'Changes landed',
+      detail: e.via && e.via !== 'marker' ? `noticed by ${e.via.replace('-', ' ')}` : '',
+    }),
+    task: (e) => ({ glyph: '↳', text: `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}`.trim(), detail: e.comment ?? '' }),
+    rejected: (e) => ({ glyph: '↺', tone: 'warn', text: 'Sent back', detail: e.comment ?? '' }),
+    closed: (e) =>
+      e.approved
+        ? { glyph: '✓', tone: 'good', text: 'Review finished' }
+        : { glyph: '■', text: 'Window closed', detail: 'pending work kept' },
+    audit: (e) =>
+      e.clean
+        ? { glyph: '✓', tone: 'good', text: 'No layout faults' }
+        : {
+            glyph: '!', tone: 'warn',
+            text: plural(Object.values(e.counts ?? {}).reduce((a, b) => a + b, 0), 'fault') + ' found',
+            detail: faultList(e.counts),
+          },
+    claimed: (e) => ({ glyph: '↳', text: `${e.taskId ?? ''} taken`.trim(), detail: `by ${e.by ?? 'someone'}` }),
+    ready: (e) => ({ glyph: '•', tone: 'live', text: `${e.pending} still waiting` }),
+    preview: (e) => ({ glyph: '◐', text: `${plural(e.variants?.length ?? 0, 'variant')} to try`, detail: e.selector ?? '' }),
+    'preview-accepted': (e) => ({
+      glyph: '✓', tone: 'good', text: `Kept ${e.label ?? 'variant ' + ((e.variant ?? 0) + 1)}`, detail: 'write it in',
+    }),
+    'preview-rejected': () => ({ glyph: '×', text: 'None of them', detail: 'try something else' }),
+    gate: (e) =>
       e.unavailable
-        ? `could not measure the page — ${e.unavailable}`
+        ? { glyph: '?', tone: 'warn', text: 'Could not measure the page', detail: e.unavailable }
         : e.clean
-          ? 'no measurable faults left'
-          : Object.entries(e.counts ?? {})
-              .filter(([, n]) => n > 0)
-              .map(([k, n]) => `${n} ${k}`)
-              .join(' · ') + ' still there',
-    ],
+          ? { glyph: '✓', tone: 'good', text: 'No measurable faults left', detail: 're-measured after the change' }
+          : { glyph: '!', tone: 'warn', text: `${faultList(e.counts)} still there`, detail: 're-measured after the change' },
   };
 
   /*
@@ -2860,13 +3048,14 @@
   function consoleLine(e) {
     const wording = WORDING[e.event];
     if (!wording) return null;
-    const [who, text] = wording(e);
+    const { text, detail, glyph, tone } = wording(e);
     if (!text) return null;
 
-    const lane = e.event === 'message' && e.from !== 'user' ? 'claude' : LANE[e.event] ?? 'ayna';
+    const said = e.event === 'message';
+    const lane = said && e.from !== 'user' ? 'claude' : LANE[e.event] ?? 'ayna';
     const row = document.createElement('div');
     row.className = NS + '-line';
-    row.dataset.kind = e.event === 'message' ? (e.from === 'user' ? 'you' : 'message') : e.event;
+    row.dataset.kind = said ? (e.from === 'user' ? 'you' : 'message') : e.event;
     row.dataset.lane = lane;
 
     const t = document.createElement('i');
@@ -2874,8 +3063,14 @@
     t.textContent = clock(e.at ?? Date.now());
 
     const b = document.createElement('b');
-    b.textContent = lane;
-    b.title = who;
+    if (said) {
+      b.textContent = e.from === 'user' ? 'You' : 'Claude';
+    } else {
+      row.dataset.step = '';
+      if (tone) row.dataset.tone = tone;
+      row.title = t.textContent + ' · ' + lane;
+      b.textContent = glyph ?? '·';
+    }
 
     const span = document.createElement('span');
     span.textContent = text;
@@ -2883,6 +3078,11 @@
     row.appendChild(t);
     row.appendChild(b);
     row.appendChild(span);
+    if (detail) {
+      const small = document.createElement('small');
+      small.textContent = detail;
+      row.appendChild(small);
+    }
     return row;
   }
 
@@ -2899,7 +3099,10 @@
     consoleMin = min;
     if (!consoleEl) return;
     consoleEl.classList.toggle(NS + '-min', min);
-    consoleEl.querySelector('[data-act=fold]').textContent = min ? 'Show' : 'Hide';
+    // A spine is 34px; a glyph fits it, the word "Show" was clipped to "Sho".
+    const fold = consoleEl.querySelector('[data-act=fold]');
+    fold.textContent = min ? '»' : 'Hide';
+    fold.title = min ? 'Show activity' : 'Hide activity';
     try {
       sessionStorage.setItem('ayna-console', min ? 'min' : 'open');
     } catch {
@@ -2957,20 +3160,38 @@
     if (!events || !events.length) return;
 
     const lines = consoleEl.querySelector('.' + NS + '-console-lines');
-    lines.querySelector('.' + NS + '-empty')?.remove();
     // Only follow the tail when the reader is already at it; yanking someone back
     // down while they are reading further up is the reason logs get closed.
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 40;
+    /*
+      The empty state goes when something is shown, not when something arrives.
+      The stream also carries bookkeeping the rail never renders, and clearing on
+      that left the rail blank from the first second — the very "panel that
+      failed to load" the empty state exists to prevent.
+    */
+    const clearEmpty = () => lines.querySelector('.' + NS + '-empty')?.remove();
     for (const e of events) {
       consoleSeq = Math.max(consoleSeq, e.seq ?? 0);
       // The same stream that carries messages carries these; no second channel.
       if (e.event === 'preview') startPreview(e);
       if (e.event === 'round' && e.round !== consoleRound) {
         consoleRound = e.round;
+        clearEmpty();
         lines.appendChild(roundHeader(e));
       }
       const row = consoleLine(e);
-      if (row) lines.appendChild(row);
+      if (!row) continue;
+      clearEmpty();
+      const prev = lines.lastElementChild;
+      if (
+        !('step' in row.dataset) &&
+        prev?.classList.contains(NS + '-line') &&
+        !('step' in prev.dataset) &&
+        prev.dataset.kind === row.dataset.kind
+      ) {
+        row.classList.add(NS + '-cont');
+      }
+      lines.appendChild(row);
     }
     while (lines.children.length > 300) lines.removeChild(lines.firstChild);
     if (atBottom) lines.scrollTop = lines.scrollHeight;
@@ -3015,7 +3236,7 @@
     consoleEl.setAttribute('data-ayna', '1');
     consoleEl.innerHTML =
       '<div class="' + NS + '-console-head">' +
-        '<span class="' + NS + '-dotlive"></span><span>Activity</span>' +
+        '<span class="' + NS + '-dotlive"></span><span class="' + NS + '-console-title">Activity</span>' +
         '<span class="' + NS + '-agents"></span>' +
         '<span class="' + NS + '-spacer"></span>' +
         '<button data-act="fold">Hide</button>' +
@@ -3044,9 +3265,17 @@
         '</div>' +
       '</div>' +
       '<div class="' + NS + '-console-say">' +
-        '<input placeholder="Tell Claude something — no need for the terminal" />' +
-        '<button data-act="say">Send</button>' +
+        '<div class="' + NS + '-say-box">' +
+          '<input placeholder="Message Claude" />' +
+          '<button data-act="say" title="Send (Enter)" aria-label="Send">↑</button>' +
+        '</div>' +
       '</div>';
+    const grip = document.createElement('div');
+    grip.className = NS + '-grip';
+    grip.title = 'Drag to resize · double-click to reset';
+    consoleEl.appendChild(grip);
+    wireGrip(grip);
+    setRailWidth(parseInt(railWidth, 10) || 0);
     document.documentElement.appendChild(consoleEl);
     setRailTint();
 
