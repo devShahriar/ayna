@@ -25,6 +25,7 @@ import path from 'node:path';
 
 import { openBrowser } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { commandArgv } from '../src/taste.mjs';
 
 const exec = promisify(execFile);
 const KEEP = process.argv.includes('--keep');
@@ -124,7 +125,7 @@ async function main() {
     return;
   }
 
-  const [cmd, ...prefix] = bin.split(' ');
+  const [cmd, ...prefix] = commandArgv(bin);
   let stdout = '';
   try {
     ({ stdout } = await exec(cmd, [...prefix, 'detect', out, '--json'], { maxBuffer: 8 * 1024 * 1024 }));
