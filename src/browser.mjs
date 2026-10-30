@@ -276,7 +276,8 @@ export async function openPersistentContext({
   viewport,
   followWindow,
   maximized,
-}) {
+  channel = chromeChannel(),
+} = {}) {
   await mkdir(profileDir, { recursive: true });
   const args = launchArgs();
 
@@ -312,35 +313,39 @@ export async function openPersistentContext({
     else args.push(`--window-size=${size.width},${size.height}`);
   }
 
-  return chromium.launchPersistentContext(profileDir, {
-    channel: chromeChannel(),
-    headless,
-    /*
-      A headed window must follow the window.
+  try {
+    return await chromium.launchPersistentContext(profileDir, {
+      channel,
+      headless,
+      /*
+        A headed window must follow the window.
 
-      A fixed viewport is pinned at launch, so going full screen left the page
-      rendering at its original size with dead space around it — the app never
-      learns it got bigger. null lets the page track the real window, which is
-      what a person resizing it expects. Headless keeps a fixed viewport, because
-      a screenshot has to be the same size every time to be comparable.
-    */
-    /*
-      A review window follows the OS window; a measurement does not.
+        A fixed viewport is pinned at launch, so going full screen left the page
+        rendering at its original size with dead space around it — the app never
+        learns it got bigger. null lets the page track the real window, which is
+        what a person resizing it expects. Headless keeps a fixed viewport, because
+        a screenshot has to be the same size every time to be comparable.
+      */
+      /*
+        A review window follows the OS window; a measurement does not.
 
-      Following is right for annotate — the user resizes it and the page should
-      keep up. It is wrong for anything that reports a number, because a
-      window-following page cannot be set to a viewport, so a headed audit
-      measured every viewport at whatever size the window happened to be and
-      labelled the results "mobile" and "desktop" regardless. Callers that
-      measure pass followWindow: false and get the size they asked for.
-    */
-    viewport: follows ? null : size,
-    // Playwright refuses deviceScaleFactor alongside a null viewport, and a null
-    // viewport is the whole point of a window the user can resize — so it only
-    // applies to the fixed-size headless case.
-    ...(follows ? {} : { deviceScaleFactor: 1 }),
-    args,
-  });
+        Following is right for annotate — the user resizes it and the page should
+        keep up. It is wrong for anything that reports a number, because a
+        window-following page cannot be set to a viewport, so a headed audit
+        measured every viewport at whatever size the window happened to be and
+        labelled the results "mobile" and "desktop" regardless. Callers that
+        measure pass followWindow: false and get the size they asked for.
+      */
+      viewport: follows ? null : size,
+      // Playwright refuses deviceScaleFactor alongside a null viewport, and a null
+      // viewport is the whole point of a window the user can resize — so it only
+      // applies to the fixed-size headless case.
+      ...(follows ? {} : { deviceScaleFactor: 1 }),
+      args,
+    });
+  } catch (err) {
+    throw launchFailed(err, channel);
+  }
 }
 
 /** "/" → home, "/pricing" → pricing, "/docs/intro" → docs-intro */
