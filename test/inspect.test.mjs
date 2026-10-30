@@ -367,4 +367,18 @@ describe('running somewhere that is not a laptop', () => {
       'a generic launch failure leaves the reader guessing what to install',
     );
   });
+
+  test('a missing browser in openPersistentContext says which one it wanted', async () => {
+    const { openPersistentContext } = await import('../src/browser.mjs');
+    const tmp = await mkdtemp(path.join(tmpdir(), 'ayna-profile-'));
+    try {
+      await assert.rejects(
+        () => openPersistentContext({ profileDir: tmp, headless: true, channel: 'not-a-browser' }),
+        /AYNA_CHROME_CHANNEL|not-a-browser/,
+        'a persistent launch failure leaves the reader guessing what to install',
+      );
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
 });
