@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -29,9 +30,26 @@ const exec = promisify(execFile);
  *    the termination test and the loop never terminates.
  */
 
+/**
+ * An override as argv: an array is taken as it is, a string is split like a shell
+ * would split it.
+ *
+ * Splitting on every space broke any command that lived in a directory with one
+ * in it — `~/Library/Application Support` on a Mac, `Program Files` on Windows.
+ * The binary came apart into two words that named nothing, which read as
+ * "impeccable is not installed" while it sat right there. So a string that is a
+ * path on its own is kept whole, and anything else honours quotes.
+ */
+export function commandArgv(command) {
+  if (Array.isArray(command)) return [...command];
+  const whole = command.trim();
+  if (existsSync(whole)) return [whole];
+  return [...whole.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+}
+
 /** Where to find it: an explicit override, then the PATH, then a local install. */
 function candidates(override) {
-  if (override) return [override.split(' ')];
+  if (override) return [commandArgv(override)];
   return [
     ['impeccable'],
     /*
@@ -44,7 +62,8 @@ function candidates(override) {
 }
 
 /**
- * Ask impeccable what it thinks of `target` (a URL or a directory).
+ * Ask impeccable what it thinks of `target` (a URL or a directory). `command`, or
+ * `AYNA_IMPECCABLE`, overrides how it is run: an argv array, or a string.
  *
  * Never throws: a missing tool, a crash, or unparseable output all come back as a
  * result saying so. A taste pass failing must not take down a review.

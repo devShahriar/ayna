@@ -10,14 +10,19 @@
 */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, chmod } from 'node:fs/promises';
+import { writeFile, chmod, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { judgeTaste, proposeTaste, summarizeTaste } from '../src/taste.mjs';
+import { judgeTaste, proposeTaste, summarizeTaste, commandArgv } from '../src/taste.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { tempDir } from './helpers.mjs';
 
-/** A stand-in for the real CLI: prints `payload`, exits with `code`. */
+/**
+ * A stand-in for the real CLI: prints `payload`, exits with `code`.
+ *
+ * Returned as argv, not a string: node itself may live somewhere with a space in
+ * the path, and the suite should not fail because of where it was installed.
+ */
 async function stub(dir, payload, code = 0) {
   const file = path.join(dir, 'fake-impeccable.mjs');
   await writeFile(
@@ -25,7 +30,7 @@ async function stub(dir, payload, code = 0) {
     `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(payload))});\nprocess.exit(${code});\n`,
   );
   await chmod(file, 0o755);
-  return `${process.execPath} ${file}`;
+  return [process.execPath, file];
 }
 
 const FINDINGS = [
@@ -94,12 +99,51 @@ describe('borrowing taste', () => {
     assert.deepEqual(result.findings, []);
   });
 
+  /*
+    The override used to be split on every space, so a binary under
+    `Application Support` or `Program Files` came apart into words that named
+    nothing and was reported as not installed.
+  */
+  test('a command in a directory with a space in it still runs', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const spaced = path.join(dir, 'Application Support');
+      await mkdir(spaced);
+      const [, file] = await stub(spaced, FINDINGS);
+
+      // As AYNA_IMPECCABLE would hold it: the bare path, no quotes.
+      const result = await judgeTaste('http://x/', { command: file });
+      assert.equal(result.available, true, 'the path is one program, not two words');
+      assert.equal(result.total, 3);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a string command honours quotes and keeps its arguments', async () => {
+    assert.deepEqual(commandArgv('npx --no-install impeccable'), ['npx', '--no-install', 'impeccable']);
+    assert.deepEqual(commandArgv(`"/a b/node" '/c d/cli.mjs' --flag`), ['/a b/node', '/c d/cli.mjs', '--flag']);
+
+    const { dir, dispose } = await tempDir();
+    try {
+      const spaced = path.join(dir, 'Program Files');
+      await mkdir(spaced);
+      const [node, file] = await stub(spaced, FINDINGS);
+
+      const result = await judgeTaste('http://x/', { command: `"${node}" "${file}"` });
+      assert.equal(result.available, true);
+      assert.equal(result.total, 3);
+    } finally {
+      await dispose();
+    }
+  });
+
   test('unreadable output is reported without throwing', async () => {
     const { dir, dispose } = await tempDir();
     try {
       const file = path.join(dir, 'garbage.mjs');
       await writeFile(file, 'process.stdout.write("not json at all");\n');
-      const result = await judgeTaste('http://x/', { command: `${process.execPath} ${file}` });
+      const result = await judgeTaste('http://x/', { command: [process.execPath, file] });
       assert.equal(result.available, true);
       assert.match(result.error, /not JSON/);
       assert.deepEqual(result.findings, []);
