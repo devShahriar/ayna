@@ -20,6 +20,7 @@
     "bin",
     "src",
     "commands",
+    ".puku-plugin",
     "SKILL.md",
     ".claude-plugin",
     "LICENSE",

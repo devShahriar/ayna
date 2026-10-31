@@ -10,7 +10,8 @@ import { loadConfig, writeConfig } from '../src/config.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { startTarget } from '../src/target.mjs';
 import { openBrowser, capture, captureRoutes, openPersistentContext, gotoSettled } from '../src/browser.mjs';
-import { runClaude, ensureClaudeAvailable } from '../src/brain.mjs';
+import { runAgent, ensureAgent } from '../src/brain.mjs';
+import { resolveBrain } from '../src/brains.mjs';
 import { CRITIQUE_SCHEMA, critiquePrompt } from '../src/prompts.mjs';
 import { runLoop } from '../src/loop.mjs';
 import { snapshot, restore } from '../src/snapshot.mjs';
@@ -27,10 +28,10 @@ import { banner, step, ok, info, warn, fail, dim, bold, cyan, green, yellow, red
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 const HELP = `
-${bold('ayna')} — let Claude see the UI it builds
+${bold('ayna')} — let your agent see the UI it builds
 
   Screenshots the running page in real Chrome, and lets you click, comment on and
-  rearrange elements so Claude edits exactly what you meant.
+  rearrange elements so the agent edits exactly what you meant.
 
 ${bold('USAGE')}
   ayna <command> [options]
@@ -91,7 +92,8 @@ ${bold('SETUP')}
 
 ${bold('OPTIONS')}
   -n, --iterations <n>   How many improvement rounds (default: config, 3)
-  -m, --model <name>     opus | sonnet | haiku  (default: config, opus)
+  -m, --model <name>     model for the brain (opus|sonnet|haiku, or puku-ai-2.7)
+  -b, --brain <name>     headless agent (work: any; loop/critique: claude|puku)
       --url <url>        The page to open — path, query and hash are honoured
       --routes <list>    Several pages at once, e.g. /,/pricing,/about
       --root <dir>       The UI directory to snapshot/restore
@@ -159,7 +161,7 @@ const ARG_SPEC = {
     css: { type: 'string', multiple: true },
     label: { type: 'string', multiple: true },
     timeout: { type: 'string' },
-    brain: { type: 'string' },
+    brain: { type: 'string', short: 'b' },
     ndjson: { type: 'boolean' },
     flow: { type: 'string' },
     dir: { type: 'string' },
@@ -1829,8 +1831,9 @@ async function main() {
     }
 
     case 'critique': {
-      const claude = await ensureClaudeAvailable();
-      if (!claude.ok) throw new Error('the `claude` CLI was not found on PATH');
+      const brain = resolveBrain(cfg, values.brain);
+      const probe = await ensureAgent(brain.name);
+      if (!probe.ok) throw new Error(`the \`${brain.cmd}\` CLI was not found on PATH`);
 
       const { browser, url, close, outDir } = await prepare(cfg, 'critique');
       step('look', `screenshotting ${routes.length} route(s)`);
@@ -1847,7 +1850,8 @@ async function main() {
       }
 
       step('critique', 'asking the design critic what is wrong');
-      const run = await runClaude({
+      const run = await runAgent({
+        agent: brain.name,
         prompt: critiquePrompt({ cfg, capture: cap, iteration: 1 }),
         cwd: cfg.rootDir,
         tools: ['Read', 'Glob', 'Grep'],
@@ -1922,6 +1926,7 @@ async function main() {
         model: values.model,
         headless: headlessMode(cfg),
         open: values.open,
+        brain: values.brain,
       });
       return;
     }
