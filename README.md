@@ -24,8 +24,9 @@ npm install          # playwright-core only — it drives the Chrome you have
 npm run setup        # links the skill and the `ayna` command
 ```
 
-Requires **Node 24** (the store is `node:sqlite`) and a Chrome or Chromium on the
-machine. Nothing is downloaded at runtime.
+Requires **Node 22.13 or newer** (the store is `node:sqlite`, which 22.12 and
+earlier do not have without a flag) and a Chrome or Chromium on the machine.
+Nothing is downloaded at runtime.
 
 Start a new Claude session and try `/ayna:review`, or run `ayna` yourself.
 

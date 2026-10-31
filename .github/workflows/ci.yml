@@ -11,10 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node:sqlite is what the store runs on. 22.13+ has it without a flag
-        # too, but 24 is what package.json promises, so 24 is what is tested:
-        # a version ayna does not claim to support tells us nothing.
-        node: ['24']
+        # node:sqlite is what the store runs on, and 22.13 is the first 22 to
+        # have it without a flag. The floor is tested rather than the newest
+        # 22, because a range is only as good as its oldest version.
+        node: ['22.13', '24']
 
     steps:
       - uses: actions/checkout@v4
