@@ -27,7 +27,30 @@ npm run setup        # links the skill and the `ayna` command
 Requires **Node 24** (the store is `node:sqlite`) and a Chrome or Chromium on the
 machine. Nothing is downloaded at runtime.
 
-Start a new Claude session and try `/ayna:review`, or run `ayna` yourself.
+Start a new Claude Code or puku-cli session and try `/ayna:review` (or just
+`/ayna`), or run `ayna` yourself.
+
+### Puku CLI
+
+`npm run setup` links the skill into `~/.puku-cli/skills/ayna`, so `/ayna` works
+in a new puku-cli session. The Puku editor gets `~/.puku/skills/ayna`.
+
+The per-workflow commands are a plugin. Load the checkout for one session:
+
+```bash
+puku-cli --plugin-dir /path/to/ayna
+```
+
+Then `/ayna:look`, `/ayna:review`, `/ayna:fix`, `/ayna:design` and `/ayna:qa` are
+available. Headless runs can use puku for the model work too:
+
+```bash
+ayna work --brain puku
+ayna loop --brain puku
+```
+
+The model is passed through; puku understands `puku-ai-*` as well as the
+`opus`, `sonnet` and `haiku` family aliases.
 
 ---
 

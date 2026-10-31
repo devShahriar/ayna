@@ -16,18 +16,31 @@ one, read the other:
 |---|---|
 | `CLAUDE.md` | `PUKU.md` |
 | `.claude/` | `.puku-cli/` |
+| `~/.claude/skills/` | `~/.puku-cli/skills/` |
 | `.claude-plugin/` | `.puku-plugin/` (it falls back to `.claude-plugin/`) |
 | `CLAUDE_PLUGIN_ROOT` | `PUKU_CLI_PLUGIN_ROOT` |
-| `CLAUDE_CODE_SESSION_ID` | `PUKU_CLI_SESSION_ID` |
+| `CLAUDE_CODE_SESSION_ID` | `PUKU_CLI_SESSION_ID` (when supplied; see below) |
 | `claude -p` | `puku-cli -p` |
 
-`SKILL.md` and `commands/` are read by both, and every command in them resolves
-the plugin root as `${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-…}}`, so one
-copy works in either.
+`npm run setup` links `SKILL.md` into `~/.puku-cli/skills/ayna` for puku-cli and
+`~/.puku/skills/ayna` for the Puku editor. The `commands/` files are a plugin:
+puku-cli gets `/ayna:look`, `/ayna:review`, `/ayna:fix`, `/ayna:design` and
+`/ayna:qa` by loading the checkout for a session —
+`puku-cli --plugin-dir <checkout>` — and every command resolves its plugin root
+as `${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-…}}`. The plain `/ayna` skill
+does not need the plugin.
 
-ayna identifies a puku session from `PUKU_CLI_SESSION_ID`, so your commands share
-one window instead of opening a new one each time. `ayna agents` shows what it
-decided.
+puku-cli marks every command it spawns with `PUKU_CLI=1`, and ayna uses that
+marker plus the process tree, so your commands share one window instead of
+opening a new one each time. This also covers npm installs, where the process is
+called `node` and only its command line names `puku-cli`. When
+`PUKU_CLI_SESSION_ID` is exported (some builds and hook setups do), it is
+preferred. `ayna agents` shows what it decided.
+
+Headless runs use the same binary: `ayna work --brain puku` and
+`ayna loop --brain puku` drive `puku-cli -p`. The model is passed through —
+puku understands `puku-ai-*` as well as the `opus`, `sonnet` and `haiku`
+family aliases.
 
 ## A mistake worth not repeating
 
