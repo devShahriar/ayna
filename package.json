@@ -36,7 +36,7 @@
     "uninstall": "node scripts/setup.mjs --uninstall"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^22.13.0 || >=23.4.0"
   },
   "keywords": [
     "claude",
