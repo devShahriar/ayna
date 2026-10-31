@@ -43,6 +43,8 @@ function inContainer() {
  */
 export const chromeChannel = () => process.env.AYNA_CHROME_CHANNEL || 'chrome';
 
+export const needsNoSandbox = () => Boolean(process.env.CI || inContainer());
+
 export function launchArgs() {
   const args = ['--hide-scrollbars', '--force-color-profile=srgb'];
   /*
@@ -50,9 +52,18 @@ export function launchArgs() {
     there is 64MB — far too small, which shows up as tabs dying at random rather
     than as anything that says "shared memory".
   */
-  if (process.env.CI || inContainer()) args.push('--no-sandbox', '--disable-dev-shm-usage');
+  if (needsNoSandbox()) args.push('--no-sandbox', '--disable-dev-shm-usage');
   return args;
 }
+
+/*
+  Keeping --no-sandbox out of our own args is not enough: Playwright adds the
+  flag itself unless `chromiumSandbox` is true, and that is not its default. On
+  Windows this put Chrome's yellow "unsupported command-line flag" bar across
+  every headed window. Pass the setting explicitly, from the same check that
+  decides the flag.
+*/
+const launchOptions = () => ({ args: launchArgs(), chromiumSandbox: !needsNoSandbox() });
 
 /** Say which channel was missing, rather than reporting a generic launch failure. */
 function launchFailed(err, channel) {
@@ -67,7 +78,7 @@ function launchFailed(err, channel) {
 
 export async function openBrowser({ headless = false, channel = chromeChannel() } = {}) {
   try {
-    return await chromium.launch({ channel, headless, args: launchArgs() });
+    return await chromium.launch({ channel, headless, ...launchOptions() });
   } catch (err) {
     throw launchFailed(err, channel);
   }
@@ -279,7 +290,7 @@ export async function openPersistentContext({
   channel = chromeChannel(),
 } = {}) {
   await mkdir(profileDir, { recursive: true });
-  const args = launchArgs();
+  const { args, chromiumSandbox } = launchOptions();
 
   const size = viewport ?? { width: 1440, height: 900 };
   /*
@@ -342,6 +353,7 @@ export async function openPersistentContext({
       // applies to the fixed-size headless case.
       ...(follows ? {} : { deviceScaleFactor: 1 }),
       args,
+      chromiumSandbox,
     });
   } catch (err) {
     throw launchFailed(err, channel);
