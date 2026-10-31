@@ -11,8 +11,9 @@ npm install
 npm test
 ```
 
-You need Node 20+ and Google Chrome. Ayna drives your installed Chrome through
-`playwright-core`; it deliberately does **not** download a browser.
+You need Node 24 (the store is `node:sqlite`) and Google Chrome. Ayna drives
+your installed Chrome through `playwright-core`; it deliberately does **not**
+download a browser.
 
 Try it against the bundled demo:
 

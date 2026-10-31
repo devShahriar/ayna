@@ -11,9 +11,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node:sqlite is what the store runs on, and it is not available
-        # before 24 without a flag. Testing on versions ayna cannot run on
-        # tells us nothing.
+        # node:sqlite is what the store runs on. 22.13+ has it without a flag
+        # too, but 24 is what package.json promises, so 24 is what is tested:
+        # a version ayna does not claim to support tells us nothing.
         node: ['24']
 
     steps:
