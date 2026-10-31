@@ -34,15 +34,17 @@ import { execFileSync } from 'node:child_process';
  * tools use or would use; each is harmless when absent, and AYNA_SESSION
  * overrides all of them.
  *
- * `proc` matches the executable name when walking the process tree, which is how
- * a tool with no session variable still gets one identity per running agent
- * rather than one per command.
+ * `proc` matches the executable name when walking the process tree. `cmd` is
+ * matched against the command line for tools whose executable name is not
+ * distinctive: an npm-installed puku-cli runs as `node`, so only argv says
+ * which agent it is. Both are how a tool with no session variable still gets
+ * one identity per running agent rather than one per command.
  */
 export const KNOWN_AGENTS = [
   { tool: 'claude', env: ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID'], proc: /^claude$/i },
-  { tool: 'cursor', env: ['CURSOR_SESSION_ID', 'CURSOR_TRACE_ID'], proc: /^cursor/i },
+  { tool: 'cursor', env: ['CURSOR_SESSION_ID', 'CURSOR_TRACE_ID'], proc: /^cursor/i, cmd: 'cursor-agent' },
   { tool: 'codex', env: ['CODEX_SESSION_ID', 'CODEX_THREAD_ID'], proc: /^codex/i },
-  { tool: 'puku', env: ['PUKU_CLI_SESSION_ID'], proc: /^puku(-cli)?$/i },
+  { tool: 'puku', env: ['PUKU_CLI_SESSION_ID'], proc: /^puku(-cli)?$/i, cmd: 'puku-cli' },
   { tool: 'antigravity', env: ['ANTIGRAVITY_SESSION_ID'], proc: /^antigravity/i },
   { tool: 'gemini', env: ['GEMINI_CLI_SESSION_ID'], proc: /^gemini$/i },
   { tool: 'aider', env: ['AIDER_SESSION_ID'], proc: /^aider$/i },
@@ -57,15 +59,20 @@ export const KNOWN_AGENTS = [
  */
 function describeProcess(pid) {
   try {
-    const out = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(pid)], {
+    const out = execFileSync('ps', ['-o', 'ppid=,comm=,command=', '-p', String(pid)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     if (!out) return null;
-    const m = /^(\d+)\s+(.*)$/.exec(out);
+    const m = /^(\d+)\s+(\S+)\s*(.*)$/.exec(out);
     if (!m) return null;
     // comm is a full path for app bundles; the last segment is the executable.
-    return { pid, name: m[2].trim().split('/').pop(), parent: Number(m[1]) };
+    return {
+      pid,
+      name: m[2].trim().split('/').pop(),
+      command: (m[3] ?? '').trim(),
+      parent: Number(m[1]),
+    };
   } catch {
     return null;
   }
@@ -77,12 +84,22 @@ function describeProcess(pid) {
  * Bounded because a process tree can be deep and this runs on every command; six
  * steps clears the shell and the terminal without becoming a cost.
  */
-export function findAgentProcess(startPid = process.ppid, { steps = 6 } = {}) {
+export function findAgentProcess(
+  startPid = process.ppid,
+  { steps = 6, describe = describeProcess, only = null } = {},
+) {
   let pid = startPid;
+  const candidates = only ? KNOWN_AGENTS.filter((a) => a.tool === only) : KNOWN_AGENTS;
   for (let i = 0; i < steps && pid && pid > 1; i++) {
-    const proc = describeProcess(pid);
+    const proc = describe(pid);
     if (!proc) return null;
-    const hit = KNOWN_AGENTS.find((a) => a.proc.test(proc.name ?? ''));
+    const hit = candidates.find(
+      (a) =>
+        a.proc.test(proc.name ?? '') ||
+        // Only a JS runtime can hide an agent behind its own name; a shell that
+        // merely mentions the binary in an argument is not the agent.
+        (a.cmd && /^(node|bun)$/i.test(proc.name ?? '') && (proc.command ?? '').includes(a.cmd)),
+    );
     if (hit) return { tool: hit.tool, pid: proc.pid };
     pid = proc.parent;
   }
@@ -120,6 +137,25 @@ export function identify({ env = process.env, pid = process.pid, probeProcess = 
         };
       }
     }
+  }
+
+  /*
+    2b. puku-cli marks every process it spawns with PUKU_CLI=1, but it does not
+    export PUKU_CLI_SESSION_ID to tools in a normal install. The marker names
+    the agent; the process walk supplies the pid that makes the identity stable
+    across commands. Without this the pid fallback below would open a new
+    window for every `ayna` invocation.
+  */
+  if (env.PUKU_CLI === '1') {
+    const found = probeProcess ? findAgentProcess(process.ppid, { only: 'puku' }) : null;
+    const fallbackPid = Number(env.AYNA_AGENT_PID) || process.ppid || pid;
+    const agentPid = found?.pid ?? fallbackPid;
+    return {
+      tool: 'puku',
+      agentId: `puku:pid-${agentPid}`,
+      agentPid,
+      how: 'env:PUKU_CLI',
+    };
   }
 
   // 3. The process tree.
