@@ -49,7 +49,7 @@ describe('driving a headless agent', () => {
   });
 
   test('a brain the structured runner cannot shape is named, not guessed at', () => {
-    assert.throws(() => agentCommand('cursor'), /structured turns support: claude, puku/);
+    assert.throws(() => agentCommand('cursor'), /structured turns support: claude, puku, codex/);
   });
 });
 

@@ -34,7 +34,7 @@ export const BRAINS = {
     cmd: 'codex',
     args: ['exec'],
     detect: 'codex',
-    note: 'OpenAI Codex CLI. `codex exec` is its non-interactive mode.',
+    note: 'OpenAI Codex CLI. `codex exec` is its non-interactive mode; it prints a JSONL event stream rather than one JSON envelope.',
   },
   cursor: {
     cmd: 'cursor-agent',

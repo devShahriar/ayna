@@ -53,6 +53,30 @@ ayna loop --brain puku
 The model is passed through; puku understands `puku-ai-*` as well as the
 `opus`, `sonnet` and `haiku` family aliases.
 
+### Codex CLI
+
+`npm run setup` links the skill into `~/.codex/skills/ayna`, so `/ayna` works in
+a new codex session. Codex reads the same `SKILL.md` as the other hosts and the
+same `AGENTS.md` for anything that only wants the plain shell-and-file version.
+
+Headless runs can use codex for the model work too:
+
+```bash
+ayna work --brain codex
+ayna loop --brain codex
+```
+
+Codex is not Claude with a different flag, so ayna drives it as it actually
+behaves: `codex exec` for the non-interactive turn, `--json` for a machine
+readable event stream, and `--output-schema` with a file for structured output
+— codex takes a schema as a path, not inline the way Claude's `--json-schema`
+does. The reply is the `agent_message` item in that stream, not the whole of
+stdout.
+
+```bash
+ayna brains   # which agent CLIs this machine can drive
+```
+
 ---
 
 ## Flow 1 — Review: you point, Claude fixes
@@ -220,8 +244,9 @@ call, and reports `still-broken` rather than `applied` when a fix did not take. 
 never touches a `proposed` task: that status means *found by a tool, not permitted
 yet*.
 
-The brain is any command — `claude -p` by default, Cursor or anything else via
-`brains` in the config.
+The brain is any command — `claude -p` by default, Codex or Cursor via `--brain`,
+or anything else via `brains` in the config. `ayna brains` lists the ones this
+machine actually has.
 
 ---
 

@@ -1,7 +1,8 @@
 # ayna
 
-A Claude Code plugin that lets you *see* the UI you built. Playwright drives real
-Chrome, screenshots the running page, and you critique and fix from the image.
+A plugin for coding agents that lets you *see* the UI you built. Playwright
+drives real Chrome, screenshots the running page, and you critique and fix from
+the image. Claude Code, puku-cli and codex all load the same skill.
 
 ## The one rule
 
@@ -13,7 +14,7 @@ not seen the page. Everything here exists to serve that.
 
 | | in-session | standalone |
 |---|---|---|
-| brain | the Claude session already running | spawned `claude -p` subprocesses |
+| brain | the session already running | spawned agent subprocesses (`claude -p`, `codex exec`) |
 | commands | `shot --json`, `snapshot`, `restore`, `record`, `report` | `loop`, `critique` |
 | cost | near-free (context is already warm) | ~$1.50–3.30 per iteration |
 | code | `SKILL.md` drives it | `src/loop.mjs` drives it |
@@ -28,8 +29,9 @@ SKILL.md            the in-session loop — the plugin's real behavior
 commands/           /ayna, /ayna:look, /ayna:review
 bin/ayna.mjs        CLI
 src/browser.mjs     Chrome control, screenshots, page diagnostics
-src/loop.mjs        standalone orchestration (spawns its own Claude sessions)
-src/brain.mjs       `claude -p` wrapper — standalone path only
+src/loop.mjs        standalone orchestration (spawns its own agent sessions)
+src/brain.mjs       headless agent wrapper — standalone path only
+src/brains.mjs      which agent CLIs ayna can drive
 src/snapshot.mjs    backup / restore / changed-file detection
 src/report.mjs      HTML report
 src/server.mjs      static server for the target
@@ -50,12 +52,22 @@ demo/               a deliberately mediocre landing page to improve
   `bin/ayna.mjs`, never `ROOT`.
 - **Headless by default.** This runs inside someone's session; a Chrome window
   stealing focus is worse than not watching. `--headed` opts in.
+- **Read a tool's own surface before driving it.** Codex is not Claude with a
+  different flag: it is `codex exec`, its stdout is a JSONL event stream rather
+  than one JSON envelope, its reply is the `agent_message` item inside that
+  stream, and its schema is a *file* (`--output-schema`) rather than an inline
+  argument. Guessing any of those produces a failed turn, not a warning.
 
 ## Conventions
 
 - Plain ESM `.mjs`, no TypeScript, no build step.
-- Only dependency is `playwright-core` — it uses installed Chrome (`channel: 'chrome'`)
-  rather than downloading a browser. Keep it that way.
+- Only dependency is `playwright-core` — it drives the browser already on the
+  machine rather than downloading one. Keep it that way.
+- **Playwright has no `brave` channel.** Its `channel` option is a fixed list
+  (chrome, msedge, chromium, …), so Brave, Vivaldi and Arc are reached through
+  `executablePath` instead. `src/browser-paths.mjs` holds the install paths and
+  `resolveBrowser()` in `src/browser.mjs` picks the right shape. A name that is
+  not a browser must error, never fall back silently to Chrome.
 - The demo is the project's fixture, not a showcase. It is polished because the
   README screenshots are taken from it, but it must keep *real, measurable*
   faults for `audit` and `qa` to find — currently small hit targets, weak focus

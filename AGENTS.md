@@ -7,15 +7,15 @@ have not seen the page.
 This file is the editor-agnostic version of `SKILL.md`. Everything here is a
 shell command and a file path — there is nothing Claude-specific about any of it.
 
-**Claude Code and puku-cli both load the skill.** `npm run setup` links
-`SKILL.md` into `~/.claude/skills/ayna` and `~/.puku-cli/skills/ayna`, so `/ayna`
-works in either. Claude Code also reads `commands/` as `/ayna:look`,
-`/ayna:review`, `/ayna:fix` and `/ayna:qa`. puku-cli gets those commands by
-loading the plugin for a session — `puku-cli --plugin-dir <checkout>` — from
-`.puku-plugin/plugin.json`; the plain skill has everything it needs without
-them. Every command resolves its own plugin root. Codex, Cursor, Gemini CLI,
-aider, Antigravity and anything else that reads `AGENTS.md` work from this file
-instead.
+**Claude Code, puku-cli and codex all load the skill.** `npm run setup` links
+`SKILL.md` into `~/.claude/skills/ayna`, `~/.puku-cli/skills/ayna` and
+`~/.codex/skills/ayna`, so `/ayna` works in any of them. Claude Code also reads
+`commands/` as `/ayna:look`, `/ayna:review`, `/ayna:fix` and `/ayna:qa`. puku-cli
+gets those commands by loading the plugin for a session —
+`puku-cli --plugin-dir <checkout>` — from `.puku-plugin/plugin.json`; the plain
+skill has everything it needs without them. Every command resolves its own
+plugin root. Cursor, Gemini CLI, aider, Antigravity and anything else that
+reads `AGENTS.md` work from this file instead.
 
 ## Setup
 
@@ -37,7 +37,9 @@ It recognises Claude Code (`CLAUDE_CODE_SESSION_ID`). puku-cli does not export a
 session id to tools in a normal install; it exports `PUKU_CLI=1`, so ayna uses
 that marker plus the process tree to give one session and one tab per running
 `puku-cli`, including npm installs where the process is called `node`. If
-`PUKU_CLI_SESSION_ID` is supplied, it is preferred. For anything else, export two
+`PUKU_CLI_SESSION_ID` is supplied, it is preferred. Codex exports
+`CODEX_THREAD_ID` to the tools it runs, and its own process is called `codex`,
+so a codex session is found either way. For anything else, export two
 variables once per session:
 
 ```bash

@@ -44,6 +44,14 @@ const HOSTS = [
     config: path.join(homedir(), '.puku'),
     skills: path.join(homedir(), '.puku', 'skills', 'ayna'),
   },
+  {
+    // Codex reads a skill from ~/.codex/skills/<name>/SKILL.md, the same
+    // layout as the other hosts — and the same SKILL.md frontmatter works
+    // unchanged, since both take `name` and `description`.
+    name: 'Codex CLI',
+    config: path.join(homedir(), '.codex'),
+    skills: path.join(homedir(), '.codex', 'skills', 'ayna'),
+  },
 ];
 const BIN_DIR = path.join(homedir(), '.local', 'bin');
 const BIN_LINK = path.join(BIN_DIR, 'ayna');

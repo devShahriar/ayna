@@ -6,7 +6,7 @@ argument-hint: "[url]"
 Review the design of: **$ARGUMENTS**
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" design --json
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/skills/ayna}}/bin/ayna.mjs" design --json
 ```
 
 That returns one brief with two lists, and **the difference between them is the
@@ -37,7 +37,7 @@ quietly restyle my page because a detector dislikes it.
 Show me the change instead of describing it:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-$HOME/.claude/skills/ayna}}/bin/ayna.mjs" preview \
+node "${CLAUDE_PLUGIN_ROOT:-${PUKU_CLI_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/skills/ayna}}/bin/ayna.mjs" preview \
   --selector ".feature .icon-tile" \
   --css "display:flex; align-items:center; gap:12px" --label "icon beside the heading" \
   --css "background:none; padding:0"                 --label "icon in flow, no tile"
