@@ -146,6 +146,15 @@ Re-read those files before you touch them — what you remember writing is no
 longer there — and wait for the next `round` rather than redoing the work
 unasked.
 
+`{"event":"picked-up","round":1}` is your own `ayna comments` reaching the window:
+it tells the user you have the round. There is nothing to do about it.
+
+**The window tells the user whether anyone is listening.** It counts you as there
+if you opened it, if `ayna wait` or `ayna applied` is following it, or if you have
+read the round with `ayna comments`. If the user started the window themselves,
+run `ayna wait` in the background, or the page will say no Claude session is
+listening.
+
 **This is the whole mechanism.** One process, push-based. There is nothing to
 re-arm and nothing to poll, so a round cannot go unnoticed because you forgot a
 step — which is exactly how comments used to sit unread while the page said

@@ -72,7 +72,7 @@
     marquee: null,
     suppressClick: false,
     signIn: false,
-    waitWarn: null,
+    listenTimer: null,
     mode: (() => {
       try {
         return sessionStorage.getItem('ayna-mode') || 'comment';
@@ -1156,7 +1156,7 @@
     // observer in reserveForBar, which is what actually catches it.
     requestAnimationFrame(reserveForBar);
     const leavingReview = state.phase === 'review' && phase !== 'review';
-    if (phase !== 'waiting') clearTimeout(state.waitWarn);
+    if (phase !== 'waiting') clearInterval(state.listenTimer);
     state.phase = phase;
     state.picking = phase === 'comment';
     if (leavingReview) clearReview();
@@ -1293,13 +1293,30 @@
         if (window.__aynaApplied) window.__aynaApplied();
       });
 
-      clearTimeout(state.waitWarn);
-      state.waitWarn = setTimeout(() => {
+      /*
+        Say who is on the other end, and keep checking.
+
+        The window used to wait 45 seconds and then say "not picked up yet",
+        whether or not anything could ever pick it up. It asks instead (see
+        listenerOf in annotate.mjs): nobody listening is said at once, with what
+        to do about it; a round Claude has read says so; and the 45-second
+        nudge is kept for a listener that has gone quiet.
+      */
+      const sentAt = Date.now();
+      const check = async () => {
         const label = bar && bar.querySelector('.' + NS + '-waiting');
         if (!label || state.phase !== 'waiting') return;
-        label.textContent = 'Not picked up yet — press “Changes are in” if they have landed';
-        label.classList.add(NS + '-warn');
-      }, 45000);
+        const who = window.__aynaListening ? await window.__aynaListening().catch(() => 'unknown') : 'unknown';
+        let text = 'Sent — waiting for Claude to pick this up…';
+        if (who === 'picked-up') text = 'Claude has picked this up — working on it…';
+        else if (who === 'none') text = 'Sent — but no Claude session is listening. Ask Claude to pick up your ayna review.';
+        else if (Date.now() - sentAt > 45000) text = 'Not picked up yet — press “Changes are in” if they have landed';
+        label.textContent = text;
+        label.classList.toggle(NS + '-warn', who === 'none' || (who !== 'picked-up' && Date.now() - sentAt > 45000));
+      };
+      clearInterval(state.listenTimer);
+      state.listenTimer = setInterval(check, 2000);
+      check();
       return;
     }
 
@@ -3435,6 +3452,7 @@
         ? { glyph: '✓', tone: 'good', text: 'No layout faults' }
         : { glyph: '!', tone: 'warn', text: plural(faultTotal(e.counts), 'fault') + ' found', detail: faultList(e.counts) },
     claimed: (e) => ({ glyph: '↳', text: `Taken by ${e.by ?? 'someone'}`, detail: quote(noteOfTask.get(e.taskId)) }),
+    'picked-up': () => ({ glyph: '↳', text: 'Claude picked up the round' }),
     ready: (e) => ({ glyph: '•', tone: 'live', text: `${e.pending} still waiting` }),
     preview: (e) => ({ glyph: '◐', text: `${plural(e.variants?.length ?? 0, 'variant')} to try`, detail: e.selector ?? '' }),
     'preview-accepted': (e) => ({
@@ -3451,7 +3469,7 @@
     Three lanes is the honest count here. The user, Claude, and ayna — which is
     neither of them and is the only one making claims that can be checked.
   */
-  const LANE = { message: 'you', closed: 'you', audit: 'ayna', ready: 'ayna', claimed: 'ayna' };
+  const LANE = { message: 'you', closed: 'you', audit: 'ayna', ready: 'ayna', claimed: 'ayna', 'picked-up': 'claude' };
 
   /*
     The time on the wall, not since the log began.
@@ -4126,15 +4144,16 @@
       const chip = document.createElement('span');
       chip.className = NS + '-agent';
       if (a.working || a.tasks.length) chip.classList.add(NS + '-busy');
+      const doing = a.listening ? 'listening' : 'working';
       const dot = document.createElement('i');
       dot.style.background = agentColour(a.agent);
       const name = document.createElement('b');
       name.textContent = a.agent;
       const what = document.createElement('span');
-      what.textContent = a.tasks.length
-        ? a.tasks.map((t) => t.id).join(', ')
-        : 'working';
-      chip.title = a.tasks.map((t) => `${t.id}: ${t.comment ?? ''}`).join('\n') || 'working on this round';
+      what.textContent = a.tasks.length ? a.tasks.map((t) => t.id).join(', ') : doing;
+      chip.title =
+        a.tasks.map((t) => `${t.id}: ${t.comment ?? ''}`).join('\n') ||
+        (a.listening ? 'listening for this round' : 'working on this round');
       chip.appendChild(dot);
       chip.appendChild(name);
       chip.appendChild(what);

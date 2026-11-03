@@ -2398,6 +2398,82 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
       await dispose();
     }
   });
+  test('the window says whether anyone will hear a round, and when Claude has it', async () => {
+    /*
+      "Waiting for Claude" was said to every round, and "Claude working" shown
+      with it, whether or not any Claude was there. A window started from a
+      plain terminal waited for minutes on a round nothing would ever read.
+    */
+    const { dir, dispose } = await tempDir();
+    try {
+      const { execFile } = await import('node:child_process');
+      const { openStore } = await import('../src/tasks.mjs');
+      const site = path.join(dir, 'site');
+      await fixtureSite(site);
+      await writeFile(
+        path.join(dir, 'ayna.config.json'),
+        JSON.stringify({ target: { name: 'c', root: 'site', url: 'http://127.0.0.1:4749/' } }),
+      );
+      const bin = path.resolve(fileURLToPath(new URL('../bin/ayna.mjs', import.meta.url)));
+      const ayna = (...args) =>
+        new Promise((res) => {
+          execFile('node', [bin, ...args], { cwd: dir, timeout: 60_000 }, (e, so) => res((so || '').trim()));
+        });
+
+      const server = await serveStatic(site, 4749);
+      const seen = {};
+      try {
+        await runAnnotate({
+          browser,
+          url: server.url,
+          outDir: path.join(dir, 'out'),
+          projectDir: dir,
+          store: await openStore(dir),
+          // Started from a plain terminal: no agent opened this window.
+          agent: { tool: 'user', agentId: `local:pid-${process.pid}`, agentPid: process.pid, how: 'none' },
+          viewport: { width: 1100, height: 700 },
+          onReady: async (page) => {
+            const bar = () =>
+              page.evaluate(() => ({
+                says: document.querySelector('.ayna-ov-waiting')?.textContent ?? '',
+                chips: [...document.querySelectorAll('.ayna-ov-agent')].map((c) => c.textContent),
+              }));
+            await page.click('.title');
+            await page.waitForSelector('.ayna-ov-pop textarea');
+            await page.fill('.ayna-ov-pop textarea', 'tighten this');
+            await page.click('.ayna-ov-save');
+            await page.waitForTimeout(400);
+            await page.click('[data-act=send]');
+            await page.waitForTimeout(2600);
+            seen.nobody = await bar();
+
+            // Claude starts listening: `ayna wait` hears the round, and its heartbeat says so.
+            seen.wait = await ayna('wait');
+            await page.waitForTimeout(2600);
+            seen.listening = await bar();
+
+            // Reading the round's notes is picking it up.
+            await ayna('comments', '--json');
+            await page.waitForTimeout(2600);
+            seen.pickedUp = await bar();
+            await page.close();
+          },
+        });
+      } finally {
+        await server.close();
+      }
+
+      assert.match(seen.nobody.says, /no Claude session is listening/);
+      assert.deepEqual(seen.nobody.chips, [], 'nothing may look busy when nothing is there');
+      assert.match(seen.wait, /read-comments/);
+      assert.match(seen.listening.says, /waiting for Claude to pick this up/);
+      assert.deepEqual(seen.listening.chips, ['claudelistening']);
+      assert.match(seen.pickedUp.says, /Claude has picked this up/);
+      assert.deepEqual(seen.pickedUp.chips, ['claudeworking']);
+    } finally {
+      await dispose();
+    }
+  });
 });
 
 describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
