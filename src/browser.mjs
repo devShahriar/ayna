@@ -3,6 +3,17 @@ import { mkdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import {
+  BROWSERS,
+  PLAYWRIGHT_CHANNELS,
+  browserKey,
+  channelFor,
+  executableExists,
+  findBrowser,
+  installedBrowsers,
+  looksLikePath,
+} from './browser-paths.mjs';
+
 /**
  * Launches the Chrome already installed on this machine (playwright-core does not
  * download its own browser). Headed by default so you can watch the loop work.
@@ -35,13 +46,115 @@ function inContainer() {
 }
 
 /**
- * Which browser to drive.
+ * Which browser to drive, as asked for from outside the process.
  *
- * `chrome` means real Google Chrome, which is around 400MB of image for a
- * container that only needs to render a page. `chromium` is a tenth of that and
- * renders the same. Neither is right for everybody, so it is a setting.
+ * `undefined` means "nobody said" — which is not the same as "chrome". The
+ * default is resolved later, against what is actually installed, so a machine
+ * with only Brave is not told to install Chrome.
+ *
+ * The setting can be any of three shapes, in this order:
+ *
+ *   1. a PATH     — "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+ *   2. a NAME     — "brave", "edge", "chrome", "chromium"
+ *   3. a CHANNEL  — anything Playwright resolves itself
+ *
+ * WHY A PATH IS NOT JUST ANOTHER NAME. Playwright's `channel` option is a fixed
+ * list, and Brave is not on it. `channel: 'brave'` gets you `Unsupported
+ * chromium channel "brave"` — a worse error than the one it replaced. Every
+ * Chromium-family browser outside Playwright's list has to be reached through
+ * `executablePath` instead, so a name we resolve ourselves becomes a path and
+ * the two are told apart at the last moment.
  */
-export const chromeChannel = () => process.env.AYNA_CHROME_CHANNEL || 'chrome';
+export const chromeChannel = () => process.env.AYNA_CHROME_CHANNEL || undefined;
+
+/**
+ * Resolve the browser to launch into the shape Playwright wants.
+ *
+ * Returns `{ channel }` for a name Playwright knows, `{ executablePath }` for
+ * everything else — including a path the user typed, which is the only way to
+ * reach a browser installed somewhere unusual.
+ *
+ * The default is Chrome, but if Chrome is NOT installed and another
+ * Chromium-family browser IS, that one is used instead. A user with only Brave
+ * installed should not be told to install Chrome to look at their own app.
+ */
+export function resolveBrowser(requested) {
+  const want = String(requested ?? '').trim();
+
+  // 1. An explicit path — always honoured, and the only way to point at a
+  //    browser that lives somewhere we do not look.
+  if (looksLikePath(want)) {
+    if (!executableExists(want)) {
+      throw new Error(
+        `no browser executable at "${want}"\n` +
+          '  Check the path, or name a browser instead: ' +
+          Object.keys(BROWSERS).join(', '),
+      );
+    }
+    return { executablePath: want, name: path.basename(want) };
+  }
+
+  // 2. A channel Playwright resolves itself.
+  if (PLAYWRIGHT_CHANNELS.has(want)) {
+    return { channel: want, name: want };
+  }
+
+  // 3. A browser we know by name.
+  const key = browserKey(want);
+  if (key) {
+    const channel = channelFor(key);
+    if (channel) {
+      // Playwright knows this one. Prefer it, but only if it is actually
+      // installed — otherwise Playwright's error is about Playwright, not about
+      // the browser the user can see on their desktop.
+      if (findBrowser(key) || channel === 'chromium') {
+        return { channel, name: key };
+      }
+    }
+    const exe = findBrowser(key);
+    if (exe) return { executablePath: exe, name: key };
+    throw new Error(
+      `${BROWSERS[key].label} is not installed on this machine.\n` +
+        `  Looked in:\n    ${(BROWSERS[key].paths[process.platform] ?? []).join('\n    ') || '(nowhere on this platform)'}\n` +
+        '  Or point at the executable: --browser /path/to/binary',
+    );
+  }
+
+  // 4. The default: Chrome if it is there, otherwise whatever Chromium-family
+  //    browser this machine actually has.
+  //
+  //    Only reached when nothing was asked for. A NAME THAT IS NOT A BROWSER
+  //    must not land here: `--browser brve` would silently run Chrome and
+  //    report success, so the user would never learn they had misspelled it.
+  if (want) {
+    throw new Error(
+      `"${want}" is not a browser ayna knows.\n` +
+        `  Known: ${Object.keys(BROWSERS).join(', ')}\n` +
+        '  Or point at the executable: --browser /path/to/browser',
+    );
+  }
+
+  if (findBrowser('chrome')) return { channel: 'chrome', name: 'chrome' };
+
+  const others = installedBrowsers();
+  if (others.length) {
+    const pick = others[0];
+    const channel = channelFor(pick.key);
+    // A browser Playwright knows is still driven by channel, so it gets
+    // Playwright's own updates and host-requirement checks.
+    if (channel) return { channel, name: pick.key };
+    return { executablePath: pick.path, name: pick.key };
+  }
+
+  // Nothing at all installed. Say so, and say how to choose one.
+  throw new Error(
+    'no browser found on this machine — ayna drives the browser you already have\n' +
+      '  Install Google Chrome, Chromium, Brave, Edge or Vivaldi, or point at one:\n' +
+      '    --browser brave\n' +
+      '    --browser /path/to/browser\n' +
+      '    AYNA_CHROME_CHANNEL=brave',
+  );
+}
 
 export const needsNoSandbox = () => Boolean(process.env.CI || inContainer());
 
@@ -65,22 +178,40 @@ export function launchArgs() {
 */
 const launchOptions = () => ({ args: launchArgs(), chromiumSandbox: !needsNoSandbox() });
 
-/** Say which channel was missing, rather than reporting a generic launch failure. */
-function launchFailed(err, channel) {
-  if (/executable doesn't exist|Failed to launch|ENOENT|not found/i.test(err.message)) {
+/** Say which browser was missing, rather than reporting a generic launch failure. */
+function launchFailed(err, browser) {
+  const name = browser?.name ?? browser?.channel ?? 'the browser';
+  if (/executable doesn't exist|Failed to launch|ENOENT|not found|Unsupported/i.test(err.message)) {
+    const found = installedBrowsers();
+    const lines = found.length
+      ? found.map((b) => `    ${b.label} — ${b.path}`).join('\n')
+      : '    (none found on this machine)';
     return new Error(
-      `could not start "${channel}". playwright-core downloads no browser — install one, ` +
-        `or set AYNA_CHROME_CHANNEL (chrome, chromium, msedge).\n  ${err.message.split('\n')[0]}`,
+      `could not start "${name}". playwright-core downloads no browser — it drives the one you have.\n` +
+        `  Browsers found here:\n${lines}\n` +
+        '  Choose one:\n' +
+        '    ayna <command> --browser brave\n' +
+        '    ayna <command> --browser /path/to/browser\n' +
+        '    AYNA_CHROME_CHANNEL=brave\n' +
+        `  ${err.message.split('\n')[0]}`,
     );
   }
   return err;
 }
 
-export async function openBrowser({ headless = false, channel = chromeChannel() } = {}) {
+/**
+ * Launch the browser ayna will drive.
+ *
+ * `browser` accepts a name, a Playwright channel, or a path. It resolves to
+ * one of the two shapes Playwright understands, so the caller never has to
+ * know which kind of browser it got.
+ */
+export async function openBrowser({ headless = false, browser = chromeChannel() } = {}) {
+  const resolved = resolveBrowser(browser);
   try {
-    return await chromium.launch({ channel, headless, ...launchOptions() });
+    return await chromium.launch({ ...resolved, headless, ...launchOptions() });
   } catch (err) {
-    throw launchFailed(err, channel);
+    throw launchFailed(err, resolved);
   }
 }
 
@@ -287,8 +418,9 @@ export async function openPersistentContext({
   viewport,
   followWindow,
   maximized,
-  channel = chromeChannel(),
+  browser = chromeChannel(),
 } = {}) {
+  const resolved = resolveBrowser(browser);
   await mkdir(profileDir, { recursive: true });
   const { args, chromiumSandbox } = launchOptions();
 
@@ -326,7 +458,7 @@ export async function openPersistentContext({
 
   try {
     return await chromium.launchPersistentContext(profileDir, {
-      channel,
+      ...resolved,
       headless,
       /*
         A headed window must follow the window.
@@ -356,7 +488,7 @@ export async function openPersistentContext({
       chromiumSandbox,
     });
   } catch (err) {
-    throw launchFailed(err, channel);
+    throw launchFailed(err, resolved);
   }
 }
 

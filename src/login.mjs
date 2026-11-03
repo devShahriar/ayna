@@ -12,8 +12,8 @@ import { openPersistentContext } from './browser.mjs';
  * Nothing typed here is captured. This watches only whether the page still looks
  * like a sign-in.
  */
-export async function waitForLogin({ profileDir, url, viewport, timeoutMs = 5 * 60 * 1000, onState }) {
-  const context = await openPersistentContext({ profileDir, headless: false, viewport });
+export async function waitForLogin({ profileDir, url, viewport, timeoutMs = 5 * 60 * 1000, onState, browser }) {
+  const context = await openPersistentContext({ profileDir, headless: false, viewport, browser });
   const page = context.pages()[0] ?? (await context.newPage());
 
   const looksLikeSignIn = () =>

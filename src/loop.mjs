@@ -46,8 +46,8 @@ export async function runLoop(cfg, { iterations, model, headless, open, brain } 
   const target = await startTarget(cfg);
   info(`serving: ${target.url}`);
 
-  const browser = await openBrowser({ headless: headless_ });
-  info(`chrome: ${headless_ ? 'headless' : 'headed — watch it work'}`);
+  const browser = await openBrowser({ headless: headless_, browser: cfg.browser?.executablePath ?? cfg.browser?.channel ?? undefined });
+  info(`browser: ${headless_ ? 'headless' : 'headed — watch it work'}`);
 
   const iterationsLog = [];
   let totalCost = 0;
