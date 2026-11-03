@@ -26,6 +26,11 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
       <div style="height:1500px;background:rgb(0,128,0)">
         <div id="low" style="margin-top:700px;width:150px;height:80px;background:rgb(0,0,255)"></div>
       </div></body>`);
+    // Settle into the viewport before listening. On a slow runner a resize from
+    // setting the page up arrived late, inside the first test, and was counted
+    // against a capture that had not caused it.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.waitForTimeout(250);
     await page.evaluate(() => {
       window.__resizes = [];
       addEventListener('resize', () => window.__resizes.push('window'));

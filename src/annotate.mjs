@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
 import { watch } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
@@ -59,6 +59,22 @@ import { SKIP_DIRS } from './skipdirs.mjs';
 */
 export const WITHOUT_CHROME = '[data-ayna] { visibility: hidden !important; }';
 const WITHOUT_MARKED = '[data-ayna-crop] { visibility: hidden !important; } [data-ayna] { box-shadow: none !important; }';
+
+/*
+  Replace a file whole, never in place.
+
+  status.json and comments.json are read by other processes while the window
+  rewrites them: \`ayna wait\` polls the status twice a second, and so do tests.
+  writeFile truncates first, so a read in that moment got an empty file and
+  "Unexpected end of JSON input". Written beside it and renamed over it, a
+  reader sees the old file or the new one, never half of either.
+*/
+let written = 0;
+async function writeAtomic(file, text) {
+  const temp = `${file}.${process.pid}.${(written += 1)}.tmp`;
+  await writeFile(temp, text);
+  await rename(temp, file);
+}
 
 export async function cropRegion(page, rect, pad) {
   // One trip to the page: measure, work out the clip, and mark what it covers.
@@ -482,7 +498,7 @@ export async function runAnnotate({
   const auditResult = path.join(outDir, 'audit-live.json');
 
   const writeStatus = () =>
-    writeFile(
+    writeAtomic(
       statusFile,
       JSON.stringify(
         {
@@ -501,7 +517,7 @@ export async function runAnnotate({
     );
 
   const writeManifest = () =>
-    writeFile(
+    writeAtomic(
       commentsFile,
       JSON.stringify(
         { url, capturedAt: outDir, fullPage: path.join(outDir, 'full-page.png'), round, comments },

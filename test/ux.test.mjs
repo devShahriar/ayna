@@ -47,6 +47,20 @@ function pollingServer(bodyHtml, { doctype = true } = {}) {
   );
 }
 
+/*
+  Press one of the bar's actions, wherever the bar has put it.
+
+  Short of room the review actions move behind ⋯ (see fitBar in overlay.js),
+  and how short of room depends on the fonts: a 1000px window fits them on
+  macOS and does not on Linux CI. Clicking through the menu when the button
+  is tucked away keeps a test about closing from depending on the font.
+*/
+async function press(page, act) {
+  const target = page.locator(`[data-act=${act}]`);
+  if (!(await target.isVisible())) await page.click('[data-act=overflow]');
+  await target.click();
+}
+
 const cards = (n) =>
   Array.from({ length: n }, (_, i) => `<div class="card" id="c${i}"><h3>Card ${i}</h3><button>Go ${i}</button></div>`).join('');
 const CARD_CSS = '<style>.card{border:1px solid #ccc;padding:10px;margin:6px}</style>';
@@ -214,7 +228,7 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           });
           await page.waitForTimeout(400);
           after = await page.evaluate(() => scrollY);
-          await page.click('[data-act=close]');
+          await press(page, 'close');
         },
       });
       assert.ok(before > 100, 'the fixture should have scrolled down to comment');
@@ -451,7 +465,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
   });
 
   /** Two comments, sent, applied, and left sitting in the review phase. */
-  async function reviewing(run) {
+  async function reviewing(run, { wideText = false } = {}) {
     const { srv, url } = await pollingServer('<h1 class="a">Right at the top</h1><p class="b">Two</p>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-end-'));
     try {
@@ -462,6 +476,17 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
         projectDir: dir,
         viewport: { width: 1000, height: 700 },
         onReady: async (page) => {
+          if (wideText) {
+            // Wider text than the bar's widths were measured with, from the first
+            // paint and after every reload, the way a wider fallback font is.
+            const css = '[data-ayna], [data-ayna] * { letter-spacing: .14em !important; }';
+            await page.addInitScript((c) => document.addEventListener('DOMContentLoaded', () => {
+              const st = document.createElement('style');
+              st.textContent = c;
+              document.documentElement.appendChild(st);
+            }), css);
+            await page.addStyleTag({ content: css });
+          }
           for (const [sel, text] of [['.a', 'first'], ['.b', 'second']]) {
             await page.click(sel);
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
@@ -478,7 +503,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
           await page.waitForTimeout(500);
           await run(page);
           if (!page.isClosed()) {
-            await page.click('[data-act=close]');
+            await press(page, 'close');
             await page.waitForTimeout(2000);
           }
         },
@@ -518,6 +543,34 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     assert.equal(clicked, 2, 'not every verdict could be pressed');
   });
 
+  test('a bar too wide for its row sheds a form instead of wrapping', async () => {
+    /*
+      The bar's compact forms were tied to widths measured with macOS's system
+      font. On Linux CI, with a wider fallback, the review bar wrapped onto two
+      rows and a verdict ended up behind it.
+    */
+    let seen = null;
+    await reviewing(
+      async (page) => {
+        seen = await page.evaluate(() => {
+          const bar = document.querySelector('.ayna-ov-bar');
+          const b = bar.getBoundingClientRect();
+          const mids = [...bar.children]
+            .map((k) => k.getBoundingClientRect())
+            .filter((r) => r.width && r.height)
+            .map((r) => r.top + r.height / 2);
+          return {
+            oneRow: Math.max(...mids) - Math.min(...mids) <= 8,
+            hidden: [...document.querySelectorAll('.ayna-ov-revbar')].filter((r) => r.getBoundingClientRect().top < b.bottom).length,
+            stepped: Boolean(bar.dataset.crowded),
+          };
+        });
+      },
+      { wideText: true },
+    );
+    assert.deepEqual(seen, { oneRow: true, hidden: 0, stepped: true });
+  });
+
   test('the button says what it does, however much is left', async () => {
     /*
       It used to relabel itself "Done" and turn primary once everything was
@@ -553,7 +606,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     let midway = null;
     let ended = null;
     await reviewing(async (page) => {
-      await page.click('[data-act=close]');
+      await press(page, 'close');
       await page.waitForTimeout(400);
       midway = await page.evaluate(() => document.querySelector('.ayna-ov-hint')?.textContent);
       await page.click('[data-act=stay]');
@@ -561,7 +614,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
       await page.waitForTimeout(2200);
       stillOpen = !page.isClosed();
 
-      await page.click('[data-act=close]');
+      await press(page, 'close');
       await page.reload();
       ended = await page.waitForEvent('close', { timeout: 8000 }).then(
         () => true,
@@ -598,6 +651,13 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
         outDir: path.join(dir, 'out'),
         projectDir: dir,
         store: store ? await openStore(dir) : undefined,
+        /*
+          Opened by Claude, said outright. Left to identify(), this was Claude
+          only when the tests themselves ran inside Claude Code; on CI nothing
+          was attached, the window rightly showed no "claude" chip, and the
+          tests that read it failed there and nowhere else.
+        */
+        agent: { tool: 'claude', agentId: 'claude:test', agentPid: process.pid, how: 'env:CLAUDE_CODE_SESSION_ID' },
         viewport: { width: 1200, height: 800 },
         onReady: async (page) => {
           await page.waitForTimeout(900);

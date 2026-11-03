@@ -52,6 +52,32 @@
     no script at all. Dragging the rail's edge overrides it with --ayna-rail-w.
   */
   const RAIL_AUTO = 'clamp(300px, 24vw, 480px)';
+  /*
+    The bar's three compact forms, each written once and scoped to `bar`: by
+    the container queries for the widths they were measured at, and by fitBar
+    for windows whose fonts make those widths wrong.
+  */
+  // The hint goes first; "Sent — waiting for Claude" is state, not a hint, so it stays.
+  const QUIET = (bar) => `${bar} .${NS}-hint:not(.${NS}-waiting) { display: none; }`;
+  // Mode names give way to their icons, and review's end-the-round actions move behind ⋯.
+  const COMPACT = (bar) => `
+    ${bar} .${NS}-modes .${NS}-label { display: none; }
+    ${bar} .${NS}-modes button { padding: 0 10px; }
+    ${bar} [data-act=overflow] { display: inline-flex; }
+    ${bar} .${NS}-overflow {
+      display: none; position: absolute; right: 12px; top: calc(100% + 6px);
+      flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; min-width: 168px;
+      background: var(--ayna-panel, #121214); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+      border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
+    }
+    ${bar} .${NS}-overflow.${NS}-open { display: flex; }
+    ${bar} .${NS}-overflow button { justify-content: flex-start; }`;
+  // A phone: the mark without the name, Tasks as its icon, Send as one word.
+  const PHONE = (bar) => `
+    ${bar} .${NS}-brand { font-size: 0; gap: 0; padding-right: 0; border-right: 0; }
+    ${bar} [data-act=tasks] .${NS}-label, ${bar} .${NS}-long { display: none; }
+    ${bar} { gap: 8px; }
+    ${bar} button { padding: 0 10px; }`;
   const RAIL_W = `var(--ayna-rail-w, ${RAIL_AUTO})`;
   const state = {
     picking: true,
@@ -735,30 +761,13 @@
       waiting for Claude" is not a hint but the window's state, so it stays and
       shortens with an ellipsis instead.
     */
-    @container (max-width: 820px) {
-      .${NS}-bar .${NS}-hint:not(.${NS}-waiting) { display: none; }
-    }
-    @container (max-width: 600px) {
-      .${NS}-modes .${NS}-label { display: none; }
-      .${NS}-modes button { padding: 0 10px; }
-      /* Review's three end-the-round actions move behind ⋯, as a menu under it. */
-      .${NS}-bar [data-act=overflow] { display: inline-flex; }
-      .${NS}-overflow {
-        display: none; position: absolute; right: 12px; top: calc(100% + 6px);
-        flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; min-width: 168px;
-        background: var(--ayna-panel, #121214); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
-        border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
-      }
-      .${NS}-overflow.${NS}-open { display: flex; }
-      .${NS}-overflow button { justify-content: flex-start; }
-    }
-    /* A phone: the mark without the name, Tasks as its icon, Send as one word. */
-    @container (max-width: 460px) {
-      .${NS}-brand { font-size: 0; gap: 0; padding-right: 0; border-right: 0; }
-      .${NS}-bar [data-act=tasks] .${NS}-label, .${NS}-bar .${NS}-long { display: none; }
-      .${NS}-bar { gap: 8px; }
-      .${NS}-bar button { padding: 0 10px; }
-    }
+    @container (max-width: 820px) { ${QUIET(`.${NS}-bar`)} }
+    @container (max-width: 600px) { ${COMPACT(`.${NS}-bar`)} }
+    @container (max-width: 460px) { ${PHONE(`.${NS}-bar`)} }
+    /* The same forms, chosen by fitBar when the widths above guessed wrong. */
+    ${QUIET(`.${NS}-bar[data-crowded]`)}
+    ${COMPACT(`.${NS}-bar[data-crowded="2"]`)} ${COMPACT(`.${NS}-bar[data-crowded="3"]`)}
+    ${PHONE(`.${NS}-bar[data-crowded="3"]`)}
     .${NS}-modes button:hover { background: transparent; color: var(--ayna-text, #f4f2ef); filter: none; }
     .${NS}-modes button:hover::before { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent); }
     .${NS}-modes button.${NS}-on { color: var(--ayna-text, #f4f2ef); }
@@ -1150,11 +1159,48 @@
       waiting — Claude is editing; the page will reload itself when it's done
       review  — the changes are on screen; approve, or ask for more
   */
+  /*
+    The bar sheds by what fits, not by a guessed width.
+
+    Its compact forms were tied to container widths measured with macOS's
+    system font. Linux has no such font and falls back to a wider one, so at
+    700px the review bar wrapped onto a second row, the page moved under
+    markers already placed, and a verdict sat behind the bar. The container
+    queries stay as the cheap first answer; this looks at the result and steps
+    down a form at a time (see QUIET, COMPACT, PHONE) while the bar's items
+    still sit on more than one row. It runs when the bar's contents change and
+    once a resize settles — never per frame, where it would force a layout.
+  */
+  function fitBar() {
+    if (!bar) return;
+    const before = bar.dataset.crowded ?? '';
+    delete bar.dataset.crowded;
+    for (const level of ['1', '2', '3']) {
+      if (!barWraps()) break;
+      bar.dataset.crowded = level;
+    }
+    if ((bar.dataset.crowded ?? '') === before) return;
+    reserveForBar();
+    if (state.phase === 'review') repositionReview();
+  }
+
+  // Items on one row share a vertical centre; one that wrapped does not.
+  function barWraps() {
+    const mids = [...bar.children]
+      .map((k) => k.getBoundingClientRect())
+      .filter((r) => r.width && r.height)
+      .map((r) => r.top + r.height / 2);
+    return mids.some((m) => Math.abs(m - mids[0]) > 8);
+  }
+
   function setPhase(phase) {
     if (!bar) return;
     // The space the bar needs is re-measured whenever it changes; see the
     // observer in reserveForBar, which is what actually catches it.
-    requestAnimationFrame(reserveForBar);
+    requestAnimationFrame(() => {
+      fitBar();
+      reserveForBar();
+    });
     const leavingReview = state.phase === 'review' && phase !== 'review';
     if (phase !== 'waiting') clearInterval(state.listenTimer);
     state.phase = phase;
@@ -2574,6 +2620,7 @@
       clearTimeout(settleTimer);
       settleTimer = setTimeout(() => {
         correctedFor = '';
+        fitBar();
         reserveForBar({ correct: true });
       }, 120);
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
@@ -3229,6 +3276,8 @@
     */
     const close = bar.querySelector('[data-act=close]');
     if (close && !closing) close.textContent = 'Close window';
+    // The progress chip only fills in now, and its words can be what tips the bar over.
+    fitBar();
   }
 
   /*
@@ -4531,6 +4580,7 @@
       if (chip.textContent !== String(pending)) chip.textContent = String(pending);
     }
     el.setAttribute('aria-label', pending ? `Tasks, ${pending} pending` : 'Tasks');
+    fitBar();
   }
 
   /*
