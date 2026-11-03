@@ -17,7 +17,7 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser } from './helpers.mjs';
+import { hasBrowser, press } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -45,20 +45,6 @@ function pollingServer(bodyHtml, { doctype = true } = {}) {
   return new Promise((resolve) =>
     srv.listen(0, () => resolve({ srv, url: `http://127.0.0.1:${srv.address().port}/` })),
   );
-}
-
-/*
-  Press one of the bar's actions, wherever the bar has put it.
-
-  Short of room the review actions move behind ⋯ (see fitBar in overlay.js),
-  and how short of room depends on the fonts: a 1000px window fits them on
-  macOS and does not on Linux CI. Clicking through the menu when the button
-  is tucked away keeps a test about closing from depending on the font.
-*/
-async function press(page, act) {
-  const target = page.locator(`[data-act=${act}]`);
-  if (!(await target.isVisible())) await page.click('[data-act=overflow]');
-  await target.click();
 }
 
 const cards = (n) =>
@@ -292,7 +278,7 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           duringDrag = await page.evaluate(() => window.__calls);
           await page.waitForTimeout(600);
           afterSettle = await page.evaluate(() => window.__calls);
-          await page.click('[data-act=close]');
+          await press(page, 'close');
         },
       });
       assert.ok(
@@ -828,7 +814,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       seen.judged = await rounds();
 
       // The next round begins: the approved one gets out of the way.
-      await page.click('[data-act=more]');
+      await press(page, 'more');
       await page.waitForTimeout(400);
       await note(page, 'and bolder');
       await page.waitForTimeout(1300);

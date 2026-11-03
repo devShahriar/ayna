@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press } from './helpers.mjs';
 
 describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -186,7 +186,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
               () => document.querySelector('[data-act=close]') !== null,
               { timeout: 15000 },
             );
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -246,7 +246,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             phases.push(await phase());
             assert.equal(page.isClosed(), false, 'window must stay open during review');
 
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
         assert.deepEqual(phases, ['awaiting-claude', 'reviewing']);
@@ -291,7 +291,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
         assert.equal(phaseAfterSend, 'awaiting-claude', 'must wait for a fresh marker');
@@ -518,7 +518,7 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -701,7 +701,7 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -747,7 +747,7 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
         assert.equal(manifest.comments[0].kind, 'comment');
@@ -818,7 +818,7 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
               timeout: 15000,
             });
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -955,7 +955,7 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
               await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
               /resolved/,
             );
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -1053,7 +1053,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
               /Home view of the application/,
               'the app shell actually booted rather than 404ing',
             );
-            await page.click('[data-act=close]');
+            await press(page, 'close');
           },
         });
 
@@ -1552,7 +1552,7 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
             assert.equal((await phase()).resolved, 1);
 
             // Same window, another round.
-            await page.click('[data-act=more]');
+            await press(page, 'more');
             await page.waitForTimeout(400);
             assert.equal((await phase()).phase, 'commenting');
             assert.equal(
@@ -1676,7 +1676,7 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
               timeout: 15000,
             });
             await page.waitForTimeout(300);
-            await page.click('[data-act=close]'); // close without judging
+            await press(page, 'close'); // close without judging
           },
         });
 
@@ -1816,7 +1816,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForTimeout(500);
 
             // A second round, with nothing re-armed in between.
-            await page.click('[data-act=more]');
+            await press(page, 'more');
             await page.waitForTimeout(400);
             await add('.lede', 'round two');
             await page.click('[data-act=send]');
@@ -1876,7 +1876,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-no');
             await page.waitForTimeout(400);
 
-            await page.click('[data-act=more]');
+            await press(page, 'more');
             await page.waitForTimeout(400);
             await add('.lede', 'round two');
             await page.click('[data-act=send]');
@@ -2089,7 +2089,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             said.push(await checkLine(1));
 
             // Round 2 brings a second line of tiny text with it.
-            await page.click('[data-act=more]');
+            await press(page, 'more');
             await page.waitForTimeout(400);
             await send('.lede', 'add a disclaimer');
             const html = path.join(site, 'index.html');

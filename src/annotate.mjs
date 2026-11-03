@@ -1507,12 +1507,16 @@ export async function runAnnotate({
         // waiting for it, __aynaReview fires into a page that has no overlay yet
         // and the review markers never appear.
         await injectOverlay();
-        await page.evaluate(() => window.__aynaReview && window.__aynaReview());
+        /*
+          Published before the page shows it. The gate below takes a beat, and
+          anything asking what phase this window is in was being told the old
+          answer for as long as the measurement ran; and written after the review
+          appeared, a reader that saw the review (a test, a person) could still
+          read "awaiting-claude" for a moment.
+        */
         phase = 'reviewing';
-        // Published the moment it changes. The gate below takes a beat, and
-        // anything asking what phase this window is in was being told the old
-        // answer for as long as the measurement ran.
         await writeStatus();
+        await page.evaluate(() => window.__aynaReview && window.__aynaReview());
 
         /*
           Check the claim before the user is asked to judge it.
