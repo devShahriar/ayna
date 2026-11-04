@@ -190,7 +190,12 @@ export async function openStore(projectDir, { db: given } = {}) {
       }
       db.prepare(`INSERT INTO tasks (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values);
       db.prepare('INSERT INTO task_history (task_id, at, status) VALUES (?, ?, ?)').run(next, now, status);
-      appendEvent(db, { event: 'task', taskId: next, status, comment: cols.comment ?? null, url: cols.url ?? null });
+      // `source` says who raised it — the user, Claude, or a check — so a reader
+      // of the log can sign the line without loading the task.
+      appendEvent(db, {
+        event: 'task', taskId: next, tabId: cols.tab_id ?? null,
+        status, comment: cols.comment ?? null, url: cols.url ?? null, source: extra.source ?? null,
+      });
       return next;
     });
 
@@ -208,7 +213,12 @@ export async function openStore(projectDir, { db: given } = {}) {
     return read(id);
   }
 
-  async function update(id, patch, note) {
+  /*
+    `tabId` is the window the change was made in, which is not always the one the
+    task was raised in: a note carried over from yesterday's review is judged in
+    today's, and that verdict belongs in today's activity.
+  */
+  async function update(id, patch, note, { tabId = null } = {}) {
     const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     if (!current) return null;
 
@@ -227,7 +237,7 @@ export async function openStore(projectDir, { db: given } = {}) {
         db.prepare('INSERT INTO task_history (task_id, at, status, note) VALUES (?, ?, ?, ?)').run(
           id, now, patch.status, note ?? null,
         );
-        appendEvent(db, { event: 'task', taskId: id, status: patch.status, ...(note ? { note } : {}) });
+        appendEvent(db, { event: 'task', taskId: id, tabId, status: patch.status, ...(note ? { note } : {}) });
       }
     });
     return read(id);
@@ -419,6 +429,20 @@ export async function importLegacy(projectDir, store) {
     for (const c of data.comments ?? []) {
       const key = `${entry.name}#${c.id ?? c.n}`;
       if (seen.has(key)) continue;
+      /*
+        A record with a taskId is a window's view of a task, not a legacy note.
+
+        A window loads work still open from earlier windows and numbers it
+        afresh, so its manifest lists that work under keys nobody has claimed —
+        and every read adopted it as new. A review that ran `ayna comments` each
+        round grew a copy of every carried note per round. The task is already
+        in the store; and if it has since been deleted, adopting it again would
+        undo the deletion, which is what the ledger is here to prevent.
+      */
+      if (c.taskId) {
+        seen.add(key);
+        continue;
+      }
       // Old records used 'resolved'; the store's terminal state is 'approved'.
       const status = c.status === 'resolved' ? 'approved' : c.status === 'rejected' ? 'rejected' : 'open';
       await store.create(

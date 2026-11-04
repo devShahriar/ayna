@@ -34,3 +34,18 @@ export async function fixtureSite(dir, { overflow = false, tinyText = false, bla
 }
 
 export const hasBrowser = !process.env.AYNA_SKIP_BROWSER;
+
+/*
+  Press one of the bar's actions, wherever the bar has put it.
+
+  Short of room, the review actions move behind ⋯ (see fitBar in overlay.js),
+  and how short of room depends on the fonts: a window that fits them on macOS
+  does not on Linux CI. Clicking through the menu when the button is tucked
+  away keeps a test about closing, or about a second round, from depending on
+  the font it happens to run with.
+*/
+export async function press(page, act) {
+  const target = page.locator(`[data-act=${act}]`);
+  if (!(await target.isVisible())) await page.click('[data-act=overflow]');
+  await target.click();
+}

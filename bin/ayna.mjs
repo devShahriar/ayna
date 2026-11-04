@@ -1728,6 +1728,7 @@ async function main() {
         const store = await openStore(PROJECT);
         await importLegacy(PROJECT, store);
         const tasks = await store.list();
+        await markPickedUp();
         const payload = {
           total: tasks.length,
           pending: tasks.filter(isPending).length,
@@ -2045,6 +2046,63 @@ async function liveWindow() {
  * that would be answering our own question.
  */
 async function followSession(statusFile, sessionDir, { settle = false } = {}) {
+  const stopListening = await listen();
+  try {
+    return await follow(statusFile, { settle });
+  } finally {
+    stopListening();
+  }
+}
+
+/*
+  Say that someone is on the line.
+
+  A window cannot see who reads its rounds, so it promised "waiting for Claude"
+  to a terminal nobody was watching, and the user waited minutes on a review no
+  session would ever pick up. While anything follows the window it refreshes a
+  row in the cursors table, and the window takes a fresh row as proof that
+  someone will hear the next Send. See listenerOf in src/annotate.mjs.
+*/
+async function listen() {
+  try {
+    const [{ openDb, writeCursor, latestSeq }, { identify }] = await Promise.all([
+      import('../src/db.mjs'),
+      import('../src/agent.mjs'),
+    ]);
+    const db = await openDb(PROJECT);
+    const consumer = `listen:${identify().agentId}`;
+    const beat = () => {
+      try {
+        writeCursor(db, consumer, latestSeq(db));
+      } catch {
+        // A missed beat only means the window may doubt us for a moment.
+      }
+    };
+    beat();
+    const timer = setInterval(beat, 3000);
+    return () => clearInterval(timer);
+  } catch {
+    // No database: the window cannot read a heartbeat anyway.
+    return () => {};
+  }
+}
+
+/*
+  Tell the window its round has been read.
+
+  Reading the notes of a round that is waiting is what picking it up means, so
+  the window can stop saying "waiting for Claude" and say Claude has it. A marker
+  file, the same way `applied` reaches the window.
+*/
+async function markPickedUp() {
+  const session = await liveWindow();
+  if (!session) return;
+  const status = JSON.parse(await readFile(path.join(session.dir, 'status.json'), 'utf8').catch(() => '{}'));
+  if (status.phase !== 'awaiting-claude') return;
+  await writeFile(path.join(session.dir, 'picked-up'), String(Date.now())).catch(() => {});
+}
+
+async function follow(statusFile, { settle = false } = {}) {
   const read = async () =>
     existsSync(statusFile) ? JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}')) : {};
 

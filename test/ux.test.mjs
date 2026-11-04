@@ -17,7 +17,7 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser } from './helpers.mjs';
+import { hasBrowser, press } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -214,7 +214,7 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           });
           await page.waitForTimeout(400);
           after = await page.evaluate(() => scrollY);
-          await page.click('[data-act=close]');
+          await press(page, 'close');
         },
       });
       assert.ok(before > 100, 'the fixture should have scrolled down to comment');
@@ -278,7 +278,7 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           duringDrag = await page.evaluate(() => window.__calls);
           await page.waitForTimeout(600);
           afterSettle = await page.evaluate(() => window.__calls);
-          await page.click('[data-act=close]');
+          await press(page, 'close');
         },
       });
       assert.ok(
@@ -451,7 +451,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
   });
 
   /** Two comments, sent, applied, and left sitting in the review phase. */
-  async function reviewing(run) {
+  async function reviewing(run, { wideText = false } = {}) {
     const { srv, url } = await pollingServer('<h1 class="a">Right at the top</h1><p class="b">Two</p>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-end-'));
     try {
@@ -462,6 +462,17 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
         projectDir: dir,
         viewport: { width: 1000, height: 700 },
         onReady: async (page) => {
+          if (wideText) {
+            // Wider text than the bar's widths were measured with, from the first
+            // paint and after every reload, the way a wider fallback font is.
+            const css = '[data-ayna], [data-ayna] * { letter-spacing: .14em !important; }';
+            await page.addInitScript((c) => document.addEventListener('DOMContentLoaded', () => {
+              const st = document.createElement('style');
+              st.textContent = c;
+              document.documentElement.appendChild(st);
+            }), css);
+            await page.addStyleTag({ content: css });
+          }
           for (const [sel, text] of [['.a', 'first'], ['.b', 'second']]) {
             await page.click(sel);
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
@@ -478,7 +489,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
           await page.waitForTimeout(500);
           await run(page);
           if (!page.isClosed()) {
-            await page.click('[data-act=close]');
+            await press(page, 'close');
             await page.waitForTimeout(2000);
           }
         },
@@ -518,6 +529,34 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     assert.equal(clicked, 2, 'not every verdict could be pressed');
   });
 
+  test('a bar too wide for its row sheds a form instead of wrapping', async () => {
+    /*
+      The bar's compact forms were tied to widths measured with macOS's system
+      font. On Linux CI, with a wider fallback, the review bar wrapped onto two
+      rows and a verdict ended up behind it.
+    */
+    let seen = null;
+    await reviewing(
+      async (page) => {
+        seen = await page.evaluate(() => {
+          const bar = document.querySelector('.ayna-ov-bar');
+          const b = bar.getBoundingClientRect();
+          const mids = [...bar.children]
+            .map((k) => k.getBoundingClientRect())
+            .filter((r) => r.width && r.height)
+            .map((r) => r.top + r.height / 2);
+          return {
+            oneRow: Math.max(...mids) - Math.min(...mids) <= 8,
+            hidden: [...document.querySelectorAll('.ayna-ov-revbar')].filter((r) => r.getBoundingClientRect().top < b.bottom).length,
+            stepped: Boolean(bar.dataset.crowded),
+          };
+        });
+      },
+      { wideText: true },
+    );
+    assert.deepEqual(seen, { oneRow: true, hidden: 0, stepped: true });
+  });
+
   test('the button says what it does, however much is left', async () => {
     /*
       It used to relabel itself "Done" and turn primary once everything was
@@ -540,21 +579,37 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     assert.match(labels[2], /nothing left to do/, 'the sentence carries the state, not the button');
   });
 
-  test('closing can be taken back', async () => {
-    // One click used to end the review and take the window with it, and the only
-    // undo was to start again and re-judge everything.
+  test('closing can be taken back, and a reload cannot stop it', async () => {
+    /*
+      One click used to end the review and take the window with it, and the only
+      undo was to start again and re-judge everything. Then the countdown lived
+      only in the page, so a reload in that moment — a dev server's full reload,
+      or the overlay reloading itself — threw it away, and the window stayed
+      open for good after Close. A scripted review waited on it forever, which
+      is what hung this file.
+    */
     let stillOpen = null;
     let midway = null;
+    let ended = null;
     await reviewing(async (page) => {
-      await page.click('[data-act=close]');
+      await press(page, 'close');
       await page.waitForTimeout(400);
       midway = await page.evaluate(() => document.querySelector('.ayna-ov-hint')?.textContent);
       await page.click('[data-act=stay]');
-      await page.waitForTimeout(600);
+      // Past the 1.5s countdown, which Node holds: Stay has to cancel it there.
+      await page.waitForTimeout(2200);
       stillOpen = !page.isClosed();
+
+      await press(page, 'close');
+      await page.reload();
+      ended = await page.waitForEvent('close', { timeout: 8000 }).then(
+        () => true,
+        () => false,
+      );
     });
     assert.match(midway, /Closing the review/);
     assert.equal(stillOpen, true, 'Stay open did not keep the window');
+    assert.equal(ended, true, 'a reload during the countdown left the window open after Close');
   });
 });
 
@@ -572,7 +627,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     window and a terminal at once and the person who wanted to stay on the page
     kept having to leave it. Same stream, on the page, both directions.
   */
-  async function withConsole(run) {
+  async function withConsole(run, { store = true } = {}) {
     const { srv, url } = await pollingServer('<h1 class="t">Hello</h1><div style="height:1200px"></div>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-console-'));
     try {
@@ -581,7 +636,14 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
         url,
         outDir: path.join(dir, 'out'),
         projectDir: dir,
-        store: await openStore(dir),
+        store: store ? await openStore(dir) : undefined,
+        /*
+          Opened by Claude, said outright. Left to identify(), this was Claude
+          only when the tests themselves ran inside Claude Code; on CI nothing
+          was attached, the window rightly showed no "claude" chip, and the
+          tests that read it failed there and nowhere else.
+        */
+        agent: { tool: 'claude', agentId: 'claude:test', agentPid: process.pid, how: 'env:CLAUDE_CODE_SESSION_ID' },
         viewport: { width: 1200, height: 800 },
         onReady: async (page) => {
           await page.waitForTimeout(900);
@@ -602,6 +664,38 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       const c = document.querySelector('.ayna-ov-console').getBoundingClientRect();
       const b = document.body.getBoundingClientRect();
       return Math.max(0, Math.round(c.right - b.left));
+    });
+
+  // One note on the page's heading.
+  const note = async (page, text) => {
+    await page.click('.t');
+    await page.waitForSelector('.ayna-ov-pop textarea');
+    await page.fill('.ayna-ov-pop textarea', text);
+    await page.click('.ayna-ov-save');
+    await page.waitForTimeout(400);
+  };
+
+  // Send what is noted, have it land, and approve it: round 1, settled.
+  const approvedRound = async (page, dir) => {
+    await page.click('[data-act=send]');
+    await page.waitForTimeout(600);
+    await writeFile(path.join(dir, 'out', 'applied'), '1');
+    await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, { timeout: 20000 });
+    await page.evaluate(() => window.__aynaResolve(1, 'approved'));
+  };
+
+  // The newest round card, as someone reading it sees it.
+  const lastCard = (page) =>
+    page.evaluate(() => {
+      const c = [...document.querySelectorAll('.ayna-ov-round')].at(-1);
+      return c && {
+        title: c.querySelector('.ayna-ov-round-head b').textContent,
+        pill: c.querySelector('.ayna-ov-pill').textContent,
+        lines: [...c.querySelectorAll('.ayna-ov-item')].map(
+          (n) => n.querySelector('b').textContent + ': ' + n.querySelector('span').textContent,
+        ),
+        cards: document.querySelectorAll('.ayna-ov-round').length,
+      };
     });
 
   test('carries both sides of the conversation', async () => {
@@ -626,6 +720,141 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     assert.ok(lines.includes('you:make it wider too'), 'the reply typed on the page was lost');
   });
 
+  test('a round is one card that says whose move it is', async () => {
+    const seen = [];
+    let brand = null;
+    let head = null;
+    await withConsole(async (page, dir) => {
+      const card = () => lastCard(page);
+
+      // innerText, not textContent: it is the name as drawn, after any CSS case change.
+      brand = await page.evaluate(() => document.querySelector('.ayna-ov-brand').innerText);
+      await page.click('.t');
+      await page.waitForSelector('.ayna-ov-pop textarea');
+      await page.fill('.ayna-ov-pop textarea', 'make it bigger');
+      await page.click('.ayna-ov-save');
+      await page.waitForTimeout(1300);
+      seen.push(await card());
+
+      await page.click('[data-act=send]');
+      await page.waitForTimeout(1300);
+      seen.push(await card());
+      // With "claude working" showing, the fold stays on the title's line; the chips wrap below.
+      await page.waitForSelector('.ayna-ov-agent', { timeout: 5000 });
+      head = await page.evaluate(() => {
+        const mid = (s) => {
+          const r = document.querySelector(s).getBoundingClientRect();
+          return Math.round(r.top + r.height / 2);
+        };
+        return { fold: mid('.ayna-ov-console [data-act=fold]') === mid('.ayna-ov-console-title'), chipBelow: mid('.ayna-ov-agent') > mid('.ayna-ov-console-title') };
+      });
+
+      await writeFile(path.join(dir, 'out', 'applied'), '1');
+      await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, { timeout: 20000 });
+      await page.waitForTimeout(1500);
+      seen.push(await card());
+
+      await page.evaluate(() => window.__aynaResolve(1, 'approved'));
+      await page.waitForTimeout(1300);
+      seen.push(await card());
+    });
+
+    const [drafting, sent, landed, judged] = seen;
+    assert.equal(brand, 'Ayna', 'the bar shows the name capitalised');
+    assert.deepEqual(head, { fold: true, chipBelow: true });
+    // The note sits under its round from the start, not above a header drawn later.
+    assert.deepEqual(drafting, { title: 'Next round', pill: 'Not sent yet', lines: ['You: make it bigger'], cards: 1 });
+    assert.equal(sent.title, 'Round 1');
+    assert.equal(sent.pill, 'Claude is working');
+    assert.equal(sent.cards, 1, 'sending turns the draft into the round, it does not add a second card');
+    assert.equal(landed.pill, 'Your turn');
+    assert.ok(landed.lines.includes('Claude: Finished'), landed.lines.join(' | '));
+    assert.ok(landed.lines.some((l) => l.startsWith('Ayna: ')), 'the check is signed by Ayna, not by Claude');
+    assert.equal(judged.pill, 'Approved');
+    assert.equal(judged.lines.at(-1), 'You: Approved');
+    // Nothing speaks in ids or code names.
+    assert.doesNotMatch(judged.lines.join(' '), /task-\d|lowContrast|smallTargets/);
+  });
+
+  test('a window with no task store still draws its notes and settles its round', async () => {
+    let judged = null;
+    await withConsole(
+      async (page, dir) => {
+        await note(page, 'make it bigger');
+        await approvedRound(page, dir);
+        await page.waitForTimeout(1300);
+        judged = await lastCard(page);
+      },
+      { store: false },
+    );
+    assert.equal(judged.pill, 'Approved', 'the last approval settles the round without a store too');
+    assert.ok(judged.lines.includes('You: make it bigger'), judged.lines.join(' | '));
+  });
+
+  test('a finished round folds when the next one starts, opens again on a click, and folds no message away', async () => {
+    const seen = {};
+    await withConsole(async (page, dir) => {
+      const rounds = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('.ayna-ov-round')].map((c) => ({
+            title: c.querySelector('.ayna-ov-round-head b').textContent,
+            folded: c.hasAttribute('data-folded'),
+            expanded: c.querySelector('.ayna-ov-round-head').getAttribute('aria-expanded'),
+            sum: c.querySelector('.ayna-ov-round-sum').textContent,
+          })),
+        );
+
+      await note(page, 'make it bigger');
+      await approvedRound(page, dir);
+      // Said to the window, not to the round: these must not fold away with it.
+      const { appendEvent, openDb } = await import('../src/db.mjs');
+      appendEvent(await openDb(dir), { event: 'message', from: 'claude', text: 'tidied the spacing too' });
+      await (await openStore(dir)).create({ status: 'proposed', kind: 'proposal', comment: 'try a darker blue', source: 'claude', url: null });
+      await page.waitForTimeout(1500);
+      seen.judged = await rounds();
+
+      // The next round begins: the approved one gets out of the way.
+      await press(page, 'more');
+      await page.waitForTimeout(400);
+      await note(page, 'and bolder');
+      await page.waitForTimeout(1300);
+      seen.next = await rounds();
+      seen.loose = await page.evaluate(() => {
+        const shown = (el) => Boolean(el && !el.closest('.ayna-ov-round') && el.getClientRects().length);
+        return {
+          message: shown([...document.querySelectorAll('.ayna-ov-line')].find((n) => n.textContent.includes('tidied the spacing too'))),
+          suggestion: shown([...document.querySelectorAll('.ayna-ov-item')].find((n) => n.textContent.includes('try a darker blue'))),
+        };
+      });
+
+      await page.click('.ayna-ov-round-head');
+      seen.clicked = (await rounds())[0];
+      await page.focus('.ayna-ov-round-head');
+      await page.keyboard.press('Enter');
+      seen.keyed = (await rounds())[0];
+
+      // Opened by hand, it stays open through a reload.
+      await page.click('.ayna-ov-round-head');
+      await page.reload();
+      await page.waitForSelector('.ayna-ov-round', { timeout: 10000 });
+      await page.waitForTimeout(1500);
+      seen.reloaded = (await rounds())[0];
+    });
+
+    assert.equal(seen.judged.length, 1);
+    assert.equal(seen.judged[0].folded, false, 'the only round is never folded away');
+    assert.deepEqual(
+      seen.next.map((r) => [r.title, r.folded]),
+      [['Round 1', true], ['Next round', false]],
+    );
+    assert.equal(seen.next[0].sum, '1 note', 'folded, it still says what it held');
+    assert.deepEqual(seen.loose, { message: true, suggestion: true }, 'a message or suggestion stays in view, outside the folded card');
+    assert.equal(seen.next[0].expanded, 'false');
+    assert.equal(seen.clicked.folded, false);
+    assert.equal(seen.keyed.folded, true, 'Enter on the header folds it, like a click');
+    assert.equal(seen.reloaded.folded, false);
+  });
+
   test('never covers the app, open or minimised', async () => {
     /*
       A panel that sits on top of the thing you are reviewing is not a panel.
@@ -636,16 +865,74 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       rather than being covered.
     */
     const seen = {};
+    const fold = (page) =>
+      page.evaluate(() => {
+        const b = document.querySelector('[data-act=fold]');
+        return `${b.getAttribute('aria-label')}|${b.textContent.trim()}|${Boolean(b.querySelector('svg'))}`;
+      });
     await withConsole(async (page) => {
       seen.open = await overlap(page);
+      seen.foldOpen = await fold(page);
       await page.click('[data-act=fold]');
       await page.waitForTimeout(800);
       seen.minimised = await overlap(page);
+      seen.foldMin = await fold(page);
+      // Folded, the live dot sits beside the icon on one line, as in "● Activity".
+      seen.spine = await page.evaluate(() => {
+        const d = document.querySelector('.ayna-ov-dotlive').getBoundingClientRect();
+        const b = document.querySelector('[data-act=fold]').getBoundingClientRect();
+        return d.right <= b.left && Math.abs((d.top + d.bottom) / 2 - (b.top + b.bottom) / 2) <= 1 ? 'side by side' : 'stacked';
+      });
       await page.click('[data-act=fold]');
       await page.waitForTimeout(800);
       seen.reopened = await overlap(page);
     });
-    assert.deepEqual(seen, { open: 0, minimised: 0, reopened: 0 });
+    // The fold is the Activity icon in both states, with which way it goes in its label.
+    assert.deepEqual(seen, {
+      open: 0, minimised: 0, reopened: 0,
+      foldOpen: 'Hide activity||true', foldMin: 'Show activity||true', spine: 'side by side',
+    });
+  });
+
+  test('the rail starts on one edge, and the task list hangs under the bar and closes like a menu', async () => {
+    const seen = {};
+    await withConsole(async (page) => {
+      // Measured first, while the rail still shows its empty state.
+      seen.edges = await page.evaluate(() => {
+        const rail = document.querySelector('.ayna-ov-console').getBoundingClientRect().left;
+        const at = (sel) => Math.round(document.querySelector(sel).getBoundingClientRect().left - rail);
+        return { header: at('.ayna-ov-dotlive'), empty: at('.ayna-ov-empty-lead'), say: at('.ayna-ov-say-box') };
+      });
+
+      const open = () => page.evaluate(() => Boolean(document.querySelector('.ayna-ov-panel')));
+      await page.click('[data-act=tasks]');
+      await page.waitForSelector('.ayna-ov-panel');
+      seen.gap = await page.evaluate(
+        () =>
+          Math.round(document.querySelector('.ayna-ov-panel').getBoundingClientRect().top) -
+          Math.round(document.querySelector('.ayna-ov-bar').getBoundingClientRect().bottom),
+      );
+      await page.mouse.click(700, 600); // the page, away from the list
+      seen.outside = await open();
+      await page.click('[data-act=tasks]');
+      await page.waitForSelector('.ayna-ov-panel');
+      await page.click('.ayna-ov-panel .ayna-ov-panel-head');
+      seen.inside = await open();
+      await page.keyboard.press('Escape');
+      seen.escape = await open();
+      await page.click('[data-act=tasks]');
+      await page.waitForSelector('.ayna-ov-panel');
+      await page.click('[data-act=tasks]');
+      seen.toggled = await open();
+    });
+    // The task panel's empty state shares a class with the rail's, and its
+    // padding once leaked in and pushed the rail's 14px further in than the rest.
+    const { header } = seen.edges;
+    assert.deepEqual(seen.edges, { header, empty: header, say: header });
+    assert.deepEqual(
+      { gap: seen.gap, outside: seen.outside, inside: seen.inside, escape: seen.escape, toggled: seen.toggled },
+      { gap: 6, outside: false, inside: true, escape: false, toggled: false },
+    );
   });
 
   test('typing in it does not reach the page underneath', async () => {
@@ -997,5 +1284,137 @@ describe('asking for a design direction', { skip: !hasBrowser && 'AYNA_SKIP_BROW
       !events.some((e) => e.event === 'applied' || e.event === 'round'),
       'nothing may be edited or sent on the strength of a button press',
     );
+  });
+});
+
+/*
+  A phone-sized window.
+
+  The rail kept clamp(300px, 24vw, 480px) at every size, so a 390px window gave
+  the app 90px and the bar wrapped into three rows with Send off the edge — at
+  exactly the size people narrow a window to, to review a mobile layout.
+*/
+describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  let browser;
+  before(async () => {
+    browser = await openBrowser({ headless: true });
+  });
+  after(async () => {
+    await browser?.close().catch(() => {});
+  });
+
+  test('the page keeps the width, the bar one row, and the rail opens from the bar as a drawer', async () => {
+    const { srv, url } = await pollingServer('<h1 class="t">Hello</h1><p>Body copy for the page.</p>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-phone-'));
+    const seen = {};
+    try {
+      await runAnnotate({
+        browser,
+        url,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        store: await openStore(dir),
+        viewport: { width: 390, height: 844 },
+        onReady: async (page) => {
+          await page.waitForTimeout(900);
+          seen.open = await page.evaluate(() => {
+            const r = (s) => document.querySelector(s)?.getBoundingClientRect();
+            const shown = (s) => {
+              const el = document.querySelector(s);
+              return Boolean(el) && getComputedStyle(el).display !== 'none';
+            };
+            return {
+              page: Math.round(r('body').width),
+              bar: Math.round(r('.ayna-ov-bar').height),
+              send: Math.round(r('[data-act=send]').right),
+              rail: shown('.ayna-ov-console'),
+              activity: shown('.ayna-ov-bar [data-act=activity]'),
+              // In the bar, at its left end — not floating over the page.
+              activityLeft: Math.round(r('.ayna-ov-bar [data-act=activity]').left),
+              brand: shown('.ayna-ov-bar .ayna-ov-brand'),
+            };
+          });
+
+          await page.click('.t');
+          await page.waitForSelector('.ayna-ov-pop textarea');
+          seen.box = await page.evaluate(() => {
+            const r = document.querySelector('.ayna-ov-pop').getBoundingClientRect();
+            return { left: Math.round(r.left), right: Math.round(innerWidth - r.right), bottom: Math.round(innerHeight - r.bottom) };
+          });
+          await page.fill('.ayna-ov-pop textarea', 'tighter');
+          await page.click('.ayna-ov-save');
+          await page.waitForTimeout(400);
+          await page.click('[data-act=send]');
+          await page.waitForTimeout(600);
+          await writeFile(path.join(dir, 'out', 'applied'), '1');
+          await page.waitForSelector('[data-act=overflow]', { state: 'visible', timeout: 20000 });
+          await page.waitForTimeout(800);
+
+          const visible = (s) => page.evaluate((s) => {
+            const el = document.querySelector(s);
+            return Boolean(el) && el.getBoundingClientRect().width > 0;
+          }, s);
+          seen.menuBefore = await visible('[data-act=approve-all]');
+          await page.click('[data-act=overflow]');
+          seen.menuAfter = await visible('[data-act=approve-all]');
+          await page.click('[data-act=overflow]');
+          // Closed like any menu: a press anywhere else, or Escape.
+          await page.click('[data-act=overflow]');
+          await page.mouse.click(200, 700);
+          seen.menuOutside = await visible('[data-act=approve-all]');
+          await page.click('[data-act=overflow]');
+          await page.keyboard.press('Escape');
+          seen.menuEscape = await visible('[data-act=approve-all]');
+
+          seen.dot = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-activity-dot')).display);
+          await page.click('.ayna-ov-bar [data-act=activity]');
+          await page.waitForTimeout(600);
+          seen.sheet = await page.evaluate(() => {
+            const r = document.querySelector('.ayna-ov-console').getBoundingClientRect();
+            const bar = document.querySelector('.ayna-ov-bar').getBoundingClientRect();
+            const marker = document.querySelector('.ayna-ov-revbar')?.getBoundingClientRect();
+            const onTop = marker && document.elementFromPoint(marker.x + marker.width / 2, marker.y + marker.height / 2);
+            return {
+              fold: getComputedStyle(document.querySelector('.ayna-ov-console [data-act=fold]')).display,
+              left: Math.round(r.left),
+              top: Math.round(r.top - bar.bottom),
+              width: Math.round(r.width),
+              bottom: Math.round(innerHeight - r.bottom),
+              rounds: document.querySelectorAll('.ayna-ov-round').length,
+              markerCovered: marker ? Boolean(onTop?.closest('.ayna-ov-scrim, .ayna-ov-console')) : null,
+            };
+          });
+          await page.mouse.click(380, 400); // the backdrop, beside the drawer
+          await page.waitForTimeout(300);
+          seen.closed = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-console')).display);
+          await page.click('.ayna-ov-bar [data-act=activity]');
+          await page.waitForTimeout(300);
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+          seen.escaped = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-console')).display);
+          await page.close();
+        },
+      });
+    } finally {
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    assert.equal(seen.open.page, 390, 'the app gets the whole width, not what the rail leaves');
+    assert.ok(seen.open.bar <= 60, `the bar wrapped to ${seen.open.bar}px`);
+    assert.ok(seen.open.send <= 390, 'Send is on screen');
+    assert.deepEqual([seen.open.rail, seen.open.activity, seen.open.brand], [false, true, false]);
+    assert.ok(seen.open.activityLeft <= 16, 'Activity sits at the bar\'s left end');
+    assert.equal(seen.dot, 'block', 'with a dot while it is your turn');
+    assert.deepEqual(seen.box, { left: 8, right: 8, bottom: 8 }, 'the comment box is a sheet along the bottom');
+    assert.deepEqual([seen.menuBefore, seen.menuAfter], [false, true], 'review actions wait behind ⋯');
+    assert.deepEqual([seen.sheet.left, seen.sheet.top, seen.sheet.bottom], [0, 0, 0], 'a drawer from the left, under the bar');
+    assert.equal(seen.sheet.width, Math.round(390 * 0.86));
+    assert.equal(seen.sheet.rounds, 1);
+    assert.equal(seen.sheet.fold, 'none', 'the drawer has no Hide: it closes from the bar, a tap beside it or Escape');
+    assert.notEqual(seen.sheet.markerCovered, false, 'a review marker shows through the backdrop');
+    assert.equal(seen.closed, 'none', 'tapping the backdrop closes the sheet');
+    assert.deepEqual([seen.menuOutside, seen.menuEscape], [false, false], 'the ⋯ menu closes on a press elsewhere and on Escape');
+    assert.equal(seen.escaped, 'none', 'Escape closes the drawer');
   });
 });
