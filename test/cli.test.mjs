@@ -20,9 +20,13 @@ const exec = promisify(execFile);
 const BIN = path.resolve(fileURLToPath(new URL('../bin/ayna.mjs', import.meta.url)));
 
 /** Run the CLI in `cwd`, never throwing so we can assert on failures too. */
-async function ayna(cwd, args) {
+async function ayna(cwd, args, env = {}) {
   try {
-    const { stdout, stderr } = await exec('node', [BIN, ...args], { cwd, timeout: 120_000 });
+    const { stdout, stderr } = await exec('node', [BIN, ...args], {
+      cwd,
+      timeout: 120_000,
+      env: { ...process.env, ...env },
+    });
     return { code: 0, stdout, stderr };
   } catch (err) {
     return { code: err.code ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
@@ -134,6 +138,33 @@ describe('cli: snapshot and restore', () => {
       assert.notEqual(res.code, 0);
       assert.match(res.stdout + res.stderr, /snapshot/i);
       assert.ok(existsSync(path.join(ui, 'index.html')), 'the target is left intact');
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('namespaces snapshot directories by AYNA_SESSION', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const ui = path.join(dir, 'ui');
+      await fixtureSite(ui);
+      await writeFile(
+        path.join(dir, 'ayna.config.json'),
+        JSON.stringify({ target: { name: 't', root: 'ui', url: 'http://127.0.0.1:1/' } }),
+      );
+
+      await ayna(dir, ['snapshot', '--root', 'ui'], { AYNA_SESSION: 'agent-a' });
+      assert.ok(existsSync(path.join(dir, '.ayna', 'session', 'snapshots', 'agent-a')));
+
+      await writeFile(path.join(ui, 'styles.css'), 'body{background:green}');
+      await ayna(dir, ['snapshot', '--root', 'ui'], { AYNA_SESSION: 'agent-b' });
+      assert.ok(existsSync(path.join(dir, '.ayna', 'session', 'snapshots', 'agent-b')));
+
+      await ayna(dir, ['restore', '--root', 'ui'], { AYNA_SESSION: 'agent-a' });
+      assert.match(await readFile(path.join(ui, 'styles.css'), 'utf8'), /system-ui/);
+
+      await ayna(dir, ['restore', '--root', 'ui'], { AYNA_SESSION: 'agent-b' });
+      assert.match(await readFile(path.join(ui, 'styles.css'), 'utf8'), /body\{background:green\}/);
     } finally {
       await dispose();
     }

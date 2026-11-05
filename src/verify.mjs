@@ -51,6 +51,16 @@ const sameLook = (a, b) =>
   a.style === b.style && a.text === b.text &&
   Math.abs(a.box[0] - b.box[0]) < 3 && Math.abs(a.box[1] - b.box[1]) < 3;
 
+function resolveTaskUrl(taskUrl, fallbackUrl) {
+  if (!taskUrl) return fallbackUrl;
+  if (!fallbackUrl) return taskUrl;
+  try {
+    return new URL(taskUrl, fallbackUrl).href;
+  } catch {
+    return taskUrl;
+  }
+}
+
 /**
  * Re-check `tasks` against the live page.
  *
@@ -68,53 +78,69 @@ export async function verifyTasks({ browser, context, url, tasks, viewport }) {
 
   const verdicts = [];
   try {
-    await gotoSettled(page, url, { settleMs: 2000 }).catch(() => {});
-    await settle(page, 1500);
-
-    const measured = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message.split('\n')[0] }));
-
+    const byUrl = new Map();
     for (const task of tasks) {
-      const kind = checkKindOf(task);
+      const targetUrl = resolveTaskUrl(task.url, url);
+      if (!byUrl.has(targetUrl)) byUrl.set(targetUrl, []);
+      byUrl.get(targetUrl).push(task);
+    }
 
-      if (measured.unavailable) {
-        // The page could not be measured, so nothing is known about any of them.
-        verdicts.push({ id: task.id, verdict: 'unknown', why: measured.unavailable });
+    for (const [targetUrl, urlTasks] of byUrl) {
+      if (!targetUrl) {
+        for (const task of urlTasks) {
+          verdicts.push({ id: task.id, verdict: 'unknown', why: 'no url available for task' });
+        }
         continue;
       }
 
-      if (kind && Array.isArray(measured[kind])) {
-        const still = measured[kind].some(
-          (f) => !task.selector || f.element === task.selector || (f.element && task.selector.endsWith(f.element)),
-        );
-        verdicts.push(
-          still
-            ? { id: task.id, verdict: 'reproduces', kind }
-            : {
-                id: task.id,
-                verdict: 'gone',
-                kind,
-                why: `no ${kind} fault reported here any more`,
-              },
-        );
-        continue;
-      }
+      await gotoSettled(page, targetUrl, { settleMs: 2000 }).catch(() => {});
+      await settle(page, 1500);
 
-      /*
-        Subjective. The most that can be said is whether the thing it was about
-        still looks the way it did — and that is a reason to ask, not to close.
-      */
-      const now = await page.evaluate(FINGERPRINT, task.selector ?? null).catch(() => null);
-      const before = task.fingerprint ?? null;
+      const measured = await page.evaluate(CHECKS).catch((e) => ({ unavailable: e.message.split('\n')[0] }));
 
-      if (now?.missing) {
-        verdicts.push({ id: task.id, verdict: 'element-gone', why: 'the element it was about is no longer on the page' });
-      } else if (!before) {
-        // Nothing to compare against; recording one now makes the next run useful.
-        verdicts.push({ id: task.id, verdict: 'unknown', fingerprint: now, why: 'nothing recorded to compare with' });
-      } else if (sameLook(before, now)) {
-        verdicts.push({ id: task.id, verdict: 'unchanged' });
-      } else {
-        verdicts.push({ id: task.id, verdict: 'changed', fingerprint: now, why: 'it has changed since you wrote this' });
+      for (const task of urlTasks) {
+        const kind = checkKindOf(task);
+
+        if (measured.unavailable) {
+          // The page could not be measured, so nothing is known about any of them.
+          verdicts.push({ id: task.id, verdict: 'unknown', why: measured.unavailable });
+          continue;
+        }
+
+        if (kind && Array.isArray(measured[kind])) {
+          const still = measured[kind].some(
+            (f) => !task.selector || f.element === task.selector || (f.element && task.selector.endsWith(f.element)),
+          );
+          verdicts.push(
+            still
+              ? { id: task.id, verdict: 'reproduces', kind }
+              : {
+                  id: task.id,
+                  verdict: 'gone',
+                  kind,
+                  why: `no ${kind} fault reported here any more`,
+                },
+          );
+          continue;
+        }
+
+        /*
+          Subjective. The most that can be said is whether the thing it was about
+          still looks the way it did — and that is a reason to ask, not to close.
+        */
+        const now = await page.evaluate(FINGERPRINT, task.selector ?? null).catch(() => null);
+        const before = task.fingerprint ?? null;
+
+        if (now?.missing) {
+          verdicts.push({ id: task.id, verdict: 'element-gone', why: 'the element it was about is no longer on the page' });
+        } else if (!before) {
+          // Nothing to compare against; recording one now makes the next run useful.
+          verdicts.push({ id: task.id, verdict: 'unknown', fingerprint: now, why: 'nothing recorded to compare with' });
+        } else if (sameLook(before, now)) {
+          verdicts.push({ id: task.id, verdict: 'unchanged' });
+        } else {
+          verdicts.push({ id: task.id, verdict: 'changed', fingerprint: now, why: 'it has changed since you wrote this' });
+        }
       }
     }
   } finally {

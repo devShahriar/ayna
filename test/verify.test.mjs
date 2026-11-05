@@ -96,4 +96,49 @@ describe('acting on the verdicts', () => {
       await dispose();
     }
   });
+
+  test('verifyTasks navigates to each task URL and prevents cross-talk across routes', async () => {
+    const http = await import('node:http');
+    const { openBrowser } = await import('../src/browser.mjs');
+    const { verifyTasks } = await import('../src/verify.mjs');
+
+    const visited = [];
+    const server = http.createServer((req, res) => {
+      visited.push(req.url);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      if (req.url === '/pricing') {
+        res.end('<!DOCTYPE html><html><body><h1 class="pricing-title">Pricing</h1></body></html>');
+      } else {
+        res.end('<!DOCTYPE html><html><body><h1 class="home-title">Home</h1></body></html>');
+      }
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    const baseUrl = `http://127.0.0.1:${port}/`;
+    const browser = await openBrowser({ headless: true });
+
+    try {
+      const tasks = [
+        { id: 'task-1', url: `${baseUrl}`, selector: '.home-title' },
+        { id: 'task-2', url: `${baseUrl}pricing`, selector: '.pricing-title' },
+      ];
+
+      const verdicts = await verifyTasks({
+        browser,
+        url: baseUrl,
+        tasks,
+      });
+
+      assert.equal(verdicts.length, 2);
+      assert.ok(visited.includes('/'));
+      assert.ok(visited.includes('/pricing'));
+      const byId = Object.fromEntries(verdicts.map((v) => [v.id, v.verdict]));
+      assert.notEqual(byId['task-1'], 'element-gone');
+      assert.notEqual(byId['task-2'], 'element-gone');
+    } finally {
+      await browser.close();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
 });

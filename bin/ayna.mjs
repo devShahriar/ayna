@@ -781,7 +781,7 @@ async function main() {
         ? (tasks) =>
             verifyTasks({
               browser,
-              url: tasks[0]?.url ?? server.url,
+              url: server.url,
               tasks,
               viewport: cfg.viewports[0],
             }).catch(() => tasks.map((t) => ({ id: t.id, verdict: 'unknown' })))
@@ -1800,14 +1800,23 @@ async function main() {
     }
 
     case 'snapshot': {
-      const dest = path.join(SESSION_DIR, 'snapshot');
+      const session = process.env.AYNA_SESSION;
+      const dest = session
+        ? path.join(SESSION_DIR, 'snapshots', String(session).replace(/[^a-zA-Z0-9_-]/g, '_'))
+        : path.join(SESSION_DIR, 'snapshot');
       await snapshot(cfg.targetDir, dest);
       ok(`snapshotted ${path.relative(PROJECT, cfg.targetDir)} — restore with \`ayna restore\``);
       return;
     }
 
     case 'restore': {
-      const src = path.join(SESSION_DIR, 'snapshot');
+      const session = process.env.AYNA_SESSION;
+      let src = session
+        ? path.join(SESSION_DIR, 'snapshots', String(session).replace(/[^a-zA-Z0-9_-]/g, '_'))
+        : path.join(SESSION_DIR, 'snapshot');
+      if (!existsSync(src) && existsSync(path.join(SESSION_DIR, 'snapshot'))) {
+        src = path.join(SESSION_DIR, 'snapshot');
+      }
       if (!existsSync(src)) throw new Error('no snapshot to restore — run `ayna snapshot` first');
       await restore(src, cfg.targetDir);
       ok(`restored ${path.relative(PROJECT, cfg.targetDir)}`);
