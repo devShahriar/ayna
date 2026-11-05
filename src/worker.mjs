@@ -45,24 +45,48 @@ export function runBrain(brain, prompt, { cwd, timeoutMs = 15 * 60 * 1000 } = {}
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
+      detached: true,
     });
 
+    let settled = false;
     let out = '';
     let err = '';
+    let killTimer = null;
+
+    const killGroup = (sig = 'SIGTERM') => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        try { child.kill(sig); } catch {}
+      }
+    };
+
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      if (settled) return;
+      settled = true;
+      killGroup('SIGTERM');
+      killTimer = setTimeout(() => {
+        killGroup('SIGKILL');
+      }, 3000);
+      killTimer.unref?.();
       resolve({ ok: false, error: `${brain.name} timed out`, out, err });
     }, timeoutMs);
 
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (err += d));
     child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       // A missing brain is a setup problem, not a failed task.
       resolve({ ok: false, error: e.code === 'ENOENT' ? `${brain.cmd} is not installed` : e.message, out, err });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (settled) return;
+      settled = true;
       resolve({ ok: code === 0, code, out: out.trim(), err: err.trim() });
     });
   });

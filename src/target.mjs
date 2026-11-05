@@ -19,14 +19,20 @@ export async function startTarget(cfg) {
       cwd: cfg.rootDir,
       shell: true,
       stdio: 'ignore',
-      detached: false,
+      detached: true,
     });
     const url = cfg.target.url ?? `http://127.0.0.1:${cfg.target.port}/`;
-    await waitForUrl(url, 60_000);
+    await waitForUrl(url, 60_000, child);
     return {
       url,
       close: async () => {
-        child.kill('SIGTERM');
+        try {
+          if (child.pid) {
+            process.kill(-child.pid, 'SIGTERM');
+          }
+        } catch {
+          try { child.kill('SIGTERM'); } catch {}
+        }
       },
       // We did not start this server's process tree, so we can only report.
       ensureUp: () => isUp(url),
@@ -57,16 +63,34 @@ async function isUp(url) {
   }
 }
 
-async function waitForUrl(url, timeoutMs) {
+async function waitForUrl(url, timeoutMs, child) {
+  let exited = false;
+  let exitCode = null;
+  const onExit = (code) => {
+    exited = true;
+    exitCode = code;
+  };
+  if (child) child.once('exit', onExit);
+
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (res.ok || res.status < 500) return;
-    } catch {
-      // Not up yet.
+  try {
+    while (Date.now() < deadline) {
+      if (exited) {
+        throw new Error(`dev server exited prematurely with code ${exitCode}`);
+      }
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+        if (res.ok || res.status < 500) return;
+      } catch {
+        // Not up yet.
+      }
+      if (exited) {
+        throw new Error(`dev server exited prematurely with code ${exitCode}`);
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
-    await new Promise((r) => setTimeout(r, 500));
+    throw new Error(`dev server never came up at ${url}`);
+  } finally {
+    if (child) child.removeListener('exit', onExit);
   }
-  throw new Error(`dev server never came up at ${url}`);
 }
