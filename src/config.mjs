@@ -114,9 +114,9 @@ export const DEFAULT_THEME = {
   'panel-line': 'rgba(255,255,255,0.10)',
 
   // ── the light ───────────────────────────────────────────────────────────
-  // Sampled from kormoOS's gold ramp. Luminance 0.42, so the computed
-  // `--ayna-on-accent` comes out near-black, which is the treatment kormo uses
-  // for its own gold CTAs rather than an accident.
+  // Sampled from kormoOS's gold ramp. Luminance 0.37: near-black reads at
+  // 7.9:1 on it and white at 2.5:1, so the computed `--ayna-on-accent` is
+  // near-black — the treatment kormo uses for its own gold CTAs.
   accent: '#de9446',
   live: '#e0b978',
   you: '#e8b478',

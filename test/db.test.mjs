@@ -12,7 +12,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { openDb, appendEvent, eventsSince, transact, latestSeq } from '../src/db.mjs';
+import { openDb, appendEvent, eventsSince, windowEventsSince, transact, latestSeq } from '../src/db.mjs';
 import { openStore, importLegacy, isPending, migrateFromFiles } from '../src/tasks.mjs';
 import { since, drain, pending } from '../src/events.mjs';
 import { tempDir } from './helpers.mjs';
@@ -35,6 +35,42 @@ describe('the event log', () => {
 
     assert.equal(db.prepare('SELECT status FROM tasks WHERE id = ?').get('task-0001').status, 'open');
     assert.equal(latestSeq(db), 0, 'the event must not survive its own transaction');
+  });
+
+  test("a window sees its own story, not every earlier window's", async () => {
+    const db = await openDb(null, { file: ':memory:' });
+
+    // Last week's review, logged before events were filed under a window.
+    appendEvent(db, { event: 'tab-opened', tabId: 'tab-old' });
+    appendEvent(db, { event: 'round', round: 1 });
+    appendEvent(db, { event: 'tab-closed', tabId: 'tab-old' });
+    appendEvent(db, { event: 'closed', approved: false });
+
+    // Said while no window was open: the next one promises to show it.
+    appendEvent(db, { event: 'message', from: 'claude', text: 'fixed the nav, have a look' });
+
+    appendEvent(db, { event: 'tab-opened', tabId: 'tab-now' });
+    appendEvent(db, { event: 'round', round: 1, tabId: 'tab-now' });
+    // Another window open at the same time, in the same project.
+    appendEvent(db, { event: 'round', round: 4, tabId: 'tab-other' });
+    appendEvent(db, { event: 'applied', round: 1, tabId: 'tab-now' });
+    appendEvent(db, { event: 'message', from: 'claude', text: 'done' });
+
+    const seen = windowEventsSince(db, 'tab-now');
+    assert.deepEqual(
+      seen.map((e) => [e.event, e.round ?? e.text ?? null]),
+      [
+        ['message', 'fixed the nav, have a look'],
+        ['tab-opened', null],
+        ['round', 1],
+        ['applied', 1],
+        ['message', 'done'],
+      ],
+    );
+
+    // Paging still works from a cursor inside the window's own events.
+    const after = windowEventsSince(db, 'tab-now', seen[2].seq);
+    assert.deepEqual(after.map((e) => e.event), ['applied', 'message']);
   });
 
   test('a consumer that was not running still learns what it missed', async () => {

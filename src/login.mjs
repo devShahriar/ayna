@@ -26,28 +26,39 @@ export async function waitForLogin({ profileDir, url, viewport, timeoutMs = 5 * 
       .catch(() => null);
 
   try {
+    let requestedIsLogin = false;
+    try {
+      requestedIsLogin = /(^|\/)(sign-?in|log-?in|auth|sso|oauth)(\/|$)/i.test(new URL(url).pathname);
+    } catch {}
+
+    const initialCookies = await context.cookies().catch(() => []);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
     await page.waitForTimeout(1200);
 
     const first = await looksLikeSignIn();
-    if (first && !first.signIn) {
-      // Already signed in from a previous session — say so rather than making
-      // them stare at a page that wants nothing from them.
+    if (requestedIsLogin && first && !first.signIn) {
+      // Requested an explicit login route, but redirected away because of a valid session
       onState?.({ state: 'already-signed-in', url: first.url });
       return { signedIn: true, alreadySignedIn: true, url: first.url };
     }
 
     onState?.({ state: 'waiting', url: first?.url ?? url });
 
+    let sawSignIn = first?.signIn ?? false;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (page.isClosed()) {
-        // Closing the window is a decision too: they gave up, or signed in and
-        // shut it. Report what is true rather than guessing.
+        const cookies = await context.cookies().catch(() => []);
+        if (sawSignIn && cookies.length > initialCookies.length) {
+          return { signedIn: true, url: page.url?.() };
+        }
         return { signedIn: false, closed: true };
       }
       const now = await looksLikeSignIn();
-      if (now && !now.signIn) {
+      if (now?.signIn) {
+        sawSignIn = true;
+      }
+      if (sawSignIn && now && !now.signIn) {
         await page.waitForTimeout(1500); // let a redirect settle before believing it
         const settled = await looksLikeSignIn();
         if (settled && !settled.signIn) {

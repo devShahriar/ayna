@@ -6,6 +6,7 @@ import path from 'node:path';
 import { loadConfig, DEFAULT_CONFIG } from '../src/config.mjs';
 import { snapshot, restore, changedFiles } from '../src/snapshot.mjs';
 import { serveStatic } from '../src/server.mjs';
+import { startTarget } from '../src/target.mjs';
 import { writeReport } from '../src/report.mjs';
 import { scanInJs } from '../src/annotate.mjs';
 import { tempDir, fixtureSite } from './helpers.mjs';
@@ -123,6 +124,34 @@ describe('snapshot / restore', () => {
       const snap = path.join(dir, 'snap');
       await snapshot(target, snap);
       assert.deepEqual(await changedFiles(snap, target), []);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('ignores .git, node_modules, and .ayna during snapshot and protects .git during restore', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const target = path.join(dir, 'repo');
+      await mkdir(path.join(target, '.git'), { recursive: true });
+      await writeFile(path.join(target, '.git', 'HEAD'), 'ref: refs/heads/main');
+      await mkdir(path.join(target, 'node_modules', 'dep'), { recursive: true });
+      await writeFile(path.join(target, 'node_modules', 'dep', 'index.js'), 'export {}');
+      await fixtureSite(target);
+
+      const snap = path.join(dir, 'snap');
+      await snapshot(target, snap);
+
+      const { existsSync } = await import('node:fs');
+      assert.equal(existsSync(path.join(snap, '.git')), false, '.git should not be snapshotted');
+      assert.equal(existsSync(path.join(snap, 'node_modules')), false, 'node_modules should not be snapshotted');
+      assert.equal(existsSync(path.join(snap, 'index.html')), true, 'app files are snapshotted');
+
+      await writeFile(path.join(target, 'styles.css'), 'body{background:blue}');
+      await restore(snap, target);
+
+      assert.equal(existsSync(path.join(target, '.git', 'HEAD')), true, '.git was not wiped by restore');
+      assert.match(await readFile(path.join(target, 'styles.css'), 'utf8'), /system-ui/);
     } finally {
       await dispose();
     }
@@ -245,6 +274,55 @@ describe('static server', () => {
         await first.close();
         await second.close();
       }
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('startTarget', () => {
+  test('rejects immediately when startCommand exits prematurely instead of hanging for 60s', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const cfg = {
+        rootDir: dir,
+        target: {
+          startCommand: 'node -e "process.exit(1)"',
+          port: 4999,
+        },
+      };
+      const start = Date.now();
+      await assert.rejects(
+        () => startTarget(cfg),
+        /the dev command exited with code 1 before/,
+      );
+      assert.ok(Date.now() - start < 5000, 'should fail quickly without waiting 60s');
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('cleans up detached process group on close', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const serverCode = `
+        import http from 'node:http';
+        const server = http.createServer((req, res) => { res.end('ok'); });
+        server.listen(4998, '127.0.0.1');
+      `;
+      await writeFile(path.join(dir, 'server.mjs'), serverCode);
+      const cfg = {
+        rootDir: dir,
+        target: {
+          startCommand: 'node server.mjs',
+          port: 4998,
+        },
+      };
+      const handle = await startTarget(cfg);
+      assert.equal(await handle.ensureUp(), true);
+      await handle.close();
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(await handle.ensureUp(), false);
     } finally {
       await dispose();
     }

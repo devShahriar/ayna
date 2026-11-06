@@ -159,6 +159,25 @@ describe('the worker', () => {
     assert.match(result.error, /not installed/);
   });
 
+  test('times out hanging brain process and terminates process group without uncaught rejections', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const script = path.join(dir, 'hang.mjs');
+      await writeFile(
+        script,
+        'setInterval(() => {}, 1000);\n',
+      );
+      const brain = { name: 'hang', cmd: process.execPath, args: [script] };
+      const start = Date.now();
+      const res = await runBrain(brain, 'test', { cwd: dir, timeoutMs: 400 });
+      assert.equal(res.ok, false);
+      assert.match(res.error, /timed out/);
+      assert.ok(Date.now() - start < 3000, 'should return on timeout');
+    } finally {
+      await dispose();
+    }
+  });
+
   test('any tool can be the brain', async () => {
     const cfg = { brain: 'cursor', brains: { cursor: { cmd: 'cursor-agent', args: ['--headless'] } } };
     assert.deepEqual(brainFor(cfg), { name: 'cursor', cmd: 'cursor-agent', args: ['--headless'] });

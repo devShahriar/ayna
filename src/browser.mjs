@@ -41,7 +41,19 @@ function inContainer() {
  * container that only needs to render a page. `chromium` is a tenth of that and
  * renders the same. Neither is right for everybody, so it is a setting.
  */
-export const chromeChannel = () => process.env.AYNA_CHROME_CHANNEL || 'chrome';
+export function chromeChannel() {
+  if (process.env.AYNA_CHROME_CHANNEL) return process.env.AYNA_CHROME_CHANNEL;
+  if (process.platform === 'linux') {
+    if (!existsSync('/opt/google/chrome/chrome')) {
+      const pathDirs = (process.env.PATH || '').split(path.delimiter);
+      const hasChromium = pathDirs.some((dir) =>
+        existsSync(path.join(dir, 'chromium')) || existsSync(path.join(dir, 'chromium-browser'))
+      );
+      if (hasChromium) return 'chromium';
+    }
+  }
+  return 'chrome';
+}
 
 export const needsNoSandbox = () => Boolean(process.env.CI || inContainer());
 
@@ -70,7 +82,7 @@ function launchFailed(err, channel) {
   if (/executable doesn't exist|Failed to launch|ENOENT|not found/i.test(err.message)) {
     return new Error(
       `could not start "${channel}". playwright-core downloads no browser — install one, ` +
-        `or set AYNA_CHROME_CHANNEL (chrome, chromium, msedge).\n  ${err.message.split('\n')[0]}`,
+        `or set AYNA_CHROME_CHANNEL (chrome, chromium, msedge), or run "npx playwright install chromium".\n  ${err.message.split('\n')[0]}`,
     );
   }
   return err;

@@ -89,6 +89,36 @@ describe('task store', () => {
     }
   });
 
+  test('a change is logged against the window it was made in', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const store = await openStore(dir);
+      const { openSessions } = await import('../src/sessions.mjs');
+      const sessions = await openSessions(dir, { db: store.db });
+      const sessionId = sessions.register({ tool: 'user' });
+      const monday = sessions.openTab({ url: 'http://x/', sessionId });
+      const tuesday = sessions.openTab({ url: 'http://x/', sessionId });
+
+      const t = await store.create({ comment: 'x', tabId: monday, source: 'user' });
+      assert.equal(t.tabId, monday, 'the task remembers the window it was raised in');
+
+      // Carried over and judged in a later window: the verdict belongs to that one.
+      await store.update(t.id, { status: 'approved' }, undefined, { tabId: tuesday });
+      // Not every change comes from a window — a CLI verdict is nobody's tab.
+      await store.update(t.id, { status: 'open' });
+
+      const { eventsSince } = await import('../src/db.mjs');
+      const logged = eventsSince(store.db).filter((e) => e.event === 'task');
+      assert.deepEqual(
+        logged.map((e) => [e.status, e.tabId ?? null]),
+        [['open', monday], ['approved', tuesday], ['open', null]],
+      );
+      assert.equal(logged[0].source, 'user', 'and who raised it, so the line can be signed');
+    } finally {
+      await dispose();
+    }
+  });
+
   test('pending work is what has not been approved', async () => {
     const { dir, dispose } = await tempDir();
     try {
@@ -166,6 +196,35 @@ describe('importing work captured before the store existed', () => {
       await importLegacy(dir, store);
       await importLegacy(dir, store);
       assert.equal((await store.list()).length, 1);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('a note a later window carried over is not imported a second time', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      const store = await openStore(dir);
+      // Left open by Monday's window, which claimed its key as it was made.
+      const carried = await store.create({ comment: 'tighten the nav', status: 'open', legacyKey: 'monday#1' });
+
+      // Tuesday's window loads it with a number of its own, then writes its
+      // manifest: the carried note under that new number, beside a note of its own.
+      await legacySession(dir, 'tuesday', [
+        { n: 1, id: 1, taskId: carried.id, comment: 'tighten the nav', status: 'open' },
+        { n: 2, id: 2, comment: 'written before the store', status: 'open' },
+      ]);
+
+      const result = await importLegacy(dir, store);
+      assert.equal(result.imported, 1, 'only the record with no task behind it is new');
+      assert.deepEqual(
+        (await store.list()).map((t) => t.comment).sort(),
+        ['tighten the nav', 'written before the store'],
+      );
+
+      // Deleting the carried task must not let the manifest bring it back.
+      await store.remove(carried.id);
+      assert.equal((await importLegacy(dir, store)).imported, 0);
     } finally {
       await dispose();
     }

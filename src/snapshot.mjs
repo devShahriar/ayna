@@ -1,5 +1,9 @@
 import { cp, rm, mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+
+const IGNORED_NAMES = new Set(['.git', 'node_modules', '.ayna']);
+const IGNORED_DIRS = /(^|[/\\])(\.git|node_modules|\.ayna)($|[/\\])/;
 
 /**
  * Copy the target UI aside before an iteration edits it. Cheap insurance that does
@@ -8,14 +12,30 @@ import path from 'node:path';
 export async function snapshot(targetDir, destDir) {
   await mkdir(path.dirname(destDir), { recursive: true });
   await rm(destDir, { recursive: true, force: true });
-  await cp(targetDir, destDir, { recursive: true });
+  await cp(targetDir, destDir, {
+    recursive: true,
+    filter: (source) => !IGNORED_DIRS.test(path.relative(targetDir, source)),
+  });
   return destDir;
 }
 
 /** Put the snapshot back, discarding whatever the iteration did. */
 export async function restore(snapshotDir, targetDir) {
-  await rm(targetDir, { recursive: true, force: true });
-  await cp(snapshotDir, targetDir, { recursive: true });
+  const resolvedTarget = path.resolve(targetDir);
+  const isRoot = resolvedTarget === process.cwd() || existsSync(path.join(resolvedTarget, '.git'));
+  if (isRoot) {
+    const entries = await readdir(resolvedTarget).catch(() => []);
+    for (const name of entries) {
+      if (IGNORED_NAMES.has(name)) continue;
+      await rm(path.join(resolvedTarget, name), { recursive: true, force: true });
+    }
+  } else {
+    await rm(targetDir, { recursive: true, force: true });
+  }
+  await cp(snapshotDir, targetDir, {
+    recursive: true,
+    filter: (source) => !IGNORED_DIRS.test(path.relative(snapshotDir, source)),
+  });
 }
 
 /** Files that changed between the snapshot and the live target, for the report. */
@@ -24,6 +44,7 @@ export async function changedFiles(snapshotDir, targetDir) {
   const walk = async (dir, base = '') => {
     const out = [];
     for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (IGNORED_NAMES.has(entry.name)) continue;
       const rel = path.join(base, entry.name);
       if (entry.isDirectory()) out.push(...(await walk(path.join(dir, entry.name), rel)));
       else out.push(rel);
