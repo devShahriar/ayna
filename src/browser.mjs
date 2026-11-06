@@ -46,10 +46,11 @@ export function chromeChannel() {
   if (process.platform === 'linux') {
     if (!existsSync('/opt/google/chrome/chrome')) {
       const pathDirs = (process.env.PATH || '').split(path.delimiter);
-      const hasChromium = pathDirs.some((dir) =>
-        existsSync(path.join(dir, 'chromium')) || existsSync(path.join(dir, 'chromium-browser'))
-      );
-      if (hasChromium) return 'chromium';
+      const hasExecutable = (names) =>
+        pathDirs.some((dir) => names.some((name) => existsSync(path.join(dir, name))));
+
+      if (hasExecutable(['msedge', 'microsoft-edge'])) return 'msedge';
+      if (hasExecutable(['chromium', 'chromium-browser', 'brave', 'brave-browser', 'vivaldi'])) return 'chromium';
     }
   }
   return 'chrome';

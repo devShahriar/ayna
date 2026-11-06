@@ -90,6 +90,9 @@ ${bold('UNATTENDED')} — spawns its own Claude sessions, costs real money
 ${bold('SETUP')}
   init        Write ayna.config.json into the current project
 
+${bold('SANDBOX')}
+  prison      Manage isolated agent sandboxes (list, create, exec, stop, destroy, serve)
+
 ${bold('OPTIONS')}
   -n, --iterations <n>   How many improvement rounds (default: config, 3)
   -m, --model <name>     model for the brain (opus|sonnet|haiku, or puku-ai-2.7)
@@ -184,6 +187,9 @@ const ARG_SPEC = {
     'no-taste': { type: 'boolean' },
     score: { type: 'string' },
     note: { type: 'string' },
+    id: { type: 'string' },
+    skills: { type: 'string' },
+    cmd: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 };
@@ -303,6 +309,102 @@ async function main() {
       const file = await writeConfig(PROJECT);
       ok(`wrote ${path.relative(PROJECT, file)} — set target.url or target.root, then run \`ayna shot\``);
       return;
+    }
+
+    case 'prison': {
+      const { PrisonControlPlane } = await import('../src/prison/index.mjs');
+      const cp = new PrisonControlPlane({
+        storageDir: path.join(PROJECT, '.ayna', 'prison', 'sandboxes'),
+        skillsRepoDir: path.join(PROJECT, '.ayna', 'prison', 'skills'),
+      });
+      const sub = positionals[1] ?? 'list';
+      const targetId = values.id || positionals[2];
+
+      switch (sub) {
+        case 'list': {
+          const list = cp.status().sandboxes;
+          if (values.json) {
+            console.log(JSON.stringify({ sandboxes: list }, null, 2));
+            return;
+          }
+          banner(`prison sandboxes · ${path.basename(PROJECT)}`);
+          if (!list.length) {
+            info('no active sandboxes');
+            return;
+          }
+          for (const s of list) {
+            info(`${s.id} [${s.state}] uptime: ${s.uptimeMs}ms, processes: ${s.activeProcesses}`);
+          }
+          return;
+        }
+
+        case 'create': {
+          const id = targetId || `agent-${Date.now().toString(36)}`;
+          const skills = values.skills ? values.skills.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          const sb = await cp.provisionSandbox(id, { skills });
+          const status = sb.status();
+          if (values.json) {
+            console.log(JSON.stringify(status, null, 2));
+            return;
+          }
+          ok(`sandbox created: ${id} [${status.state}]`);
+          return;
+        }
+
+        case 'exec': {
+          if (!targetId) {
+            throw new Error('ayna prison exec requires sandbox ID: ayna prison exec <id> <command> or --id <id> --cmd <command>');
+          }
+          const commandToRun = values.cmd || (positionals[3] ? positionals.slice(3).join(' ') : positionals.slice(2).join(' '));
+          if (!commandToRun) {
+            throw new Error('ayna prison exec requires a command to run');
+          }
+          const res = await cp.exec(targetId, commandToRun);
+          if (values.json) {
+            console.log(JSON.stringify(res, null, 2));
+            return;
+          }
+          if (res.stdout) process.stdout.write(res.stdout);
+          if (res.stderr) process.stderr.write(res.stderr);
+          if (res.exitCode !== 0) process.exitCode = res.exitCode;
+          return;
+        }
+
+        case 'stop': {
+          if (!targetId) throw new Error('ayna prison stop requires sandbox ID: ayna prison stop <id>');
+          const sb = cp.runtimeManager.getSandbox(targetId);
+          if (sb) await sb.stop();
+          ok(`sandbox stopped: ${targetId}`);
+          return;
+        }
+
+        case 'destroy': {
+          if (!targetId) throw new Error('ayna prison destroy requires sandbox ID: ayna prison destroy <id>');
+          await cp.destroySandbox(targetId);
+          ok(`sandbox destroyed: ${targetId}`);
+          return;
+        }
+
+        case 'serve': {
+          const id = targetId || 'default';
+          let sb = cp.runtimeManager.getSandbox(id);
+          if (!sb) sb = await cp.provisionSandbox(id);
+          const port = values.port ? Number(values.port) : 4800;
+          const desktop = await cp.startDesktop(id, { port });
+          banner(`prison desktop · ${id}`);
+          ok(`desktop running at ${desktop.url}`);
+          info('embed URL: ' + desktop.url + '/embed');
+          info('ctrl-c to stop');
+          await new Promise(() => {});
+          return;
+        }
+
+        default:
+          fail(`unknown prison action: ${sub}`);
+          info('supported actions: list, create, exec, stop, destroy, serve');
+          process.exitCode = 1;
+          return;
+      }
     }
 
     case 'serve': {

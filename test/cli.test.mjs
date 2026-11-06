@@ -84,7 +84,7 @@ describe('cli: configuration', () => {
       // from help entirely, which is most of what ayna does.
       for (const cmd of [
         'shot', 'annotate', 'comments', 'status', 'wait', 'applied',
-        'snapshot', 'restore', 'record', 'report', 'loop', 'critique', 'init', 'serve',
+        'snapshot', 'restore', 'record', 'report', 'loop', 'critique', 'init', 'serve', 'prison',
       ]) {
         assert.match(res.stdout, new RegExp(cmd));
       }
@@ -432,6 +432,29 @@ describe('cli: a mistyped flag', () => {
       const res = await ayna(dir, ['serve', '--port', 'abc']);
       assert.equal(res.code, 1);
       assert.match(res.stdout + res.stderr, /--port wants a number/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  test('prison CLI manages sandboxes through create, exec, and list', async () => {
+    const { dir, dispose } = await tempDir();
+    try {
+      await conf2(dir);
+      const listRes = await ayna(dir, ['prison', 'list', '--json']);
+      assert.equal(listRes.code, 0);
+      assert.match(listRes.stdout, /"sandboxes"/);
+
+      const createRes = await ayna(dir, ['prison', 'create', '--id', 'cli-agent-1', '--json']);
+      assert.equal(createRes.code, 0);
+      assert.match(createRes.stdout, /"cli-agent-1"/);
+
+      const execRes = await ayna(dir, ['prison', 'exec', 'cli-agent-1', 'echo "cli exec works"']);
+      assert.equal(execRes.code, 0);
+      assert.match(execRes.stdout, /cli exec works/);
+
+      const destroyRes = await ayna(dir, ['prison', 'destroy', 'cli-agent-1']);
+      assert.equal(destroyRes.code, 0);
     } finally {
       await dispose();
     }
