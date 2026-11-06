@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { openSessions, alive } from './sessions.mjs';
 import { openDb, appendEvent } from './db.mjs';
+import { SKIP_DIRS as SKIP_LIST } from './skipdirs.mjs';
 
 /**
  * The bookkeeper.
@@ -27,11 +28,7 @@ export const PID_FILE = (projectDir) => path.join(projectDir, '.ayna', 'watchd.p
   Our own output changes constantly; so does anything generated. Watching those
   would mean reporting that edits landed every time a screenshot was written.
 */
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', '.ayna', '.next', '.nuxt', '.svelte-kit', '.output',
-  '.turbo', '.cache', '.parcel-cache', 'dist', 'build', 'out', 'coverage',
-  'vendor', '__pycache__',
-]);
+const SKIP_DIRS = new Set(SKIP_LIST);
 const TEXT_EXT = new Set([
   '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx', '.mjs', '.cjs',
   '.ts', '.tsx', '.vue', '.svelte', '.astro', '.php', '.erb', '.hbs', '.ejs',

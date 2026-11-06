@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS cursors (
 CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS tasks_url ON tasks(url);
 CREATE INDEX IF NOT EXISTS events_at ON events(at);
+CREATE INDEX IF NOT EXISTS events_tab ON events(tab_id, seq);
 CREATE INDEX IF NOT EXISTS assets_task ON task_assets(task_id);
 `;
 
@@ -233,20 +234,69 @@ export function appendEvent(db, { event, sessionId = null, tabId = null, taskId 
   return Number(info.lastInsertRowid);
 }
 
+/** A stored row, flattened back into the event shape it was written as. */
+const toEvent = (row) => ({
+  seq: row.seq,
+  at: row.at,
+  event: row.event,
+  ...(row.session_id ? { sessionId: row.session_id } : {}),
+  ...(row.tab_id ? { tabId: row.tab_id } : {}),
+  ...(row.task_id ? { taskId: row.task_id } : {}),
+  ...unpack(row.payload, {}),
+});
+
 /** Everything after `seq`, oldest first, flattened back into the event shape. */
 export function eventsSince(db, seq = 0, limit = 500) {
   return db
     .prepare('SELECT * FROM events WHERE seq > ? ORDER BY seq ASC LIMIT ?')
     .all(Number(seq) || 0, limit)
-    .map((row) => ({
-      seq: row.seq,
-      at: row.at,
-      event: row.event,
-      ...(row.session_id ? { sessionId: row.session_id } : {}),
-      ...(row.tab_id ? { tabId: row.tab_id } : {}),
-      ...(row.task_id ? { taskId: row.task_id } : {}),
-      ...unpack(row.payload, {}),
-    }));
+    .map(toEvent);
+}
+
+/**
+ * What one review window should show, after `seq`.
+ *
+ * Reading the whole log meant every window opened on every earlier window's
+ * story. But "since this window opened" is too narrow: `ayna say` and
+ * `ayna preview` written while no window was open promise to appear in the next
+ * one. So the window gets its own events, plus anything addressed to no window
+ * that came after the last event of the window before it. Events filed under
+ * another window are never shown here.
+ *
+ * `closed` is the one untagged event that always belongs to some other window:
+ * logs written before events were tagged end each review with one.
+ */
+export function windowEventsSince(db, tabId, seq = 0, limit = 500) {
+  /*
+    `+tab_id` keeps this off the events_tab index on purpose. Read through the
+    primary key, the rows arrive in seq order and the query stops at `limit`;
+    through the index, SQLite gathers every match after the cursor, sorts it,
+    and only then cuts — several times slower once a resumed tab has history.
+  */
+  return db
+    .prepare(
+      "SELECT * FROM events WHERE seq > ? AND (+tab_id = ? OR (+tab_id IS NULL AND event <> 'closed')) " +
+        'ORDER BY seq ASC LIMIT ?',
+    )
+    .all(Math.max(Number(seq) || 0, windowFloor(db, tabId)), tabId, limit)
+    .map(toEvent);
+}
+
+/*
+  Where a window's story starts: after the last event of the window before it.
+
+  The rail asks every second, so both halves are index seeks rather than table
+  scans: the window's first event through events_tab, and the event before it
+  by walking back down the primary key to the first one from another window.
+*/
+function windowFloor(db, tabId) {
+  const first = db.prepare('SELECT MIN(seq) AS seq FROM events WHERE tab_id = ?').get(tabId)?.seq ?? null;
+  if (first === null) return 0;
+  return (
+    db
+      .prepare('SELECT seq FROM events WHERE seq < ? AND tab_id IS NOT NULL AND tab_id <> ? ORDER BY seq DESC LIMIT 1')
+      .get(first, tabId)?.seq ?? 0
+  );
 }
 
 export const latestSeq = (db) => db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM events').get().seq;

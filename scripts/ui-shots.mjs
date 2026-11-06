@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { DEFAULT_THEME } from '../src/config.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, '.ayna', 'ui-shots'));
@@ -37,6 +38,8 @@ async function main() {
   try {
     await runAnnotate({
       browser,
+      // What every real install renders; see DEFAULT_THEME in config.mjs.
+      theme: DEFAULT_THEME,
       url: server.url,
       outDir: path.join(dir, 'out'),
       projectDir: dir,

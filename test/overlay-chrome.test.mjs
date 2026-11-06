@@ -22,6 +22,7 @@ import path from 'node:path';
 import { openBrowser } from '../src/browser.mjs';
 import { CHECKS } from '../src/audit.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { DEFAULT_THEME } from '../src/config.mjs';
 import { hasBrowser } from './helpers.mjs';
 
 /** The audit, but with ayna's own elements eligible to be found as coverers. */
@@ -353,25 +354,37 @@ describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 
     await browser?.close().catch(() => {});
   });
 
-  // Deliberately no `theme`: this measures the fallbacks, which is what an
-  // install with no ayna.config.json actually renders.
-  test('every control in the comment box is readable with no theme configured', async () => {
+  /*
+    Every readable control in the comment box and the bar, measured.
+
+    With a note already saved, so Send is live and the Tasks chip is showing:
+    those are the controls that went unreadable, and an empty review has
+    neither of them in its enabled state.
+  */
+  async function measureControls(theme) {
     const { srv, url } = await serve('<main style="padding:60px"><h1 class="title">Hello</h1><p>Body copy.</p></main>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-selfcontrast-'));
     try {
       let rows = [];
+      let layout = null;
       await runAnnotate({
         browser,
         url,
+        theme,
         outDir: path.join(dir, 'out'),
         projectDir: dir,
         viewport: { width: 1200, height: 820 },
         onReady: async (page) => {
           await page.click('.title');
           await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
+          await page.fill('.ayna-ov-pop textarea', 'a note, so Send is live');
+          await page.click('.ayna-ov-save');
+          await page.waitForTimeout(400);
+          await page.click('.title');
+          await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
           await page.waitForTimeout(350);
 
-          rows = await page.evaluate(() => {
+          const measure = (selector) => page.evaluate((sel) => {
             const lum = (c) => {
               const m = /rgba?\(([^)]+)\)/.exec(c);
               if (!m) return null;
@@ -428,7 +441,7 @@ describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 
               return null; // never reached an opaque layer: not measurable
             };
             const out = [];
-            for (const el of document.querySelectorAll('[data-ayna] button, [data-ayna] textarea, [data-ayna] .ayna-ov-hint, [data-ayna] .ayna-ov-sel')) {
+            for (const el of document.querySelectorAll(sel)) {
               const r = el.getBoundingClientRect();
               if (r.width < 2 || r.height < 2) continue;
               const cs = getComputedStyle(el);
@@ -452,22 +465,144 @@ describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 
               });
             }
             return out;
+          }, selector);
+          rows = await measure(
+            '[data-ayna] button, [data-ayna] textarea, [data-ayna] .ayna-ov-hint, [data-ayna] .ayna-ov-sel, [data-ayna] .ayna-ov-attach',
+          );
+
+          // Two layout faults that only show with the box open and a real pointer.
+          layout = await page.evaluate(() => {
+            const mid = (r) => r.top + r.height / 2;
+            const text = document.createRange();
+            text.selectNodeContents(document.querySelector('.ayna-ov-pop .ayna-ov-esc'));
+            // A dead strip is a point that lands on the switcher itself and on no
+            // button in it. Its rounded outer corners are outside the control.
+            const track = document.querySelector('.ayna-ov-modes');
+            const r = track.getBoundingClientRect();
+            const dead = [];
+            for (let x = r.left + 1.5; x < r.right - 1.5; x += 1) {
+              for (let y = r.top + 1.5; y < r.bottom - 1.5; y += 2) {
+                const corner = (x - r.left < 10 || r.right - x < 10) && (y - r.top < 10 || r.bottom - y < 10);
+                if (corner) continue;
+                if (document.elementFromPoint(x, y) === track) dead.push(Math.round(x - r.left) + ',' + Math.round(y - r.top));
+              }
+            }
+            return {
+              hint: mid(text.getBoundingClientRect()),
+              button: mid(document.querySelector('.ayna-ov-pop .ayna-ov-save').getBoundingClientRect()),
+              dead,
+            };
           });
+
+          // The task list, which once kept its own dark-only colours.
+          await page.keyboard.press('Escape');
+          await page.click('[data-act=tasks]');
+          await page.waitForSelector('.ayna-ov-panel', { timeout: 5000 });
+          rows.push(...(await measure('.ayna-ov-panel-head, .ayna-ov-task-text')));
           await page.close();
         },
       });
 
-      assert.ok(rows.length >= 4, `only measured ${rows.length} controls — the panel did not open`);
-      const failed = rows.filter((r) => r.ratio < r.needs);
-      assert.deepEqual(
-        failed,
-        [],
-        `ayna's own controls fail the contrast floor it enforces:\n` +
-          failed.map((f) => `  ${f.what} "${f.text}" ${f.ratio}:1 needs ${f.needs}`).join('\n'),
-      );
+      return { rows, layout };
     } finally {
       srv.close();
       await rm(dir, { recursive: true, force: true });
     }
+  }
+
+  const assertReadable = (rows) => {
+    assert.ok(rows.length >= 4, `only measured ${rows.length} controls — the panel did not open`);
+    const failed = rows.filter((r) => r.ratio < r.needs);
+    assert.deepEqual(
+      failed,
+      [],
+      `ayna's own controls fail the contrast floor it enforces:\n` +
+        failed.map((f) => `  ${f.what} "${f.text}" ${f.ratio}:1 needs ${f.needs}`).join('\n'),
+    );
+  };
+
+  /*
+    A light theme, set the way a project would set one: surfaces and ink only.
+    The lane colours are left at their defaults on purpose — pastels tuned for a
+    dark rail — so the test also proves they are made readable, not trusted.
+  */
+  const LIGHT_THEME = {
+    ...DEFAULT_THEME,
+    surface: '#ffffff', bar: '#f7f7f8', panel: '#ffffff',
+    line: 'rgba(0,0,0,0.08)', 'panel-line': 'rgba(0,0,0,0.10)',
+    text: '#16181d', 'panel-text': '#16181d',
+    muted: 'rgba(0,0,0,0.62)', dim: 'rgba(0,0,0,0.50)',
+  };
+
+  test('every control, and the task list, is readable in a light theme', async () => {
+    const { rows } = await measureControls(LIGHT_THEME);
+    assertReadable(rows);
+    assert.ok(rows.some((r) => /^Tasks/.test(r.text)), 'the task list was measured');
+    assert.ok(rows.some((r) => r.text === 'attach an image'), 'the accent-coloured link was measured');
+  });
+
+  // No `theme`: the fallbacks, which is what every test and probe renders.
+  test('every control in the comment box and the bar is readable with no theme', async () => {
+    assertReadable((await measureControls(undefined)).rows);
+  });
+
+  test('on a touch screen every bar control is finger-sized, and the rail header meets the bar', async () => {
+    const { srv, url } = await serve('<main style="padding:60px"><h1 class="title">Hello</h1></main>');
+    const dir = await mkdtemp(path.join(tmpdir(), 'ayna-touch-'));
+    // hasTouch is what makes `(pointer: coarse)` match in Chrome.
+    const context = await browser.newContext({ viewport: { width: 1200, height: 820 }, hasTouch: true });
+    try {
+      let seen = null;
+      await runAnnotate({
+        browser,
+        context,
+        url,
+        theme: DEFAULT_THEME,
+        outDir: path.join(dir, 'out'),
+        projectDir: dir,
+        onReady: async (page) => {
+          await page.waitForSelector('.ayna-ov-modes button');
+          seen = await page.evaluate(() => ({
+            coarse: matchMedia('(pointer: coarse)').matches,
+            short: [...document.querySelectorAll('.ayna-ov-bar button')]
+              .filter((b) => b.getClientRects().length)
+              .map((b) => [b.dataset.act || b.dataset.mode || b.textContent.trim(), Math.round(b.getBoundingClientRect().height)])
+              .filter(([, h]) => h < 44),
+            modes: Math.round(document.querySelector('.ayna-ov-modes').getBoundingClientRect().height),
+            bar: Math.round(document.querySelector('.ayna-ov-bar').getBoundingClientRect().bottom),
+            head: Math.round(document.querySelector('.ayna-ov-console-head').getBoundingClientRect().bottom),
+          }));
+          await page.close();
+        },
+      });
+      assert.equal(seen.coarse, true, 'the fixture must actually be a touch screen');
+      assert.deepEqual(seen.short, [], 'a bar control under 44px on a touch screen');
+      assert.ok(seen.modes >= 44, `the mode switcher is ${seen.modes}px tall`);
+      assert.equal(seen.head, seen.bar, "the rail's header ends on the bar's bottom edge");
+    } finally {
+      await context.close().catch(() => {});
+      srv.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /*
+    And the theme the CLI applies, which is what every real install renders:
+    loadConfig merges DEFAULT_THEME whether or not a project has a config.
+    Only measuring the fallbacks is how the active mode went white-on-ivory and
+    Send went white-on-orange in every window anyone actually opened, while
+    every test here passed.
+  */
+  test('every control in the comment box and the bar is readable with the default theme, and lines up', async () => {
+    const { rows, layout } = await measureControls(DEFAULT_THEME);
+    assertReadable(rows);
+    assert.ok(rows.some((r) => r.text === 'Send to Claude'), 'Send was measured in its enabled state');
+    assert.ok(rows.some((r) => r.text === 'Comment'), 'the active mode was measured');
+    // A strip that belongs to no button turns the hand into an arrow as the
+    // pointer slides across the switcher, which reads as a vibrating cursor.
+    const { dead } = layout;
+    assert.deepEqual(dead.slice(0, 10), [], `${dead.length} points in the switcher hit no button: ${dead.slice(0, 30).join(' ')}`);
+    // A row left to stretch hung the comment box's hint 9px above its buttons' centre.
+    assert.ok(Math.abs(layout.hint - layout.button) <= 1, `hint centre ${layout.hint}, button centre ${layout.button}`);
   });
 });

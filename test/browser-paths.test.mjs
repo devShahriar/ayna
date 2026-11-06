@@ -13,13 +13,15 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 import {
   BROWSERS,
   PLAYWRIGHT_CHANNELS,
   browserKey,
   channelFor,
+  chromiumOnPath,
   findBrowser,
   installedBrowsers,
   looksLikePath,
@@ -89,6 +91,54 @@ describe('knowing the browsers', () => {
     for (const key of Object.keys(BROWSERS)) {
       const found = findBrowser(key);
       if (found) assert.ok(existsSync(found));
+    }
+  });
+
+  test('chromium is found on $PATH, but only on Linux', () => {
+    /*
+      A container image can install chromium anywhere on $PATH. The canonical
+      paths are not enough there, so chromium is the one browser that is also
+      searched for — but only on Linux, and only as a fallback behind the
+      canonical paths.
+
+      The scan is exercised directly so the test is not vacuous on a machine
+      that is not Linux; the platform rule is asserted through findBrowser.
+    */
+    const before = process.env.PATH;
+    const dir = mkdtempSync(path.join(tmpdir(), 'ayna-path-'));
+    try {
+      const binary = path.join(dir, 'chromium');
+      writeFileSync(binary, '', { mode: 0o755 });
+      process.env.PATH = dir;
+
+      assert.equal(chromiumOnPath(), binary, 'chromium on $PATH should be found');
+
+      // chromium-browser is the other name it goes by.
+      const dir2 = mkdtempSync(path.join(tmpdir(), 'ayna-path-'));
+      try {
+        const binary2 = path.join(dir2, 'chromium-browser');
+        writeFileSync(binary2, '', { mode: 0o755 });
+        process.env.PATH = dir2;
+        assert.equal(chromiumOnPath(), binary2);
+      } finally {
+        process.env.PATH = dir;
+        rmSync(dir2, { recursive: true, force: true });
+      }
+
+      // The platform rule: only Linux consults $PATH for chromium.
+      process.env.PATH = dir;
+      const found = findBrowser('chromium');
+      if (process.platform === 'linux') {
+        assert.equal(found, binary, 'chromium on $PATH should be found on linux');
+      } else {
+        // Elsewhere the search does not run. The canonical paths decide, so
+        // the answer is either a canonical path or nothing — never ours.
+        assert.notEqual(found, binary, 'the $PATH search is linux-only');
+        if (found) assert.ok(pathsFor('chromium').includes(found));
+      }
+    } finally {
+      process.env.PATH = before;
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

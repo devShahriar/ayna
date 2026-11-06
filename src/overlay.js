@@ -15,6 +15,34 @@
 
   const NS = 'ayna-ov';
   /*
+    The bar's left end. On a narrow window the Activity button stands in for
+    the name; written with the drawer's current state, because each phase
+    rebuilds the bar's markup.
+  */
+  // A window with its side column: the rail. One mark for it everywhere — the
+  // bar's Activity button on a narrow window, the rail's own fold on a wide one.
+  // The name as people read it, in the bar and on the lines ayna signs. The
+  // lane, the classes and the command stay lowercase; this is only what shows.
+  const AYNA = 'Ayna';
+  // How each lane signs its lines.
+  const SPEAKER = { you: 'You', claude: 'Claude', ayna: AYNA };
+  // The folded rail's width; the page is inset by the same amount.
+  const SPINE = '48px';
+  const RAIL_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>';
+  const brand = () =>
+    '<button data-act="activity" class="' + NS + '-ghost" aria-label="Activity" aria-expanded="' +
+    String(drawerOpen) + '">' + RAIL_ICON +
+    '<span class="' + NS + '-activity-dot"></span></button>' +
+    '<span class="' + NS + '-brand">' + AYNA + '</span>';
+  // The Tasks button's face: an icon that stays, and a word that gives way when
+  // the bar is short of room.
+  const TASKS_FACE =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/>' +
+    '<path d="M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="' + NS + '-label">Tasks</span>';
+  /*
     The rail's width, as the browser's arithmetic rather than a number.
 
     A fixed 264px was an eighth of a 2000px window — prose wrapped at thirty-odd
@@ -24,6 +52,32 @@
     no script at all. Dragging the rail's edge overrides it with --ayna-rail-w.
   */
   const RAIL_AUTO = 'clamp(300px, 24vw, 480px)';
+  /*
+    The bar's three compact forms, each written once and scoped to `bar`: by
+    the container queries for the widths they were measured at, and by fitBar
+    for windows whose fonts make those widths wrong.
+  */
+  // The hint goes first; "Sent — waiting for Claude" is state, not a hint, so it stays.
+  const QUIET = (bar) => `${bar} .${NS}-hint:not(.${NS}-waiting) { display: none; }`;
+  // Mode names give way to their icons, and review's end-the-round actions move behind ⋯.
+  const COMPACT = (bar) => `
+    ${bar} .${NS}-modes .${NS}-label { display: none; }
+    ${bar} .${NS}-modes button { padding: 0 10px; }
+    ${bar} [data-act=overflow] { display: inline-flex; }
+    ${bar} .${NS}-overflow {
+      display: none; position: absolute; right: 12px; top: calc(100% + 6px);
+      flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; min-width: 168px;
+      background: var(--ayna-panel, #121214); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+      border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
+    }
+    ${bar} .${NS}-overflow.${NS}-open { display: flex; }
+    ${bar} .${NS}-overflow button { justify-content: flex-start; }`;
+  // A phone: the mark without the name, Tasks as its icon, Send as one word.
+  const PHONE = (bar) => `
+    ${bar} .${NS}-brand { font-size: 0; gap: 0; padding-right: 0; border-right: 0; }
+    ${bar} [data-act=tasks] .${NS}-label, ${bar} .${NS}-long { display: none; }
+    ${bar} { gap: 8px; }
+    ${bar} button { padding: 0 10px; }`;
   const RAIL_W = `var(--ayna-rail-w, ${RAIL_AUTO})`;
   const state = {
     picking: true,
@@ -44,7 +98,7 @@
     marquee: null,
     suppressClick: false,
     signIn: false,
-    waitWarn: null,
+    listenTimer: null,
     mode: (() => {
       try {
         return sessionStorage.getItem('ayna-mode') || 'comment';
@@ -60,6 +114,10 @@
   let hl = null;
   let bar = null;
   let tag = null;
+  // The narrow-window drawer. Up here, not beside its functions: the bar is
+  // drawn — and reads drawerOpen — long before execution reaches them.
+  let scrim = null;
+  let drawerOpen = false;
 
   function start() {
   const css = document.createElement('style');
@@ -82,13 +140,19 @@
       Full width across the top, and the page is moved down to make room, so the
       bar covers nothing at all rather than covering something less important.
     */
+    /*
+      52px, the rail's header height too, so the two bottom edges meet in one
+      line across the window instead of stepping down 15px at the rail's edge.
+    */
     .${NS}-bar {
       position: fixed; z-index: 2147483647; left: var(--ayna-inset-left, 0px); right: 0; top: 0;
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 16px;
       flex-wrap: wrap; justify-content: center;
-      background: var(--ayna-bar, #0d0d0f); color: var(--ayna-text, #f4f2ef); padding: 10px 16px;
+      min-height: var(--ayna-bar-min, 52px); box-sizing: border-box;
+      background: var(--ayna-bar, #0d0d0f); color: var(--ayna-text, #f4f2ef); padding: 8px 16px;
+      border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075));
       font: 13px/1.4 -apple-system, system-ui, sans-serif;
-      box-shadow: 0 2px 18px rgba(0,0,0,.35);
+      box-shadow: 0 1px 12px rgba(0,0,0,.18);
     }
     /* Left group, mode group, actions: the bar is a layout, not a queue. */
     .${NS}-bar > .${NS}-barside { display: flex; align-items: center; gap: 10px; flex: 1 1 0; }
@@ -104,14 +168,33 @@
     */
     .${NS}-bar button { white-space: nowrap; }
     .${NS}-bar > .${NS}-barside:not(.${NS}-baractions) { min-width: 0; }
+    /* A mark, the name, then a hairline before what the window is doing. */
     .${NS}-brand {
-      font-weight: 700; letter-spacing: .02em; opacity: .55; text-transform: lowercase;
+      display: inline-flex; align-items: center; gap: 8px; flex: none;
+      padding-right: 12px; border-right: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+      font-weight: 700; letter-spacing: .01em; color: var(--ayna-text, #f4f2ef);
     }
-    .${NS}-hint { opacity: .62; }
+    .${NS}-brand::before {
+      content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--ayna-accent, #de9446);
+    }
+    .${NS}-hint { color: var(--ayna-muted, rgba(255,255,255,.62)); }
+    .${NS}-hint.${NS}-warn { color: var(--ayna-warn, #e0a458); }
     .${NS}-bar .${NS}-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* A segmented control: which mode is on is a fact, not something to infer. */
+    /*
+      No gap and no padding: the buttons tile the whole track.
+
+      With a 2px gap and a 3px inset there were strips inside what reads as one
+      control that belonged to no button, so sliding across it switched the
+      cursor from hand to arrow at every edge — a cursor that vibrates. Rounded
+      buttons left the same dead wedges at their corners, because hit-testing
+      follows border-radius. So the buttons are square and tile the track, the
+      rounded pill is drawn inside each one by ::before, and the track clips its
+      own outer corners.
+    */
     .${NS}-modes {
-      display: flex; gap: 2px; background: rgba(255,255,255,.06); border-radius: 999px; padding: 2px;
+      display: flex; gap: 0; padding: 0; border-radius: 10px; overflow: hidden;
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 4%, transparent); border: 1px solid var(--ayna-line, rgba(255,255,255,.075));
     }
 
     /* The crop leads the box: on a canvas it is the entire comment. */
@@ -196,13 +279,17 @@
         backdrop-filter: blur(22px) saturate(1.4);
       }
     }
-    /* Collapsed to a spine: still legible, costs 34px. */
-    .${NS}-console.${NS}-min { width: 34px; }
+    /*
+      Collapsed to a spine: the live dot beside the icon, read like "● Activity"
+      in the open header. Stacked in 34px, the dot floated above the icon as if
+      it were a separate control; side by side needs 48.
+    */
+    .${NS}-console.${NS}-min { width: ${SPINE}; }
     .${NS}-console.${NS}-min .${NS}-console-title,
     .${NS}-console.${NS}-min .${NS}-agents { display: none; }
-    .${NS}-console.${NS}-min .${NS}-console-head { padding: 8px 4px; justify-content: center; }
+    .${NS}-console.${NS}-min .${NS}-console-head { padding: 8px 5px; gap: 5px; justify-content: center; flex-wrap: nowrap; }
     .${NS}-console.${NS}-min .${NS}-console-head .${NS}-spacer { display: none; }
-    .${NS}-console.${NS}-min .${NS}-console-head button { padding: 2px 6px; font-size: 14px; }
+    .${NS}-console.${NS}-min .${NS}-console-head [data-act=fold] { width: 26px; height: 26px; }
     /* The edge you drag to make it wider. Double-click puts it back. */
     .${NS}-grip {
       position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 1;
@@ -214,8 +301,66 @@
     }
     .${NS}-grip:hover::after, .${NS}-grip.${NS}-dragging::after { background: var(--ayna-accent, #de9446); }
     .${NS}-console.${NS}-min .${NS}-grip { display: none; }
+    /*
+      The drawer opens from the bar's own left end, where the rail lives on a
+      wide window — not from a button floating over the page. A floating button
+      sat on whatever the app keeps at its bottom edge, which on a phone layout
+      is its tab bar or its sticky call to action: ayna covering the app, the one
+      thing the bar was moved to the top to stop doing.
+
+      The status is a dot, not words: the bar already says "waiting" or
+      "1 left to judge"; the dot only says the drawer has news.
+    */
+    .${NS}-bar [data-act=activity] { display: none; position: relative; width: var(--ayna-icon-tap, 36px); padding: 0; justify-content: center; }
+    .${NS}-activity-dot {
+      position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%;
+      display: none; box-shadow: 0 0 0 2px var(--ayna-bar, #0d0d0f);
+    }
+    .${NS}-bar[data-activity=ready] .${NS}-activity-dot { display: block; background: var(--ayna-you, #e8b478); }
+    .${NS}-bar[data-activity=waiting] .${NS}-activity-dot {
+      display: block; background: var(--ayna-live, #e0b978); animation: ${NS}-breathe 2.4s ease-in-out infinite;
+    }
+    .${NS}-bar[data-drawer=open] [data-act=activity] { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 10%, transparent); border-color: color-mix(in srgb, var(--ayna-text, #f4f2ef) 24%, transparent); }
+    .${NS}-scrim { display: none; }
+    /* Above the review markers, which otherwise show through it at full strength. */
+    .${NS}-scrim { position: fixed; inset: 0; z-index: 2147483647; background: rgba(0,0,0,.45); }
+    /*
+      Narrow: no column, a drawer over the page, under the bar, from the left.
+      --ayna-rail-inset is what the page's inset falls back to, so zeroing it
+      here hands the page its full width with no script, at every frame of a
+      resize.
+    */
+    @media (max-width: 899px) {
+      :root { --ayna-rail-inset: 0px; }
+      .${NS}-console { display: none; }
+      .${NS}-console.${NS}-open {
+        display: flex; z-index: 2147483647;
+        top: var(--ayna-bar-h, 52px); bottom: 0; left: 0; width: min(380px, 86vw);
+        background: var(--ayna-surface, #0a0a0b);
+        box-shadow: 12px 0 32px rgba(0,0,0,.45);
+      }
+      .${NS}-console .${NS}-grip { display: none; }
+      /* The drawer has nothing to fold into; the bar's Activity button, a tap beside it or Escape closes it. */
+      .${NS}-console .${NS}-console-head [data-act=fold] { display: none; }
+      .${NS}-bar [data-act=activity] { display: inline-flex; }
+      .${NS}-bar .${NS}-brand { display: none; }
+      .${NS}-scrim.${NS}-open { display: block; top: var(--ayna-bar-h, 52px); }
+    }
+    /* A phone: the comment box is a sheet along the bottom, the element still in view above it. */
+    @media (max-width: 599px) {
+      .${NS}-pop {
+        left: 8px !important; right: 8px !important; top: auto !important; bottom: 8px !important;
+        width: auto !important; max-width: none !important;
+      }
+    }
+    /*
+      As tall as the bar, measured rather than restated: the bar grows for a
+      finger and for a long review, and a fixed number here left the two bottom
+      edges a step apart whenever it did.
+    */
     .${NS}-console-head {
-      display: flex; align-items: center; gap: 7px; padding: 8px 14px; flex-wrap: wrap;
+      display: flex; align-items: center; align-content: center; gap: 7px; padding: 8px 14px; flex-wrap: wrap;
+      min-height: var(--ayna-bar-h, 52px); box-sizing: border-box;
       border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075)); flex: none;
       font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
@@ -228,6 +373,16 @@
     }
     .${NS}-console-head button:hover { background: var(--ayna-line, rgba(255,255,255,.075)); color: var(--ayna-text, #f4f2ef); }
     .${NS}-console-head .${NS}-spacer { margin-left: auto; }
+    /* The fold is the Activity icon, not a word: square, with the hover of every head button. */
+    .${NS}-console-head [data-act=fold] {
+      width: 28px; height: 28px; padding: 0; display: grid; place-items: center; flex: none;
+    }
+    .${NS}-console-head [data-act=fold] svg { width: 16px; height: 16px; }
+    /*
+      Who is working takes a row of its own, under the title rather than
+      between it and the fold. It comes after the fold in the markup; written
+      before it, a full row of chips pushed the fold onto a third line.
+    */
     .${NS}-agents { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; flex: 1 1 100%; }
     .${NS}-agents:empty { display: none; }
     .${NS}-agent {
@@ -249,7 +404,12 @@
     .${NS}-console-lines {
       overflow-y: auto; padding: 12px 14px; flex: 1 1 auto; min-height: 0;
     }
-    .${NS}-empty { padding: 4px 0 0; }
+    /*
+      Scoped to the rail. The task panel's empty state shares the class, and its
+      later rule (18px 14px) won on source order, which put everything in an
+      empty rail 14px further in than the header and the Earlier line.
+    */
+    .${NS}-console-lines > .${NS}-empty { padding: 4px 0 0; }
     .${NS}-empty p { margin: 0; }
     .${NS}-empty-lead {
       color: var(--ayna-muted, rgba(255,255,255,.62));
@@ -260,7 +420,7 @@
       gap: 6px 10px; align-items: baseline;
     }
     .${NS}-empty dt {
-      color: var(--ayna-accent, #de9446);
+      color: var(--ayna-accent-text, var(--ayna-accent, #de9446));
       font: 600 12px/1.45 -apple-system, system-ui, sans-serif;
     }
     .${NS}-empty dd {
@@ -273,6 +433,21 @@
       color: var(--ayna-dim, rgba(255,255,255,.46));
       font: 12px/1.45 -apple-system, system-ui, sans-serif;
     }
+    /* The past, in one line: how many windows came before, and what they left open. */
+    .${NS}-earlier {
+      display: flex; align-items: center; gap: 8px; flex: none;
+      padding: 7px 14px; border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+      color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 11.5px/1.45 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-earlier[hidden], .${NS}-console.${NS}-min .${NS}-earlier { display: none; }
+    .${NS}-earlier span { flex: 1; min-width: 0; }
+    .${NS}-earlier button {
+      /* The header's Hide uses the same side padding, so the two end on one edge. */
+      flex: none; background: transparent; border: 0; padding: 1px 8px; border-radius: 6px; cursor: pointer;
+      color: var(--ayna-muted, rgba(255,255,255,.62)); font: inherit;
+    }
+    .${NS}-earlier button:hover { background: var(--ayna-line, rgba(255,255,255,.075)); color: var(--ayna-text, #f4f2ef); }
     /*
       Let a line be a line.
 
@@ -318,7 +493,7 @@
     /* Their words, set apart the way a quoted message is — not recoloured. */
     .${NS}-line[data-kind=you] > span {
       margin-top: 4px; padding: 7px 10px; border-radius: 8px;
-      background: rgba(255,255,255,.045);
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 4.5%, transparent);
       border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     /* The same speaker again is a new paragraph, not a new header. */
@@ -333,8 +508,7 @@
       border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
     }
     .${NS}-line[data-step] + .${NS}-line[data-step] { margin-top: 0; }
-    .${NS}-phase + .${NS}-line[data-step] { border-top: 0; }
-    .${NS}-line[data-step] > b {
+        .${NS}-line[data-step] > b {
       grid-area: glyph; text-align: center;
       color: var(--ayna-dim, rgba(255,255,255,.46));
       font: 600 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -352,15 +526,128 @@
     /* The gate is the answer to "is it actually fixed?" — it gets to be loud. */
     .${NS}-line[data-kind=gate][data-tone=warn] > span { color: var(--ayna-warn, #e0a458); }
 
-    .${NS}-phase {
-      display: flex; align-items: center; gap: 8px; margin: 16px 0 2px;
-      color: var(--ayna-dim, rgba(255,255,255,.46));
-      font: 500 10.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    /*
+      A round, from its first note to its verdict.
+
+      The corner says whose move it is, in the colour of whoever owes it: the
+      user's amber when it is their turn, the live pulse while Claude works.
+      Inside, every line is signed — You, Claude, ayna — in that lane's colour,
+      so a measurement never reads like an instruction.
+    */
+    .${NS}-round {
+      margin: 0 0 12px; border-radius: 10px;
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 2.5%, transparent);
     }
-    .${NS}-phase::after {
-      content: ''; flex: 1; height: 1px; background: var(--ayna-line, rgba(255,255,255,.075));
+    .${NS}-round-head {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px; min-height: var(--ayna-row-tap, 0);
+      border-bottom: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+      font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
     }
-    .${NS}-phase:first-child { margin-top: 0; }
+    .${NS}-round-head .${NS}-at { font-weight: 400; }
+    .${NS}-round-head { cursor: pointer; user-select: none; border-radius: 10px 10px 0 0; }
+    .${NS}-round-head:hover { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 3%, transparent); }
+    .${NS}-round-head:focus-visible { outline: 2px solid var(--ayna-accent, #de9446); outline-offset: -2px; }
+    .${NS}-chev {
+      flex: none; width: 6px; height: 6px; margin: 0 2px 3px 1px;
+      border-right: 1.5px solid var(--ayna-dim, rgba(255,255,255,.46));
+      border-bottom: 1.5px solid var(--ayna-dim, rgba(255,255,255,.46));
+      transform: rotate(45deg); transition: transform .15s;
+    }
+    .${NS}-round[data-folded] .${NS}-chev { transform: rotate(-45deg); margin-bottom: 0; }
+    .${NS}-round-sum {
+      display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--ayna-dim, rgba(255,255,255,.46)); font: 400 11.5px/1.4 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-round-head b, .${NS}-round-head .${NS}-at { flex: none; white-space: nowrap; }
+    .${NS}-round[data-folded] .${NS}-round-sum { display: inline; flex: 1 1 auto; }
+    /* Folded, the line is for what the round held; its time is inside. */
+    .${NS}-round[data-folded] .${NS}-round-head .${NS}-at { display: none; }
+    .${NS}-round[data-folded] .${NS}-round-head { border-bottom-color: transparent; border-radius: 10px; }
+    .${NS}-round[data-folded] .${NS}-round-body,
+    .${NS}-round[data-folded] .${NS}-round-acts { display: none; }
+    .${NS}-pill {
+      margin-left: auto; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+      border: 1px solid currentColor; color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 600 10.5px/1.5 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-round[data-state=waiting] .${NS}-pill { color: var(--ayna-live, #e0b978); animation: ${NS}-breathe 2.4s ease-in-out infinite; }
+    .${NS}-round[data-state=ready] .${NS}-pill { color: var(--ayna-you, #e8b478); }
+    .${NS}-round[data-state=approved] .${NS}-pill { color: var(--ayna-good, #7bc47f); }
+    .${NS}-round[data-state=sentback] .${NS}-pill { color: var(--ayna-warn, #e0a458); }
+    .${NS}-round[data-state=ready] { border-color: color-mix(in srgb, var(--ayna-you, #e8b478) 45%, transparent); }
+    @keyframes ${NS}-breathe { 50% { opacity: .55; } }
+    @media (prefers-reduced-motion: reduce) {
+      .${NS}-round[data-state=waiting] .${NS}-pill { animation: none; }
+    }
+    .${NS}-round-body { padding: 0 10px 4px; }
+    .${NS}-round-body:empty { display: none; }
+    .${NS}-round-note {
+      margin: 0; padding: 6px 0; color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 11.5px/1.45 -apple-system, system-ui, sans-serif;
+      border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-round-note:first-child { border-top: 0; }
+    .${NS}-item {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+      grid-template-areas: "who at" "text text" "detail detail" "extra extra";
+      padding: 7px 0; word-break: break-word;
+      border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-item:first-child { border-top: 0; }
+    .${NS}-item > b { grid-area: who; font: 600 11.5px/1.5 -apple-system, system-ui, sans-serif; }
+    .${NS}-item[data-lane=you] > b { color: var(--ayna-you, #e8b478); }
+    .${NS}-item[data-lane=claude] > b { color: var(--ayna-agent, #c9a2e8); }
+    .${NS}-item[data-lane=ayna] > b { color: var(--ayna-ayna, #79d4c0); }
+    .${NS}-item > .${NS}-at { grid-area: at; align-self: center; }
+    .${NS}-item > span { grid-area: text; color: var(--ayna-text, #f4f2ef); font: 12.5px/1.45 -apple-system, system-ui, sans-serif; }
+    .${NS}-item[data-tone=good] > span { color: var(--ayna-good, #7bc47f); }
+    .${NS}-item[data-tone=warn] > span { color: var(--ayna-warn, #e0a458); }
+    .${NS}-item > small {
+      grid-area: detail; color: var(--ayna-dim, rgba(255,255,255,.46));
+      font: 11.5px/1.45 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-crop {
+      grid-area: extra; display: block; margin-top: 6px; max-width: 100%; max-height: 56px;
+      object-fit: contain; object-position: left; border-radius: 4px;
+      border: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-round-body > .${NS}-line:first-child { border-top: 0; margin-top: 0; }
+    .${NS}-files { grid-area: extra; margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .${NS}-file {
+      display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+      background: transparent; border: 0; border-radius: 5px; padding: 3px 6px; margin: 0 -6px;
+      color: var(--ayna-text, #f4f2ef); font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .${NS}-file:hover { background: var(--ayna-line, rgba(255,255,255,.075)); }
+    .${NS}-file span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .${NS}-file em { flex: none; font-style: normal; color: var(--ayna-dim, rgba(255,255,255,.46)); }
+    .${NS}-file ins { text-decoration: none; color: var(--ayna-good, #7bc47f); margin-left: 6px; }
+    .${NS}-file del { text-decoration: none; color: var(--ayna-bad, #e0685f); margin-left: 6px; }
+    .${NS}-diff {
+      margin: 2px 0 6px; padding: 6px 8px; border-radius: 6px; background: var(--ayna-well, rgba(0,0,0,.32));
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap; word-break: break-all; color: var(--ayna-muted, rgba(255,255,255,.62));
+    }
+    .${NS}-diff [data-t="+"] { color: var(--ayna-good, #7bc47f); }
+    .${NS}-diff [data-t="-"] { color: var(--ayna-bad, #e0685f); }
+    .${NS}-diff [data-t="…"] { color: var(--ayna-dim, rgba(255,255,255,.46)); }
+    .${NS}-file.${NS}-gone span { text-decoration: line-through; color: var(--ayna-dim, rgba(255,255,255,.46)); }
+    .${NS}-round[data-state=undone] .${NS}-pill { color: var(--ayna-muted, rgba(255,255,255,.62)); }
+    .${NS}-round-acts {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px;
+      border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    }
+    .${NS}-round-acts button {
+      background: transparent; cursor: pointer; border-radius: 6px; padding: 3px 9px;
+      border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
+      color: var(--ayna-muted, rgba(255,255,255,.62)); font: 600 11.5px/1.4 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-round-acts button:hover { color: var(--ayna-text, #f4f2ef); border-color: var(--ayna-muted, rgba(255,255,255,.62)); }
+    .${NS}-round-acts button[data-act=undo-confirm] { color: var(--ayna-warn, #e0a458); border-color: currentColor; }
+    .${NS}-round-acts button:disabled { opacity: .5; cursor: default; }
+    .${NS}-round-acts span { flex: 1 1 100%; color: var(--ayna-warn, #e0a458); font: 11.5px/1.45 -apple-system, system-ui, sans-serif; }
+    .${NS}-round-acts span:empty { display: none; }
     /*
       Neon, in the sense that matters: saturated ink on near-black.
 
@@ -384,12 +671,12 @@
     }
     .${NS}-preview-bar button {
       border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer;
-      font: inherit; background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef);
+      font: inherit; background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 8%, transparent); color: var(--ayna-text, #f4f2ef);
     }
     .${NS}-preview-bar button[data-act=prev],
     .${NS}-preview-bar button[data-act=next] { padding: 6px 10px; }
     .${NS}-preview-bar .${NS}-ok { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
-    .${NS}-preview-bar .${NS}-no { background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef); }
+    .${NS}-preview-bar .${NS}-no { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 8%, transparent); color: var(--ayna-text, #f4f2ef); }
     /*
       One box, the send inside it.
 
@@ -397,10 +684,10 @@
       the bar was the loudest thing on the rail whether or not there was
       anything to send. The arrow only lights once there is.
     */
-    .${NS}-console-say { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075)); }
+    .${NS}-console-say { flex: none; padding: 10px 14px 12px; border-top: 1px solid var(--ayna-line, rgba(255,255,255,.075)); }
     .${NS}-say-box {
       display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px;
-      background: rgba(0,0,0,.32); border-radius: 10px;
+      background: var(--ayna-well, rgba(0,0,0,.32)); border-radius: 10px;
       border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     .${NS}-say-box:focus-within { border-color: var(--ayna-you, #e8b478); }
@@ -416,29 +703,98 @@
       font: 600 15px/1 -apple-system, system-ui, sans-serif;
     }
     .${NS}-console-say input:placeholder-shown + button {
-      background: rgba(255,255,255,.08); color: var(--ayna-dim, rgba(255,255,255,.46)); cursor: default;
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 8%, transparent); color: var(--ayna-dim, rgba(255,255,255,.46)); cursor: default;
     }
     .${NS}-console.${NS}-min .${NS}-console-lines,
     .${NS}-console.${NS}-min .${NS}-console-say { display: none; }
+    /*
+      One button shape for the whole bar: 32px, 8px corners. The fill says what
+      kind it is — the accent for the one action that moves the round on, an
+      outline for everything that only opens or switches something.
+    */
     .${NS}-bar button {
-      font: inherit; font-weight: 600; border: 0; border-radius: 999px;
-      padding: 6px 14px; cursor: pointer; background: var(--ayna-accent, #de9446);
+      display: inline-flex; align-items: center; gap: 7px; height: var(--ayna-tap, 32px); box-sizing: border-box;
+      font: inherit; font-weight: 600; border: 1px solid transparent; border-radius: 8px;
+      padding: 0 14px; cursor: pointer; background: var(--ayna-accent, #de9446);
       color: var(--ayna-on-accent, #0a0a0a);
+      transition: background-color .15s, border-color .15s, color .15s, filter .15s;
     }
+    .${NS}-bar button:hover { filter: brightness(1.08); }
+    .${NS}-bar button:focus-visible { outline: 2px solid var(--ayna-accent, #de9446); outline-offset: 2px; }
+    .${NS}-bar button svg { width: 14px; height: 14px; flex: none; }
+    .${NS}-bar [data-act=overflow] { display: none; font-size: 16px; letter-spacing: .05em; }
+    .${NS}-overflow { display: contents; }
     /*
       After the generic rule on purpose: same specificity, so source order
       decides. Written above it, every unselected mode inherited the primary blue,
       and the bar showed four buttons all claiming to be the main action.
     */
+    /*
+      The mode that is on is a raised pill with full-strength ink and its icon
+      lit in the accent; the others are muted until hovered.
+
+      It used to be an ivory pill inked with --ayna-on-accent, which is the ink
+      for the orange, not for ivory. Whenever that came out white — as it did
+      for ayna's own accent — the selected mode had no visible label at all.
+    */
     .${NS}-modes button {
-      background: transparent; color: var(--ayna-text, #f4f2ef); font-weight: 600;
-      padding: 5px 13px; border-radius: 999px;
+      position: relative; isolation: isolate; height: var(--ayna-mode-tap, 34px); min-width: var(--ayna-mode-min, 0);
+      padding: 0 13px; gap: 6px; justify-content: center;
+      border: 0; border-radius: 0; background: transparent;
+      color: var(--ayna-muted, rgba(255,255,255,.62)); font-weight: 600;
     }
-    .${NS}-modes button:hover { background: rgba(255,255,255,.12); color: var(--ayna-text, #f4f2ef); }
-    .${NS}-modes button.${NS}-on { background: var(--ayna-text, #f4f2ef); color: var(--ayna-on-accent, #0a0a0a); }
-    .${NS}-count { opacity: .7; }
-    .${NS}-progress { font-weight: 600; opacity: .8; }
-    .${NS}-progress.${NS}-done { color: var(--ayna-good, #7bc47f); opacity: 1; }
+    .${NS}-modes button::before {
+      content: ''; position: absolute; inset: 3px 1px; z-index: -1; border-radius: 7px;
+      background: transparent; transition: background-color .15s;
+    }
+    .${NS}-modes button:first-child::before { left: 3px; }
+    .${NS}-modes button:last-child::before { right: 3px; }
+    .${NS}-modes button svg { width: 14px; height: 14px; flex: none; }
+    /*
+      Short of room, the modes keep their icons and drop their words — the
+      names stay as tooltips and accessible labels. Wrapping onto a second row
+      costs the page 40px of height and moves it while the window is dragged.
+    */
+    .${NS}-bar { container-type: inline-size; }
+    /*
+      Below this a hint only fits as "Click …", which says nothing. "Sent —
+      waiting for Claude" is not a hint but the window's state, so it stays and
+      shortens with an ellipsis instead.
+    */
+    @container (max-width: 820px) { ${QUIET(`.${NS}-bar`)} }
+    @container (max-width: 600px) { ${COMPACT(`.${NS}-bar`)} }
+    @container (max-width: 460px) { ${PHONE(`.${NS}-bar`)} }
+    /* The same forms, chosen by fitBar when the widths above guessed wrong. */
+    ${QUIET(`.${NS}-bar[data-crowded]`)}
+    ${COMPACT(`.${NS}-bar[data-crowded="2"]`)} ${COMPACT(`.${NS}-bar[data-crowded="3"]`)}
+    ${PHONE(`.${NS}-bar[data-crowded="3"]`)}
+    .${NS}-modes button:hover { background: transparent; color: var(--ayna-text, #f4f2ef); filter: none; }
+    .${NS}-modes button:hover::before { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent); }
+    .${NS}-modes button.${NS}-on { color: var(--ayna-text, #f4f2ef); }
+    .${NS}-modes button.${NS}-on::before {
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ayna-text, #f4f2ef) 10%, transparent), 0 1px 2px rgba(0,0,0,.45);
+    }
+    .${NS}-modes button:focus-visible { outline-offset: -2px; }
+    .${NS}-modes button.${NS}-on svg { color: var(--ayna-accent-text, var(--ayna-accent, #de9446)); }
+    /* A count on a button is a chip, not a "· 2" tacked onto its label. */
+    .${NS}-chip {
+      display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+      min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 12%, transparent); color: var(--ayna-text, #f4f2ef); font: 600 11px/1 -apple-system, system-ui, sans-serif;
+    }
+    /* What is left to judge is the one thing to read in review, so it gets the colour. */
+    .${NS}-progress {
+      font-weight: 600; color: var(--ayna-you, #e8b478); white-space: nowrap;
+      padding: 4px 12px; border-radius: 999px;
+      background: color-mix(in srgb, var(--ayna-you, #e8b478) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--ayna-you, #e8b478) 28%, transparent);
+    }
+    .${NS}-progress:empty { display: none; }
+    .${NS}-progress.${NS}-done {
+      color: var(--ayna-good, #7bc47f);
+      background: color-mix(in srgb, var(--ayna-good, #7bc47f) 10%, transparent);
+      border-color: color-mix(in srgb, var(--ayna-good, #7bc47f) 30%, transparent);
+    }
     .${NS}-warn { color: var(--ayna-warn, #e0a458); }
     .${NS}-tag {
       position: absolute; z-index: 2147483641; pointer-events: none;
@@ -470,10 +826,22 @@
       position: absolute; pointer-events: none; z-index: 2147483639;
       border: 2px dashed var(--ayna-warn, #e0a458); background: rgba(222,148,70,.12); border-radius: 3px;
     }
-    .${NS}-bar button:disabled { opacity: .4; cursor: not-allowed; }
-    .${NS}-bar button.${NS}-ghost {
-      background: transparent; color: var(--ayna-text, #f4f2ef); border: 1px solid var(--ayna-line, rgba(255,255,255,.075));
+    /*
+      Disabled is neutral, not a faded accent. Dimming the orange to 40% left a
+      brown slab with brown text — unreadable, and still shaped like the main
+      action. Now it is plainly a button that is not ready yet, and says so.
+    */
+    .${NS}-bar button:disabled {
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 5%, transparent); color: var(--ayna-dim, rgba(255,255,255,.46));
+      border-color: var(--ayna-line, rgba(255,255,255,.075)); cursor: not-allowed; filter: none;
     }
+    .${NS}-bar button.${NS}-ghost {
+      background: transparent; color: var(--ayna-text, #f4f2ef); border-color: color-mix(in srgb, var(--ayna-text, #f4f2ef) 14%, transparent);
+    }
+    .${NS}-bar button.${NS}-ghost:hover { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent); border-color: color-mix(in srgb, var(--ayna-text, #f4f2ef) 24%, transparent); filter: none; }
+    /* Ending things is always available and never the loudest thing on the bar. */
+    .${NS}-bar button.${NS}-quiet { background: transparent; color: var(--ayna-muted, rgba(255,255,255,.62)); }
+    .${NS}-bar button.${NS}-quiet:hover { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent); color: var(--ayna-text, #f4f2ef); filter: none; }
     .${NS}-spin {
       width: 13px; height: 13px; border-radius: 50%; display: inline-block;
       border: 2px solid var(--ayna-line, rgba(255,255,255,.075)); border-top-color: var(--ayna-you, #e8b478);
@@ -528,7 +896,7 @@
       background: rgba(222,148,70,.12);
     }
     .${NS}-act[data-busy] { opacity: .55; pointer-events: none; }
-    .${NS}-attach { color: var(--ayna-accent, #de9446); text-decoration: underline; cursor: pointer; }
+    .${NS}-attach { color: var(--ayna-accent-text, var(--ayna-accent, #de9446)); text-decoration: underline; cursor: pointer; }
     .${NS}-pop.${NS}-dragover { outline: 2px dashed var(--ayna-accent, #de9446); outline-offset: 3px; }
     .${NS}-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     .${NS}-auto { position: relative; display: inline-flex; }
@@ -542,7 +910,9 @@
       border-radius: 6px; border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
     }
     .${NS}-row {
-      display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
+      /* Centred, so "Esc to cancel" reads on the buttons' line rather than
+         hanging from the top of a box stretched to their height. */
+      display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 10px;
       flex: none;  /* pinned: the action row is never scrolled away */
     }
     .${NS}-row button {
@@ -613,22 +983,23 @@
       depending on where you happened to click.
     */
     .${NS}-ok { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
-    .${NS}-no { background: rgba(255,255,255,.08); color: var(--ayna-text, #f4f2ef); }
+    .${NS}-no { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 8%, transparent); color: var(--ayna-text, #f4f2ef); }
     .${NS}-ok:hover { background: #166534; }
     .${NS}-no:hover { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-panel {
       position: fixed; z-index: 2147483646; right: 16px; width: 340px;
       max-width: calc(100vw - 32px);
-      background: var(--ayna-bar, #0d0d0f); color: #e8eaf0; border: 1px solid #2a3140; border-radius: 14px;
+      background: var(--ayna-panel, var(--ayna-bar, #0d0d0f)); color: var(--ayna-panel-text, #e8eaf0);
+      border: 1px solid var(--ayna-panel-line, #2a3140); border-radius: 14px;
       box-shadow: 0 3px 8px rgba(0,0,0,.30); display: flex; flex-direction: column;
       font: 13px/1.5 -apple-system, system-ui, sans-serif; overflow: hidden;
     }
     .${NS}-panel-head {
       display: flex; align-items: center; gap: 8px; padding: 12px 14px; flex: none;
-      border-bottom: 1px solid #2a3140; font-weight: 600;
+      border-bottom: 1px solid var(--ayna-panel-line, #2a3140); font-weight: 600;
     }
     .${NS}-panel-head button {
-      margin-left: auto; background: transparent; border: 0; color: #8b93a7;
+      margin-left: auto; background: transparent; border: 0; color: var(--ayna-muted, #8b93a7);
       font: inherit; cursor: pointer; padding: 2px 6px;
     }
     .${NS}-panel-list { overflow: auto; min-height: 0; }
@@ -637,10 +1008,10 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .${NS}-task {
-      padding: 9px 14px; border-top: 1px solid #1d2330; cursor: pointer;
+      padding: 9px 14px; border-top: 1px solid var(--ayna-line, #1d2330); cursor: pointer;
       display: flex; gap: 9px; align-items: flex-start;
     }
-    .${NS}-task:hover { background: #171b22; }
+    .${NS}-task:hover { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 5%, transparent); }
     .${NS}-dot {
       width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--ayna-accent, #de9446);
     }
@@ -654,7 +1025,7 @@
     .${NS}-task-acts { display: flex; gap: 4px; flex: none; }
     .${NS}-task-acts button {
       border: 0; border-radius: 6px; padding: 2px 7px; font: 600 11px/1.6 inherit; cursor: pointer;
-      background: #232a36; color: var(--ayna-text, #f4f2ef);
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 10%, transparent); color: var(--ayna-text, #f4f2ef);
     }
     .${NS}-task-acts button:hover { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
     .${NS}-task-acts button.${NS}-no:hover { background: var(--ayna-bad, #e0685f); }
@@ -698,6 +1069,24 @@
     .${NS}-pin i { font-style: normal; display: none; }
     .${NS}-pin:hover b { display: none; }
     .${NS}-pin:hover i { display: inline; }
+    /*
+      Registered so it computes to pixels. Its value is the rail's clamp() of
+      the window, and unregistered, getComputedStyle handed that back as text —
+      so a crop could not tell where the app's area begins.
+    */
+    @property --ayna-inset-left { syntax: '<length>'; inherits: true; initial-value: 0px; }
+    /*
+      A finger, not a cursor: 44px targets, the size ayna itself flags anything
+      under on everyone else's page. Set as tokens the base rules read, not as
+      rules of their own: written as overrides they tied with the base rules on
+      specificity and lost on source order, and a phone kept the 32px buttons.
+    */
+    @media (pointer: coarse) {
+      :root {
+        --ayna-bar-min: 60px; --ayna-tap: 44px; --ayna-icon-tap: 44px;
+        --ayna-mode-tap: 44px; --ayna-mode-min: 44px; --ayna-row-tap: 44px;
+      }
+    }
   `;
   document.documentElement.appendChild(css);
 
@@ -717,6 +1106,10 @@
   bar.className = NS + '-bar';
   bar.setAttribute('data-ayna', '1');
   document.documentElement.appendChild(bar);
+  // Listened for on the bar, which outlives the markup each phase rebuilds.
+  bar.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-act=activity]')) setDrawer(!drawerOpen);
+  });
 
   // Start out of the way on a sign-in screen: there is nothing to review until
   // the user is through it, and every click would otherwise become a comment.
@@ -766,13 +1159,50 @@
       waiting — Claude is editing; the page will reload itself when it's done
       review  — the changes are on screen; approve, or ask for more
   */
+  /*
+    The bar sheds by what fits, not by a guessed width.
+
+    Its compact forms were tied to container widths measured with macOS's
+    system font. Linux has no such font and falls back to a wider one, so at
+    700px the review bar wrapped onto a second row, the page moved under
+    markers already placed, and a verdict sat behind the bar. The container
+    queries stay as the cheap first answer; this looks at the result and steps
+    down a form at a time (see QUIET, COMPACT, PHONE) while the bar's items
+    still sit on more than one row. It runs when the bar's contents change and
+    once a resize settles — never per frame, where it would force a layout.
+  */
+  function fitBar() {
+    if (!bar) return;
+    const before = bar.dataset.crowded ?? '';
+    delete bar.dataset.crowded;
+    for (const level of ['1', '2', '3']) {
+      if (!barWraps()) break;
+      bar.dataset.crowded = level;
+    }
+    if ((bar.dataset.crowded ?? '') === before) return;
+    reserveForBar();
+    if (state.phase === 'review') repositionReview();
+  }
+
+  // Items on one row share a vertical centre; one that wrapped does not.
+  function barWraps() {
+    const mids = [...bar.children]
+      .map((k) => k.getBoundingClientRect())
+      .filter((r) => r.width && r.height)
+      .map((r) => r.top + r.height / 2);
+    return mids.some((m) => Math.abs(m - mids[0]) > 8);
+  }
+
   function setPhase(phase) {
     if (!bar) return;
     // The space the bar needs is re-measured whenever it changes; see the
     // observer in reserveForBar, which is what actually catches it.
-    requestAnimationFrame(reserveForBar);
+    requestAnimationFrame(() => {
+      fitBar();
+      reserveForBar();
+    });
     const leavingReview = state.phase === 'review' && phase !== 'review';
-    if (phase !== 'waiting') clearTimeout(state.waitWarn);
+    if (phase !== 'waiting') clearInterval(state.listenTimer);
     state.phase = phase;
     state.picking = phase === 'comment';
     if (leavingReview) clearReview();
@@ -807,6 +1237,16 @@
           : 'Browsing — click links freely, nothing is captured',
       };
       const NEXT_LABEL = { comment: 'Move mode', move: 'Browse mode', browse: 'Comment mode' };
+      // A glyph per mode, drawn in the label's ink, so the four read at a glance.
+      const svg = (d) =>
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+      const ICON = {
+        comment: svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>'),
+        draw: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+        move: svg('<path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>'),
+        browse: svg('<path d="M4 4l7 17 2.5-7.5L21 11Z"/>'),
+      };
 
       /*
         Three groups, not one huddle in the middle.
@@ -822,20 +1262,21 @@
       */
       bar.innerHTML =
         '<div class="' + NS + '-barside">' +
-          '<span class="' + NS + '-brand">ayna</span>' +
+          brand() +
           '<span class="' + NS + '-hint">' + HINT[state.mode] + '</span>' +
         '</div>' +
         '<div class="' + NS + '-modes" role="group" aria-label="Mode">' +
           MODES.map((m) =>
             '<button data-act="setmode" data-mode="' + m.id + '"' +
             (state.mode === m.id ? ' aria-pressed="true" class="' + NS + '-on"' : ' aria-pressed="false"') +
-            ' title="' + m.title + '">' + m.label + '</button>',
+            ' title="' + m.title + '" aria-label="' + m.label + '">' + ICON[m.id] +
+            '<span class="' + NS + '-label">' + m.label + '</span></button>',
           ).join('') +
         '</div>' +
         '<div class="' + NS + '-barside ' + NS + '-baractions">' +
-          '<button data-act="tasks" class="' + NS + '-ghost" title="Everything still owed on this page">Tasks</button>' +
+          '<button data-act="tasks" class="' + NS + '-ghost" title="Everything still owed on this page">' + TASKS_FACE + '</button>' +
           '<button data-act="send"' + (state.seq ? '' : ' disabled') +
-            (state.seq ? '' : ' title="Comment on something first"') + '>Send to Claude</button>' +
+            (state.seq ? '' : ' title="Comment on something first"') + '><span>Send<span class="' + NS + '-long"> to Claude</span></span></button>' +
         '</div>';
 
       for (const b of bar.querySelectorAll('[data-act=setmode]')) {
@@ -869,10 +1310,20 @@
         listening. When nothing was, the user sat watching a spinner that meant
         nothing. Say only what is true — sent — and speak up if it goes unanswered.
       */
+      /*
+        The same three places as the other phases, so nothing jumps to the
+        middle and back. "Changes are in" is an outline: it is the way out when
+        the window cannot see the edits land, not the thing to press next.
+      */
       bar.innerHTML =
-        '<span class="' + NS + '-spin" aria-hidden="true"></span>' +
-        '<span class="' + NS + '-waiting">Sent — waiting for Claude to pick this up…</span>' +
-        '<button data-act="applied" title="Reload and show the result now">Changes are in</button>';
+        '<div class="' + NS + '-barside">' +
+          brand() +
+          '<span class="' + NS + '-spin" aria-hidden="true"></span>' +
+          '<span class="' + NS + '-waiting ' + NS + '-hint">Sent — waiting for Claude to pick this up…</span>' +
+        '</div>' +
+        '<div class="' + NS + '-barside ' + NS + '-baractions">' +
+          '<button data-act="applied" class="' + NS + '-ghost" title="Reload and show the result now">Changes are in</button>' +
+        '</div>';
 
       /*
         A way out that does not need anything else to be running.
@@ -888,13 +1339,30 @@
         if (window.__aynaApplied) window.__aynaApplied();
       });
 
-      clearTimeout(state.waitWarn);
-      state.waitWarn = setTimeout(() => {
+      /*
+        Say who is on the other end, and keep checking.
+
+        The window used to wait 45 seconds and then say "not picked up yet",
+        whether or not anything could ever pick it up. It asks instead (see
+        listenerOf in annotate.mjs): nobody listening is said at once, with what
+        to do about it; a round Claude has read says so; and the 45-second
+        nudge is kept for a listener that has gone quiet.
+      */
+      const sentAt = Date.now();
+      const check = async () => {
         const label = bar && bar.querySelector('.' + NS + '-waiting');
         if (!label || state.phase !== 'waiting') return;
-        label.textContent = 'Not picked up yet — press “Changes are in” if they have landed';
-        label.classList.add(NS + '-warn');
-      }, 45000);
+        const who = window.__aynaListening ? await window.__aynaListening().catch(() => 'unknown') : 'unknown';
+        let text = 'Sent — waiting for Claude to pick this up…';
+        if (who === 'picked-up') text = 'Claude has picked this up — working on it…';
+        else if (who === 'none') text = 'Sent — but no Claude session is listening. Ask Claude to pick up your ayna review.';
+        else if (Date.now() - sentAt > 45000) text = 'Not picked up yet — press “Changes are in” if they have landed';
+        label.textContent = text;
+        label.classList.toggle(NS + '-warn', who === 'none' || (who !== 'picked-up' && Date.now() - sentAt > 45000));
+      };
+      clearInterval(state.listenTimer);
+      state.listenTimer = setInterval(check, 2000);
+      check();
       return;
     }
 
@@ -911,18 +1379,26 @@
     */
     bar.innerHTML =
       '<div class="' + NS + '-barside">' +
-        '<span class="' + NS + '-brand">ayna</span>' +
+        brand() +
         '<span class="' + NS + '-hint">Changes are live — judge each one</span>' +
       '</div>' +
       '<div class="' + NS + '-progress ' + NS + '-count"></div>' +
       '<div class="' + NS + '-barside ' + NS + '-baractions">' +
-        '<button data-act="tasks" class="' + NS + '-ghost">Tasks</button>' +
-        '<button data-act="more" class="' + NS + '-ghost" ' +
-        'title="Go back to commenting without ending the review">Comment more</button>' +
-        '<button data-act="approve-all" class="' + NS + '-ghost" ' +
-        'title="Marks every pending change approved">Approve all</button>' +
-        '<button data-act="close" class="' + NS + '-ghost" ' +
-        'title="Ends the review — anything unjudged stays pending">Close</button>' +
+        '<button data-act="tasks" class="' + NS + '-ghost">' + TASKS_FACE + '</button>' +
+        /*
+          Inline on a wide bar; behind ⋯ on a short one, where three more
+          outlined buttons would wrap the bar onto a second and third row.
+        */
+        '<button data-act="overflow" class="' + NS + '-ghost" aria-label="More actions" aria-haspopup="true" ' +
+        'aria-expanded="false">⋯</button>' +
+        '<div class="' + NS + '-overflow">' +
+          '<button data-act="more" class="' + NS + '-ghost" ' +
+          'title="Go back to commenting without ending the review">Comment more</button>' +
+          '<button data-act="approve-all" class="' + NS + '-ghost" ' +
+          'title="Marks every pending change approved">Approve all</button>' +
+          '<button data-act="close" class="' + NS + '-quiet" ' +
+          'title="Ends the review — anything unjudged stays pending">Close</button>' +
+        '</div>' +
       '</div>';
 
     // Re-anchor every comment on the changed page so each one can be judged
@@ -931,6 +1407,10 @@
 
     bar.querySelector('[data-act=tasks]').addEventListener('click', togglePanel);
     refreshTaskCount();
+    const overflow = bar.querySelector('.' + NS + '-overflow');
+    bar.querySelector('[data-act=overflow]').addEventListener('click', () => setMenu(!overflow.classList.contains(NS + '-open')));
+    // Choosing anything in it closes it; the item's own handler still runs.
+    overflow.addEventListener('click', () => setMenu(false));
     bar.querySelector('[data-act=more]').addEventListener('click', () => {
       clearReview();
       state.seq = 0;
@@ -955,20 +1435,18 @@
       closing = true;
       bar.innerHTML =
         '<div class="' + NS + '-barside">' +
-          '<span class="' + NS + '-brand">ayna</span>' +
+          brand() +
           '<span class="' + NS + '-hint">Closing the review — anything unjudged stays waiting</span>' +
         '</div>' +
         '<div class="' + NS + '-barside ' + NS + '-baractions">' +
           '<button data-act="stay">Stay open</button>' +
         '</div>';
 
-      const end = setTimeout(() => {
-        cleanup();
-        window.__aynaApprove();
-      }, 1500);
+      // Node holds the countdown, so a reload in this moment cannot lose it.
+      window.__aynaClosing?.(true);
 
       bar.querySelector('[data-act=stay]').addEventListener('click', () => {
-        clearTimeout(end);
+        window.__aynaClosing?.(false);
         closing = false;
         setPhase('review');
       });
@@ -1332,6 +1810,11 @@
         }
       }
       if (e.key === 'Escape') {
+        // The ⋯ menu and the drawer sit on top of everything else, so they go first.
+        if (closeLayers()) {
+          e.preventDefault();
+          return;
+        }
         // Let the page's own field handle Escape if that is where focus is.
         if (isFormField(document.activeElement) && !pop) return;
         closePopover();
@@ -1908,7 +2391,7 @@
     */
     // An expression, not a measurement, so the page follows the rail as the
     // window resizes without this function running.
-    const rail = !consoleEl ? '0px' : consoleMin ? '34px' : RAIL_W;
+    const rail = !consoleEl ? '0px' : consoleMin ? SPINE : RAIL_W;
 
     // Driven by the variables, so moving the bar moves the page without this
     // function running again.
@@ -1930,7 +2413,9 @@
       pixels below the console no matter what the arithmetic said. Measuring the
       viewport the same way everything else here measures it removes the argument.
     */
-    document.documentElement.style.setProperty('--ayna-inset-left', rail);
+    // Through a variable the narrow-window rule zeroes, so going narrow moves the
+    // page without this function running — see the 899px media query.
+    document.documentElement.style.setProperty('--ayna-inset-left', `var(--ayna-rail-inset, ${rail})`);
     document.documentElement.style.setProperty('--ayna-inset-bottom', '0px');
 
     /*
@@ -2037,18 +2522,12 @@
     return { top: 0, bottom: Math.round(b.bottom) + 12, height: Math.round(b.height) };
   }
 
-  /** Kept for callers that only care how much vertical room is gone. */
-  function barSafeZone() {
-    return barZone().height ? barZone().height + 28 : 0;
-  }
-
   function placeFloating(el, r) {
     // Remember the anchor so a resize can put it back in the right place.
     el.__aynaAnchor = r;
 
     const vw = viewportW();
     const vh = viewportH();
-    const safe = barSafeZone();
 
     /*
       Bound the panel to what the window can actually show, then measure it. A
@@ -2141,14 +2620,12 @@
       clearTimeout(settleTimer);
       settleTimer = setTimeout(() => {
         correctedFor = '';
+        fitBar();
         reserveForBar({ correct: true });
       }, 120);
       if (pop && pop.__aynaAnchor) placeFloating(pop, pop.__aynaAnchor);
       if (card && card.__aynaAnchor) placeFloating(card, card.__aynaAnchor);
-      if (panel) {
-        panel.style.maxHeight =
-          Math.max(200, viewportH() - barSafeZone() - 32) + 'px';
-      }
+      if (panel) placePanel();
       // Review markers are anchored to live elements, so re-derive them —
       // cheaply now, and properly once the user stops dragging.
       if (state.phase === 'review') {
@@ -2799,6 +3276,8 @@
     */
     const close = bar.querySelector('[data-act=close]');
     if (close && !closing) close.textContent = 'Close window';
+    // The progress chip only fills in now, and its words can be what tips the bar over.
+    fitBar();
   }
 
   /*
@@ -2975,26 +3454,44 @@
   }
 
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /*
+    What each check is called, for a person.
+
+    The rail printed the audit's own keys — "5 lowContrast · 22 smallTargets" —
+    which are names for code. These are the short forms of what SEVERITY in
+    audit.mjs says each one means, sized for a line in a narrow rail.
+  */
+  const FAULTS = {
+    covered: ['covered control', 'covered controls'],
+    offscreen: ['element off screen', 'elements off screen'],
+    overlaps: ['overlap', 'overlaps'],
+    clipped: ['text cut off', 'texts cut off'],
+    lowContrast: ['low-contrast text', 'low-contrast texts'],
+    noFocusIndicator: ['control with no focus ring', 'controls with no focus ring'],
+    faintFocusIndicator: ['faint focus ring', 'faint focus rings'],
+    unlabelled: ['unlabelled control', 'unlabelled controls'],
+    smallTargets: ['small tap target', 'small tap targets'],
+    tinyText: ['text under 12px', 'texts under 12px'],
+  };
+  const faultName = (key, n) => (FAULTS[key] ? FAULTS[key][n === 1 ? 0 : 1] : key);
   const faultList = (counts) =>
     Object.entries(counts ?? {})
       .filter(([, n]) => n > 0)
-      .map(([k, n]) => `${n} ${k}`)
+      .map(([k, n]) => `${n} ${faultName(k, n)}`)
       .join(' · ');
+  const faultTotal = (counts) => Object.values(counts ?? {}).reduce((a, b) => a + (b || 0), 0);
 
   /*
     A message is somebody's words; everything else is a step, which says what
     happened in a title and keeps the particulars for the line under it — the
     split that lets the eye run down the titles and stop only where it matters.
+
+    Rounds, notes, verdicts and checks are not here: they belong to a round and
+    are drawn inside its card (see renderEvent).
   */
   const WORDING = {
     message: (e) => ({ text: e.text }),
-    round: (e) => ({ glyph: '↑', text: 'Sent to Claude', detail: e.comments ? plural(e.comments, 'comment') : '' }),
-    applied: (e) => ({
-      glyph: '✓', tone: 'good', text: 'Changes landed',
-      detail: e.via && e.via !== 'marker' ? `noticed by ${e.via.replace('-', ' ')}` : '',
-    }),
-    task: (e) => ({ glyph: '↳', text: `${e.taskId ?? e.id ?? ''} ${e.status ?? ''}`.trim(), detail: e.comment ?? '' }),
-    rejected: (e) => ({ glyph: '↺', tone: 'warn', text: 'Sent back', detail: e.comment ?? '' }),
     closed: (e) =>
       e.approved
         ? { glyph: '✓', tone: 'good', text: 'Review finished' }
@@ -3002,24 +3499,15 @@
     audit: (e) =>
       e.clean
         ? { glyph: '✓', tone: 'good', text: 'No layout faults' }
-        : {
-            glyph: '!', tone: 'warn',
-            text: plural(Object.values(e.counts ?? {}).reduce((a, b) => a + b, 0), 'fault') + ' found',
-            detail: faultList(e.counts),
-          },
-    claimed: (e) => ({ glyph: '↳', text: `${e.taskId ?? ''} taken`.trim(), detail: `by ${e.by ?? 'someone'}` }),
+        : { glyph: '!', tone: 'warn', text: plural(faultTotal(e.counts), 'fault') + ' found', detail: faultList(e.counts) },
+    claimed: (e) => ({ glyph: '↳', text: `Taken by ${e.by ?? 'someone'}`, detail: quote(noteOfTask.get(e.taskId)) }),
+    'picked-up': () => ({ glyph: '↳', text: 'Claude picked up the round' }),
     ready: (e) => ({ glyph: '•', tone: 'live', text: `${e.pending} still waiting` }),
     preview: (e) => ({ glyph: '◐', text: `${plural(e.variants?.length ?? 0, 'variant')} to try`, detail: e.selector ?? '' }),
     'preview-accepted': (e) => ({
       glyph: '✓', tone: 'good', text: `Kept ${e.label ?? 'variant ' + ((e.variant ?? 0) + 1)}`, detail: 'write it in',
     }),
     'preview-rejected': () => ({ glyph: '×', text: 'None of them', detail: 'try something else' }),
-    gate: (e) =>
-      e.unavailable
-        ? { glyph: '?', tone: 'warn', text: 'Could not measure the page', detail: e.unavailable }
-        : e.clean
-          ? { glyph: '✓', tone: 'good', text: 'No measurable faults left', detail: 're-measured after the change' }
-          : { glyph: '!', tone: 'warn', text: `${faultList(e.counts)} still there`, detail: 're-measured after the change' },
   };
 
   /*
@@ -3030,19 +3518,37 @@
     Three lanes is the honest count here. The user, Claude, and ayna — which is
     neither of them and is the only one making claims that can be checked.
   */
-  const LANE = {
-    round: 'you', message: 'you', closed: 'you',
-    task: 'claude', applied: 'claude', rejected: 'claude',
-    gate: 'ayna', audit: 'ayna', ready: 'ayna', claimed: 'ayna',
+  const LANE = { message: 'you', closed: 'you', audit: 'ayna', ready: 'ayna', claimed: 'ayna', 'picked-up': 'claude' };
+
+  /*
+    The time on the wall, not since the log began.
+
+    Elapsed time was counted from the oldest event the panel had loaded, which
+    was last week's as often as this window's, so "05:17" meant nothing anyone
+    could check against a clock.
+  */
+  const clock = (at) => new Date(at ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  /** A note, short enough to sit under a verdict without becoming the line. */
+  const quote = (text) => {
+    if (!text) return '';
+    const t = String(text).replace(/\s+/g, ' ').trim();
+    return '“' + (t.length > 64 ? t.slice(0, 63).trimEnd() + '…' : t) + '”';
   };
 
-  let consoleStart = 0;
-  let consoleRound = null;
-
-  const clock = (at) => {
-    if (!consoleStart) consoleStart = at;
-    const secs = Math.max(0, Math.round((at - consoleStart) / 1000));
-    return String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
+  /*
+    The page a note was made on, as its path — the origin is the same for all
+    of them. The root goes unsaid: it is where nearly every review starts, and
+    "/" under every note was noise that hid the notes that were elsewhere.
+  */
+  const pageOf = (url) => {
+    try {
+      const u = new URL(url);
+      const at = u.pathname + u.hash;
+      return at === '/' ? '' : at;
+    } catch {
+      return '';
+    }
   };
 
   function consoleLine(e) {
@@ -3060,15 +3566,15 @@
 
     const t = document.createElement('i');
     t.className = NS + '-at';
-    t.textContent = clock(e.at ?? Date.now());
+    t.textContent = clock(e.at);
 
     const b = document.createElement('b');
     if (said) {
-      b.textContent = e.from === 'user' ? 'You' : 'Claude';
+      b.textContent = SPEAKER[lane];
     } else {
       row.dataset.step = '';
       if (tone) row.dataset.tone = tone;
-      row.title = t.textContent + ' · ' + lane;
+      row.title = t.textContent + ' · ' + (SPEAKER[lane] ?? lane);
       b.textContent = glyph ?? '·';
     }
 
@@ -3086,23 +3592,572 @@
     return row;
   }
 
-  /** A round is a phase; saying so makes the rest read as belonging to something. */
-  function roundHeader(e) {
-    const head = document.createElement('div');
-    head.className = NS + '-phase';
-    head.textContent = 'round ' + (e.round ?? '') +
-      (e.comments ? ' · ' + e.comments + ' comment' + (e.comments === 1 ? '' : 's') : '');
-    return head;
+  /*
+    A round is a card.
+
+    The rail was one flat list. The round header was drawn when the round was
+    sent, so the notes in it sat above their own heading; rows were named by
+    task id; and nothing said whose move it was. A card holds a round from its
+    first note to its verdict — what you asked, what Claude did, what ayna
+    measured, what you decided — and its corner says who it is waiting on.
+
+    Cards are rebuilt from the event stream whenever the overlay is, so they
+    are never state of their own: the log is the record and this is a reading
+    of it.
+  */
+  const CARD_STATE = {
+    drafting: 'Not sent yet',
+    waiting: 'Claude is working',
+    ready: 'Your turn',
+    approved: 'Approved',
+    sentback: 'Sent back',
+    undone: 'Undone',
+  };
+  const cards = [];
+  const cardOfTask = new Map();
+  const noteOfTask = new Map();
+  // This window's tab, once asked; undefined until then, null when it has none.
+  let myTab;
+
+  // Plain divs: this lives in the app's document, and an app is free to style
+  // section and header — the demo pads every section by a screen's height.
+  /*
+    A round folds to its header.
+
+    A long review is a column of finished rounds above the one that matters,
+    and scrolling past them to reach it is the cost window-scoping was there to
+    remove. So a round folds once it is settled and a newer one exists, to a
+    line that still says how it went, and any round opens again on a click.
+    One still waiting on you or on Claude never folds by itself.
+
+    A fold made by hand is remembered for the tab, keyed by the event that
+    began the round — the same on every rebuild, so a reload keeps it.
+  */
+  const SETTLED = new Set(['approved', 'sentback', 'undone']);
+  const FOLDS = 'ayna-folds';
+  const folds = (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(FOLDS) || '{}');
+    } catch {
+      return {};
+    }
+  })();
+
+  function setFold(card, folded, byHand = false) {
+    // A boolean, always: toggleAttribute(name, undefined) toggles instead of clearing.
+    card.folded = Boolean(folded);
+    card.el.toggleAttribute('data-folded', card.folded);
+    card.head.setAttribute('aria-expanded', String(!card.folded));
+    const notes = card.tasks.size;
+    const files = card.files?.length ?? 0;
+    card.el.querySelector('.' + NS + '-round-sum').textContent =
+      [notes && plural(notes, 'note'), files && plural(files, 'file')].filter(Boolean).join(' · ');
+    if (!byHand) return;
+    folds[card.id] = folded;
+    try {
+      sessionStorage.setItem(FOLDS, JSON.stringify(folds));
+    } catch {
+      // Unremembered is fine; it folds again on the next rebuild.
+    }
+  }
+
+  /** Fold what is finished, unless the user has said otherwise for that round. */
+  function foldSettled() {
+    for (const c of cards.slice(0, -1)) {
+      if (!(c.id in folds) && SETTLED.has(c.state) && !c.folded) setFold(c, true);
+    }
+  }
+
+  function newCard(lines, state, id) {
+    const el = document.createElement('div');
+    el.className = NS + '-round';
+    el.innerHTML =
+      '<div class="' + NS + '-round-head" role="button" tabindex="0" aria-expanded="true">' +
+        '<span class="' + NS + '-chev" aria-hidden="true"></span><b></b><i class="' + NS + '-at"></i>' +
+        '<span class="' + NS + '-round-sum"></span><span class="' + NS + '-pill"></span>' +
+      '</div>' +
+      '<div class="' + NS + '-round-body"></div>';
+    lines.appendChild(el);
+    const card = {
+      el, head: el.querySelector('.' + NS + '-round-head'), body: el.querySelector('.' + NS + '-round-body'),
+      tasks: new Map(), raised: new Set(), round: null, state: null, lastAt: '', id: String(id ?? cards.length),
+    };
+    const toggle = () => setFold(card, !card.folded, true);
+    card.head.addEventListener('click', toggle);
+    card.head.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      // The page underneath is in comment mode, where keys are shortcuts.
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggle();
+    });
+    cards.push(card);
+    setCard(card, state);
+    setFold(card, folds[card.id] ?? false);
+    foldSettled();
+    return card;
+  }
+
+  function setCard(card, state, { round, at } = {}) {
+    card.state = state;
+    card.el.dataset.state = state;
+    if (round !== undefined) card.round = round;
+    card.el.querySelector('b').textContent = card.round ? 'Round ' + card.round : 'Next round';
+    if (at) card.el.querySelector('.' + NS + '-at').textContent = card.lastAt = clock(at);
+    card.el.querySelector('.' + NS + '-pill').textContent = CARD_STATE[state];
+    updateActivity();
+    if (card.head) {
+      setFold(card, card.folded);
+      foldSettled();
+    }
+  }
+
+  /** Once every note in a round is judged, the card says how it went. */
+  function settleCard(card) {
+    if (!card || !['ready', 'sentback', 'approved'].includes(card.state)) return;
+    const verdicts = [...card.tasks.values()];
+    if (verdicts.includes('rejected')) setCard(card, 'sentback');
+    else if (verdicts.length && verdicts.every((v) => v === 'approved')) setCard(card, 'approved');
+  }
+
+  function item({ lane, text, detail, at, tone }) {
+    const row = document.createElement('div');
+    row.className = NS + '-item';
+    row.dataset.lane = lane;
+    if (tone) row.dataset.tone = tone;
+    const b = document.createElement('b');
+    b.textContent = SPEAKER[lane];
+    const t = document.createElement('i');
+    t.className = NS + '-at';
+    t.textContent = at ? clock(at) : '';
+    const span = document.createElement('span');
+    span.textContent = text;
+    row.append(b, t, span);
+    if (detail) {
+      const small = document.createElement('small');
+      small.textContent = detail;
+      row.appendChild(small);
+    }
+    return row;
+  }
+
+  /** The crop of what a note was about, so a card shows the thing and not only the words. */
+  function attachCrop(row, taskId) {
+    if (!taskId || !window.__aynaCrop) return;
+    window.__aynaCrop(taskId).then((src) => {
+      if (!src) return;
+      const img = document.createElement('img');
+      img.className = NS + '-crop';
+      img.alt = '';
+      img.src = src;
+      row.appendChild(img);
+    }).catch(() => {});
+  }
+
+  /*
+    Into a card, saying the time only when it moves on. A round usually happens
+    inside a few minutes, and "14:25" on every line was a column of the same
+    four digits.
+  */
+  function addToCard(card, row) {
+    const at = row.querySelector(':scope > .' + NS + '-at');
+    if (at && at.textContent === card.lastAt) at.textContent = '';
+    else if (at?.textContent) card.lastAt = at.textContent;
+    card.body.appendChild(row);
+    return row;
+  }
+
+  /*
+    What the check after a round found, against the page before it.
+
+    With a baseline the question is whether this round broke anything, and the
+    faults it found waiting are context, not a verdict on the work. Without one
+    — an older window, or the user browsed elsewhere meanwhile — it falls back
+    to the totals and says only that they are on the page.
+  */
+  function gateWords(e) {
+    if (e.unavailable) return { text: 'Could not check the page', detail: e.unavailable, tone: 'warn' };
+    const total = faultTotal(e.counts);
+    if (!e.before || !e.added) {
+      return total
+        ? { text: plural(total, 'fault') + ' on the page', detail: faultList(e.counts), tone: e.clean ? '' : 'warn' }
+        : { text: 'No layout faults', tone: 'good' };
+    }
+    const added = faultTotal(e.added);
+    const fixed = Object.entries(e.before).reduce((n, [k, was]) => n + Math.max(0, was - (e.counts?.[k] ?? 0)), 0);
+    const already = total - added;
+    const context = [already && `${already} already there`, fixed && `${fixed} fixed`].filter(Boolean).join(' · ');
+    if (added) {
+      return {
+        text: plural(added, 'new fault') + ' since this round',
+        detail: [faultList(e.added), context].filter(Boolean).join(' · '),
+        tone: 'warn',
+      };
+    }
+    if (!total) return { text: fixed ? 'No layout faults left' : 'No layout faults', detail: context, tone: 'good' };
+    return { text: 'No new faults', detail: context, tone: 'good' };
+  }
+
+  /*
+    The files a round changed, each one opening to its diff.
+
+    Two path segments, not one: a Next app has a dozen page.tsx files, and the
+    name alone says nothing about which. The diff is fetched when asked for,
+    because most rounds are judged by looking at the page, not the source.
+  */
+  function fileList(key, files) {
+    const list = document.createElement('div');
+    list.className = NS + '-files';
+    for (const f of files) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = NS + '-file';
+      row.dataset.status = f.status;
+      row.title = f.file;
+      const name = document.createElement('span');
+      name.textContent = f.file.split('/').slice(-2).join('/');
+      const count = document.createElement('em');
+      if (f.added) count.appendChild(document.createElement('ins')).textContent = '+' + f.added;
+      if (f.removed) count.appendChild(document.createElement('del')).textContent = '−' + f.removed;
+      if (!f.added && !f.removed && f.status !== 'modified') count.textContent = f.status;
+      row.append(name, count);
+      row.addEventListener('click', async () => {
+        const open = row.nextElementSibling?.classList.contains(NS + '-diff');
+        if (open) {
+          row.nextElementSibling.remove();
+          return;
+        }
+        const lines = await window.__aynaDiff?.(key, f.file).catch(() => null);
+        const pre = document.createElement('div');
+        pre.className = NS + '-diff';
+        for (const l of lines ?? [{ t: '…', s: 'no diff to show' }]) {
+          const line = document.createElement('div');
+          line.dataset.t = l.t;
+          line.textContent = (l.t === '…' ? '' : l.t + ' ') + (l.t === '…' ? l.s || '…' : l.s);
+          pre.appendChild(line);
+        }
+        row.after(pre);
+      });
+      list.appendChild(row);
+    }
+    return list;
+  }
+
+  /*
+    The way back from a round, on the round.
+
+    Two steps, because it rewrites files: the first press says how many, the
+    second does it. A refusal is said in the card — which file changed since,
+    or why not now — rather than failing quietly, since the user pressed it
+    expecting their files back.
+  */
+  function undoControl(key, files) {
+    const acts = document.createElement('div');
+    acts.className = NS + '-round-acts';
+    const go = document.createElement('button');
+    go.type = 'button';
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.dataset.act = 'undo-keep';
+    keep.textContent = 'Keep';
+    const said = document.createElement('span');
+    const idle = () => {
+      go.dataset.act = 'undo';
+      go.textContent = 'Undo this round';
+      go.title = 'Put ' + plural(files.length, 'file') + ' back the way they were before this round';
+      go.disabled = false;
+      keep.remove();
+    };
+    idle();
+    acts.append(go, said);
+
+    keep.addEventListener('click', () => {
+      said.textContent = '';
+      idle();
+    });
+    go.addEventListener('click', async () => {
+      if (go.dataset.act === 'undo') {
+        go.dataset.act = 'undo-confirm';
+        go.textContent = 'Undo ' + plural(files.length, 'file');
+        said.textContent = '';
+        go.after(keep);
+        return;
+      }
+      go.disabled = true;
+      const done = await window.__aynaUndo?.(key).catch((err) => ({ ok: false, reason: err.message }));
+      if (done?.ok) {
+        // The changes are gone, so there is nothing left on the page to judge.
+        if (state.phase === 'review') {
+          clearReview();
+          state.seq = 0;
+          setPhase('comment');
+          window.__aynaMore();
+        }
+        pumpConsole();
+        return;
+      }
+      const names = (list) => list.map((f) => f.split('/').pop()).join(', ');
+      said.textContent = done?.conflicts?.length
+        ? 'Not undone: ' + names(done.conflicts) + ' changed after this round'
+        : done?.unknown?.length
+          ? 'Not undone: no copy of ' + names(done.unknown) + ' from before'
+          : 'Not undone: ' + (done?.reason ?? 'the window did not answer');
+      idle();
+    });
+    return acts;
+  }
+
+  const roundCard = (round) => [...cards].reverse().find((c) => c.round === round) ?? cards.at(-1) ?? null;
+
+  /** Draw one event. Returns false for anything the rail does not show. */
+  function renderEvent(e, lines) {
+    const last = cards.at(-1) ?? null;
+
+    if (e.event === 'task' && 'url' in e) {
+      // A note being raised: it belongs to the round that has not been sent yet.
+      if (e.status === 'proposed') {
+        noteOfTask.set(e.taskId, e.comment);
+        // Claude's own suggestions, or a check's (the taste review files these).
+        const ours = e.source && e.source !== 'claude';
+        const row = item({
+          lane: ours ? 'ayna' : 'claude', text: e.comment ?? '', at: e.at,
+          detail: 'a suggestion · waiting for your word',
+        });
+        // Not the round's, so not in its card, where it would fold away unseen.
+        lines.appendChild(row);
+        return true;
+      }
+      /*
+        Only a note made in this window is a draft of its next round. One filed
+        from elsewhere — another window, the CLI, an import — is not going out
+        with anything sent from here, and drawing it as "Not sent yet" said
+        that it was.
+      */
+      noteOfTask.set(e.taskId, e.comment);
+      if (myTab && e.tabId !== myTab) {
+        // Signed by whoever wrote it. A note with no source is the user's own —
+        // from another window, the CLI or an import — not the checker's.
+        const lane = e.source === 'claude' ? 'claude' : e.source && e.source !== 'user' ? 'ayna' : 'you';
+        const row = item({ lane, text: e.comment ?? '', at: e.at, detail: 'filed outside this window · in Tasks' });
+        lines.appendChild(row);
+        return true;
+      }
+      const card = last && last.state === 'drafting' ? last : newCard(lines, 'drafting', e.seq);
+      card.tasks.set(e.taskId, e.status ?? 'open');
+      card.raised.add(e.taskId);
+      cardOfTask.set(e.taskId, card);
+      const row = addToCard(card, item({ lane: 'you', text: e.comment ?? '', detail: pageOf(e.url), at: e.at }));
+      attachCrop(row, e.taskId);
+      return true;
+    }
+
+    if (e.event === 'task') {
+      const card = cardOfTask.get(e.taskId) ?? last;
+      const note = quote(noteOfTask.get(e.taskId));
+      if (card?.tasks.has(e.taskId) || card === last) card?.tasks.set(e.taskId, e.status);
+      const said = {
+        approved: { lane: 'you', text: 'Approved', tone: 'good' },
+        in_progress: { lane: 'claude', text: 'Working on it' },
+        applied: { lane: 'claude', text: 'Done' },
+        needs_confirmation: { lane: 'ayna', text: 'Needs your confirmation', tone: 'warn' },
+        obsolete: { lane: 'ayna', text: 'No longer needed' },
+      }[e.status];
+      // "rejected" is drawn from its own event, which carries the note; "open"
+      // again is bookkeeping for a retry, not something anyone did.
+      if (!said) return false;
+      const row = item({ ...said, detail: note, at: e.at });
+      if (card) addToCard(card, row);
+      else lines.appendChild(row);
+      settleCard(card);
+      return true;
+    }
+
+    if (e.event === 'round') {
+      const card = last && last.state === 'drafting' ? last : newCard(lines, 'waiting', e.seq);
+      setCard(card, 'waiting', { round: e.round, at: e.at });
+      // Every note the round carries is the round's to settle, wherever it was
+      // written — a retry, or work left open by another window.
+      for (const n of e.notes ?? []) {
+        card.tasks.set(n.taskId, 'open');
+        cardOfTask.set(n.taskId, card);
+        if (!noteOfTask.has(n.taskId)) noteOfTask.set(n.taskId, n.comment);
+      }
+      // Those carried in travel with this round but were not written in it.
+      const others = e.notes
+        ? e.notes.filter((n) => !card.raised.has(n.taskId)).length
+        : (e.open ?? 0) - card.raised.size;
+      if (others > 0) {
+        const p = document.createElement('p');
+        p.className = NS + '-round-note';
+        p.textContent = 'Also sends ' + plural(others, 'earlier note');
+        card.body.appendChild(p);
+      }
+      return true;
+    }
+
+    if (e.event === 'applied') {
+      const card = roundCard(e.round);
+      if (!card) return false;
+      const how = { user: 'you said the changes are in', 'file-change': 'noticed from the edits' }[e.via] ?? '';
+      const files = e.files ?? [];
+      const row = addToCard(card, item({
+        lane: 'claude', at: e.at, detail: how,
+        text: files.length ? 'Finished · ' + plural(files.length, 'file') : 'Finished',
+      }));
+      if (files.length) row.appendChild(fileList(e.key, files));
+      card.files = files;
+      card.key = e.key;
+      setCard(card, 'ready');
+      return true;
+    }
+
+    if (e.event === 'gate') {
+      const card = roundCard(e.round);
+      if (!card) return false;
+      addToCard(card, item({ lane: 'ayna', at: e.at, ...gateWords(e) }));
+      // Offered once the round has finished landing — the check is the last
+      // step of that — so an undo never races the reload that shows the change.
+      if (card.files?.length && card.state !== 'undone' && !card.el.querySelector('.' + NS + '-round-acts')) {
+        card.el.appendChild(undoControl(card.key ?? e.round, card.files));
+      }
+      return true;
+    }
+
+    if (e.event === 'undone') {
+      const card = roundCard(e.round);
+      if (!card) return false;
+      addToCard(card, item({
+        lane: 'you', text: 'Undid this round', tone: 'warn', at: e.at,
+        detail: plural(e.files?.length ?? 0, 'file') + ' put back as they were',
+      }));
+      card.el.querySelector('.' + NS + '-round-acts')?.remove();
+      for (const f of card.el.querySelectorAll('.' + NS + '-file')) f.classList.add(NS + '-gone');
+      setCard(card, 'undone');
+      return true;
+    }
+
+    if (e.event === 'rejected') {
+      const card = [...cards].reverse().find((c) => c.state === 'ready' || c.state === 'sentback') ?? last;
+      if (!card) return false;
+      addToCard(card, item({ lane: 'you', text: 'Sent back', detail: quote(e.comment), tone: 'warn', at: e.at }));
+      setCard(card, 'sentback');
+      return true;
+    }
+
+    const row = consoleLine(e);
+    if (!row) return false;
+    /*
+      A card holds its own round's steps and nothing else. A message, an audit
+      or a preview is said to the window, and inside the last card it folded
+      away with that card — by hand, or by itself the moment the next round
+      began — before anyone had read it.
+    */
+    const owner = e.event === 'claimed' ? cardOfTask.get(e.taskId) : null;
+    const parent = owner ? owner.body : lines;
+    // A message to the same speaker as the line before it is a new paragraph,
+    // not a new header.
+    const prev = parent.lastElementChild;
+    if (
+      !('step' in row.dataset) &&
+      prev?.classList.contains(NS + '-line') &&
+      !('step' in prev.dataset) &&
+      prev.dataset.kind === row.dataset.kind
+    ) {
+      row.classList.add(NS + '-cont');
+    }
+    parent.appendChild(row);
+    return true;
+  }
+
+  /*
+    On a narrow window the rail is a sheet, not a column.
+
+    It took clamp(300px, 24vw, 480px) at every size, so a 390px phone gave the
+    app 90px — and reviewing a site's mobile layout is the commonest reason to
+    narrow the window at all. Below 900px the rail takes no width (the media
+    query zeroes --ayna-rail-inset, so the page follows without any script),
+    and opens over the page as a drawer from the left, under the bar, from the
+    Activity button at the bar's left end. The button's dot says whose move it
+    is when a round is waiting.
+  */
+  function buildDrawer() {
+    if (scrim) return;
+    scrim = document.createElement('div');
+    scrim.className = NS + '-scrim';
+    scrim.setAttribute('data-ayna', '1');
+    scrim.addEventListener('click', () => setDrawer(false));
+    // Same layer as the drawer, so order decides: the backdrop goes just before it.
+    document.documentElement.insertBefore(scrim, consoleEl);
+  }
+
+  function setDrawer(open) {
+    if (!consoleEl) return;
+    drawerOpen = open;
+    // A spine has no room for the log; the drawer is always the full rail.
+    if (open && consoleMin) setConsoleMinimised(false);
+    for (const el of [consoleEl, scrim]) el?.classList.toggle(NS + '-open', open);
+    if (bar) bar.dataset.drawer = open ? 'open' : '';
+    bar?.querySelector('[data-act=activity]')?.setAttribute('aria-expanded', String(open));
+    if (open) pumpConsole();
+  }
+
+  /*
+    The ⋯ menu, the Tasks panel and the drawer close the way any menu does:
+    Escape, or a press anywhere outside them. Only their own buttons closed
+    them, so a menu or the task list stayed over the page while the user went
+    back to judging it.
+  */
+  /** Open or close the ⋯ menu, from wherever; true when that changed anything. */
+  function setMenu(open) {
+    const menu = bar?.querySelector('.' + NS + '-overflow');
+    if (!menu || menu.classList.contains(NS + '-open') === open) return false;
+    menu.classList.toggle(NS + '-open', open);
+    bar.querySelector('[data-act=overflow]')?.setAttribute('aria-expanded', String(open));
+    return true;
+  }
+  function closeLayers() {
+    if (setMenu(false)) return true;
+    if (panel) {
+      closePanel();
+      return true;
+    }
+    if (drawerOpen) {
+      setDrawer(false);
+      bar?.querySelector('[data-act=activity]')?.focus();
+      return true;
+    }
+    return false;
+  }
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      const t = e.target;
+      // A press on what opened it is left to that button, which toggles it.
+      if (!t.closest?.('.' + NS + '-overflow, [data-act=overflow]')) setMenu(false);
+      if (panel && !panel.contains(t) && !t.closest?.('[data-act=tasks], [data-act=earlier]')) closePanel();
+    },
+    true,
+  );
+
+  /** The Activity button's dot: whose move it is, when that is anyone's. */
+  function updateActivity() {
+    if (!bar) return;
+    const state = cards.at(-1)?.state;
+    bar.dataset.activity = state === 'ready' || state === 'waiting' ? state : '';
+    const label = { ready: 'Activity — your turn', waiting: 'Activity — Claude is working' }[state] ?? 'Activity';
+    bar.querySelector('[data-act=activity]')?.setAttribute('aria-label', label);
   }
 
   function setConsoleMinimised(min) {
     consoleMin = min;
     if (!consoleEl) return;
     consoleEl.classList.toggle(NS + '-min', min);
-    // A spine is 34px; a glyph fits it, the word "Show" was clipped to "Sho".
+    // The icon is the same either way; which way it goes is in its label.
     const fold = consoleEl.querySelector('[data-act=fold]');
-    fold.textContent = min ? '»' : 'Hide';
-    fold.title = min ? 'Show activity' : 'Hide activity';
+    const label = min ? 'Show activity' : 'Hide activity';
+    fold.title = label;
+    fold.setAttribute('aria-label', label);
+    fold.setAttribute('aria-expanded', String(!min));
     try {
       sessionStorage.setItem('ayna-console', min ? 'min' : 'open');
     } catch {
@@ -3138,15 +4193,16 @@
       const chip = document.createElement('span');
       chip.className = NS + '-agent';
       if (a.working || a.tasks.length) chip.classList.add(NS + '-busy');
+      const doing = a.listening ? 'listening' : 'working';
       const dot = document.createElement('i');
       dot.style.background = agentColour(a.agent);
       const name = document.createElement('b');
       name.textContent = a.agent;
       const what = document.createElement('span');
-      what.textContent = a.tasks.length
-        ? a.tasks.map((t) => t.id).join(', ')
-        : 'working';
-      chip.title = a.tasks.map((t) => `${t.id}: ${t.comment ?? ''}`).join('\n') || 'working on this round';
+      what.textContent = a.tasks.length ? a.tasks.map((t) => t.id).join(', ') : doing;
+      chip.title =
+        a.tasks.map((t) => `${t.id}: ${t.comment ?? ''}`).join('\n') ||
+        (a.listening ? 'listening for this round' : 'working on this round');
       chip.appendChild(dot);
       chip.appendChild(name);
       chip.appendChild(what);
@@ -3154,10 +4210,46 @@
     }
   }
 
+  /*
+    The activity shows this window only, so the past gets one line: how many
+    windows came before, and how much they left open. "Show" opens the task
+    list, which already groups that work by page.
+  */
+  async function pumpEarlier() {
+    if (!consoleEl || !window.__aynaEarlier) return;
+    const el = consoleEl.querySelector('.' + NS + '-earlier');
+    const { windows = 0, open = 0 } = (await window.__aynaEarlier().catch(() => null)) ?? {};
+    el.hidden = !windows && !open;
+    if (el.hidden) return;
+    const parts = ['Earlier'];
+    if (windows) parts.push(plural(windows, 'window'));
+    parts.push(open ? plural(open, 'note') + ' still open' : 'nothing left open');
+    el.querySelector('span').textContent = parts.join(' · ');
+    el.querySelector('button').hidden = !open;
+  }
+
+  /*
+    One read of the feed at a time. The timer and an action that pumps straight
+    away can overlap, and two reads from the same cursor would draw the same
+    events twice.
+  */
+  let pumping = false;
   async function pumpConsole() {
-    if (!consoleEl || !window.__aynaFeed) return;
+    if (!consoleEl || !window.__aynaFeed || pumping) return;
+    pumping = true;
+    try {
+      await readFeed();
+    } finally {
+      pumping = false;
+    }
+  }
+
+  async function readFeed() {
+    if (myTab === undefined) myTab = (await window.__aynaState?.().catch(() => null))?.tab ?? null;
     const events = await window.__aynaFeed(consoleSeq).catch(() => []);
     if (!events || !events.length) return;
+    // A verdict on carried-over work changes what the earlier line owes.
+    if (events.some((e) => e.event === 'task')) pumpEarlier();
 
     const lines = consoleEl.querySelector('.' + NS + '-console-lines');
     // Only follow the tail when the reader is already at it; yanking someone back
@@ -3174,24 +4266,7 @@
       consoleSeq = Math.max(consoleSeq, e.seq ?? 0);
       // The same stream that carries messages carries these; no second channel.
       if (e.event === 'preview') startPreview(e);
-      if (e.event === 'round' && e.round !== consoleRound) {
-        consoleRound = e.round;
-        clearEmpty();
-        lines.appendChild(roundHeader(e));
-      }
-      const row = consoleLine(e);
-      if (!row) continue;
-      clearEmpty();
-      const prev = lines.lastElementChild;
-      if (
-        !('step' in row.dataset) &&
-        prev?.classList.contains(NS + '-line') &&
-        !('step' in prev.dataset) &&
-        prev.dataset.kind === row.dataset.kind
-      ) {
-        row.classList.add(NS + '-cont');
-      }
-      lines.appendChild(row);
+      if (renderEvent(e, lines)) clearEmpty();
     }
     while (lines.children.length > 300) lines.removeChild(lines.firstChild);
     if (atBottom) lines.scrollTop = lines.scrollHeight;
@@ -3237,10 +4312,11 @@
     consoleEl.innerHTML =
       '<div class="' + NS + '-console-head">' +
         '<span class="' + NS + '-dotlive"></span><span class="' + NS + '-console-title">Activity</span>' +
-        '<span class="' + NS + '-agents"></span>' +
         '<span class="' + NS + '-spacer"></span>' +
-        '<button data-act="fold">Hide</button>' +
+        '<button data-act="fold">' + RAIL_ICON + '</button>' +
+        '<span class="' + NS + '-agents"></span>' +
       '</div>' +
+      '<div class="' + NS + '-earlier" hidden><span></span><button data-act="earlier">Show</button></div>' +
       /*
         An empty rail has to say it is empty.
 
@@ -3280,6 +4356,8 @@
     setRailTint();
 
     consoleEl.querySelector('[data-act=fold]').addEventListener('click', () => setConsoleMinimised(!consoleMin));
+    buildDrawer();
+    consoleEl.querySelector('[data-act=earlier]').addEventListener('click', () => togglePanel());
 
     const input = consoleEl.querySelector('input');
     const send = async () => {
@@ -3309,6 +4387,7 @@
     }
 
     setConsoleMinimised(consoleMin);
+    pumpEarlier();
     pumpConsole();
     clearInterval(consoleTimer);
     consoleTimer = setInterval(() => {
@@ -3337,6 +4416,18 @@
 
   const samePage = (url) => (url ?? '').split('#')[0] === location.href.split('#')[0];
 
+  /*
+    Hung from the bar the way the ⋯ menu is, 6px under it. It used the bar's
+    safe zone plus 8, which left 20px of page between the panel and the button
+    that opened it, so it read as something floating loose rather than as that
+    button's menu.
+  */
+  function placePanel() {
+    const under = bar ? Math.round(bar.getBoundingClientRect().bottom) : 0;
+    panel.style.top = under + 6 + 'px';
+    panel.style.maxHeight = Math.max(200, viewportH() - under - 18) + 'px';
+  }
+
   async function togglePanel() {
     if (panel) {
       closePanel();
@@ -3356,8 +4447,7 @@
       underneath. The list appeared to start with a stray URL and to have no way
       out of it.
     */
-    panel.style.top = barZone().bottom + 8 + 'px';
-    panel.style.maxHeight = Math.max(200, viewportH() - barZone().bottom - 24) + 'px';
+    placePanel();
 
     const pending = tasks.filter((t) => t.status !== 'approved').length;
     panel.innerHTML =
@@ -3478,7 +4568,19 @@
     if (!el) return;
     const tasks = await window.__aynaList().catch(() => []);
     const pending = tasks.filter((t) => t.status !== 'approved').length;
-    el.textContent = 'Tasks' + (pending ? ' · ' + pending : '');
+    /*
+      Only the count changes. Rewriting the button's markup on every task
+      update re-parsed its icon and replaced the elements under a resting
+      pointer, for a number that was usually the same as before.
+    */
+    let chip = el.querySelector('.' + NS + '-chip');
+    if (!pending) chip?.remove();
+    else {
+      chip ??= Object.assign(el.appendChild(document.createElement('span')), { className: NS + '-chip' });
+      if (chip.textContent !== String(pending)) chip.textContent = String(pending);
+    }
+    el.setAttribute('aria-label', pending ? `Tasks, ${pending} pending` : 'Tasks');
+    fitBar();
   }
 
   /*
@@ -3491,6 +4593,8 @@
   */
   buildConsole();
 
+  // Called by Node at the end of the close countdown.
+  window.__aynaCleanup = cleanup;
   function cleanup() {
     clearInterval(consoleTimer);
     consoleEl?.remove();

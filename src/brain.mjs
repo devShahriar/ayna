@@ -70,12 +70,30 @@ export function runAgent({
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
+      detached: true,
     });
 
+    let settled = false;
     let out = '';
     let err = '';
+    let killTimer = null;
+
+    const killGroup = (sig = 'SIGTERM') => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        try { child.kill(sig); } catch {}
+      }
+    };
+
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      if (settled) return;
+      settled = true;
+      killGroup('SIGTERM');
+      killTimer = setTimeout(() => {
+        killGroup('SIGKILL');
+      }, 3000);
+      killTimer.unref?.();
       reject(new Error(`${agent} timed out after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
 
@@ -87,11 +105,17 @@ export function runAgent({
       onStderr?.(String(d));
     });
     child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       reject(new Error(`could not run "${binary}": ${e.message}`));
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (settled) return;
+      settled = true;
       if (code !== 0) {
         reject(new Error(`${agent} exited ${code}: ${err.trim() || out.trim() || 'no output'}`));
         return;

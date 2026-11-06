@@ -165,11 +165,37 @@ export function pathsFor(name) {
   return BROWSERS[key].paths[process.platform] ?? [];
 }
 
+/**
+ * A chromium binary found on `$PATH`.
+ *
+ * WHY THIS ONE IS SEARCHED. The canonical paths above are checked with
+ * existsSync, not searched for, so a browser in an unusual place is reachable
+ * by path but never silently picked up. Chromium is the exception on Linux:
+ * a container image can install it anywhere on `$PATH`, and a machine without
+ * Chrome should still get a browser rather than an error telling it to
+ * install one. It is only ever a fallback, and only for chromium — Chrome
+ * stays on its canonical paths so a stray binary cannot take its place.
+ *
+ * The scan itself is platform-independent so it can be tested anywhere; the
+ * Linux-only rule lives in `findBrowser`, where it belongs.
+ */
+export function chromiumOnPath() {
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const name of ['chromium', 'chromium-browser']) {
+      const candidate = path.join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 /** The first installed executable for a browser on this platform, or null. */
 export function findBrowser(name) {
   for (const p of pathsFor(name)) {
     if (existsSync(p)) return p;
   }
+  if (browserKey(name) === 'chromium' && process.platform === 'linux') return chromiumOnPath();
   return null;
 }
 

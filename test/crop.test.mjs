@@ -26,6 +26,11 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
       <div style="height:1500px;background:rgb(0,128,0)">
         <div id="low" style="margin-top:700px;width:150px;height:80px;background:rgb(0,0,255)"></div>
       </div></body>`);
+    // Settle into the viewport before listening. On a slow runner a resize from
+    // setting the page up arrived late, inside the first test, and was counted
+    // against a capture that had not caused it.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.waitForTimeout(250);
     await page.evaluate(() => {
       window.__resizes = [];
       addEventListener('resize', () => window.__resizes.push('window'));
@@ -46,19 +51,25 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
 
   const drain = () => page.evaluate(() => window.__resizes.splice(0));
 
-  const middlePixel = (buf) =>
-    page.evaluate(async (u) => {
-      const img = new Image();
-      img.src = u;
-      await img.decode();
-      const c = document.createElement('canvas');
-      c.width = img.width;
-      c.height = img.height;
-      const g = c.getContext('2d');
-      g.drawImage(img, 0, 0);
-      const d = g.getImageData(Math.floor(img.width / 2), Math.floor(img.height / 2), 1, 1).data;
-      return `${d[0]},${d[1]},${d[2]}`;
-    }, 'data:image/png;base64,' + buf.toString('base64'));
+  // One pixel of a capture, the middle one unless told otherwise.
+  const pixelAt = (buf, x, y) =>
+    page.evaluate(
+      async ([u, px, py]) => {
+        const img = new Image();
+        img.src = u;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const d = g.getImageData(px ?? Math.floor(img.width / 2), py ?? Math.floor(img.height / 2), 1, 1).data;
+        return `${d[0]},${d[1]},${d[2]}`;
+      },
+      ['data:image/png;base64,' + buf.toString('base64'), x, y],
+    );
+  const middlePixel = (buf) => pixelAt(buf);
+
 
   test('a visible region is captured without resizing the page', async () => {
     await drain();
@@ -97,5 +108,52 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     const opts = await cropRegion(page, await pageRect('#wide'), 12);
     assert.equal(opts.fullPage, true, 'off-screen regions need the full-page path');
     assert.equal(await middlePixel(await page.screenshot(opts)), '255,0,0');
+  });
+
+  /*
+    The capture's style is applied to the live page, so whatever it hides
+    blinks out of the user's window. Hiding all of ayna made the bar, the rail
+    and the comment box flash on every note.
+  */
+  test('a crop hides the marks over the element, not the bar or the rail beside it', async () => {
+    const chrome = await context.newPage();
+    try {
+      // Written the way the overlay writes it: the inset is the rail's clamp() of
+      // the window, registered as a length so it reads back in pixels.
+      await chrome.setContent(`<html style="--ayna-inset-top:50px;--ayna-inset-left:var(--ayna-rail-inset, clamp(150px, 25vw, 400px))">
+        <style>@property --ayna-inset-left { syntax: '<length>'; inherits: true; initial-value: 0px; }</style><body style="margin:0">
+        <div id="nav" style="position:absolute;top:50px;left:204px;width:300px;height:40px;background:rgb(255,0,0)"></div>
+        <div class="ayna-ov-bar" data-ayna="1" style="position:fixed;top:0;left:200px;right:0;height:50px;background:#000;box-shadow:0 1px 12px rgba(0,0,0,.6)"></div>
+        <div class="ayna-ov-console" data-ayna="1" style="position:fixed;top:0;bottom:0;left:0;width:clamp(150px, 25vw, 400px);background:#000"></div>
+        <div class="ayna-ov-tag" data-ayna="1" style="position:fixed;top:28px;left:204px;width:200px;height:22px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.8)"></div>
+        <div class="ayna-ov-hl" data-ayna="1" style="position:fixed;top:50px;left:204px;width:300px;height:40px;outline:2px solid orange"></div>
+      </body></html>`);
+      const rect = await chrome.evaluate(() => {
+        const r = document.querySelector('#nav').getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      const opts = await cropRegion(chrome, rect, 12);
+      assert.equal(opts.fullPage, false);
+      assert.ok(opts.clip.y >= 50 && opts.clip.x >= 200, `the padding stops at the app's edge: ${JSON.stringify(opts.clip)}`);
+
+      // The label above the element and the bar both cast shadows into the crop.
+      const top = await pixelAt(await chrome.screenshot(opts), 20, 2);
+      assert.equal(top, '255,0,0', "no shadow of ayna's falls across the top of the crop");
+
+      await chrome.addStyleTag({ content: opts.style });
+      const after = await chrome.evaluate(() =>
+        [...document.querySelectorAll('[data-ayna]')].map((el) => {
+          const cs = getComputedStyle(el);
+          return `${el.className}:${cs.visibility}:${cs.boxShadow === 'none' ? 'flat' : 'shadow'}`;
+        }),
+      );
+      assert.deepEqual(
+        after,
+        ['ayna-ov-bar:visible:flat', 'ayna-ov-console:visible:flat', 'ayna-ov-tag:visible:flat', 'ayna-ov-hl:hidden:flat'],
+        'only the mark over the element is hidden; what sits beside the crop keeps its place and loses only its shadow',
+      );
+    } finally {
+      await chrome.close();
+    }
   });
 });

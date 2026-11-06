@@ -25,6 +25,7 @@ import path from 'node:path';
 
 import { openBrowser } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { DEFAULT_THEME } from '../src/config.mjs';
 import { commandArgv } from '../src/taste.mjs';
 
 const exec = promisify(execFile);
@@ -56,6 +57,8 @@ async function main() {
   try {
     await runAnnotate({
       browser,
+      // What every real install renders; see DEFAULT_THEME in config.mjs.
+      theme: DEFAULT_THEME,
       url,
       outDir: path.join(work, 'run'),
       projectDir: work,

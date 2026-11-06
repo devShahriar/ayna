@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
+import { DEFAULT_THEME } from '../src/config.mjs';
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -60,6 +61,8 @@ async function main() {
 
   await runAnnotate({
     browser,
+    // What every real install renders; see DEFAULT_THEME in config.mjs.
+    theme: DEFAULT_THEME,
     url: server.url,
     outDir: annotateOut,
     projectDir: site,

@@ -129,13 +129,31 @@ notifications). It prints one JSON line every time the user does something:
 {"event":"round","round":1,"comments":2,"action":"read-comments"}
 {"event":"applied","round":1,"via":"marker"}
 {"event":"rejected","comment":"…","action":"retry-rejected"}
+{"event":"undone","round":1,"files":["src/app/page.tsx"],"action":"files-reverted"}
 {"event":"closed","approved":true}
 ```
 
 `applied` means the window has stopped waiting on you and the user is now judging
 the result. `via` says what ended the wait: `marker` if you ran `applied`,
 `file-change` if it saw your edits land, `user` if they pressed **Changes are in**
-because it could not.
+because it could not. `files` lists what the round changed — path, status and
+line counts, read from the files themselves — and is what the user sees in the
+round's card.
+
+`undone` means the user took that round back from the window. The files listed
+are exactly as they were before it, and the notes it carried are `open` again.
+Re-read those files before you touch them — what you remember writing is no
+longer there — and wait for the next `round` rather than redoing the work
+unasked.
+
+`{"event":"picked-up","round":1}` is your own `ayna comments` reaching the window:
+it tells the user you have the round. There is nothing to do about it.
+
+**The window tells the user whether anyone is listening.** It counts you as there
+if you opened it, if `ayna wait` or `ayna applied` is following it, or if you have
+read the round with `ayna comments`. If the user started the window themselves,
+run `ayna wait` in the background, or the page will say no Claude session is
+listening.
 
 **This is the whole mechanism.** One process, push-based. There is nothing to
 re-arm and nothing to poll, so a round cannot go unnoticed because you forgot a
@@ -508,7 +526,10 @@ did. It is the same event log as everything else, so it survives the session.
 re-measures the page and says whether the faults are actually gone — `clean:
 true`, or the counts that remain. "Done" is a prediction until something looks.
 It stops nothing: the user still decides. But do not claim a fix the gate
-contradicts.
+contradicts. `before` is the same count taken when the round was sent and
+`added` is what is new since, per check — so a fault in `counts` but not in
+`added` was there before your round, and one in `added` is yours. Both are
+`null` when the window ended up on a different page.
 
 ## Before working a task, ask whether it still applies
 
