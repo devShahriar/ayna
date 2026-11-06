@@ -340,7 +340,9 @@ describe('running somewhere that is not a laptop', () => {
       if (before === undefined) delete process.env.AYNA_NO_SANDBOX;
       else process.env.AYNA_NO_SANDBOX = before;
     }
-    assert.equal(typeof chromeChannel(), 'string');
+    // Unset is undefined, not a string: the browser is resolved later against
+    // what is actually installed. See the channel test below.
+    assert.ok(chromeChannel() === undefined || typeof chromeChannel() === 'string');
   });
 
   test('the browser channel is a setting, not a fact', async () => {
@@ -350,7 +352,9 @@ describe('running somewhere that is not a laptop', () => {
     const before = process.env.AYNA_CHROME_CHANNEL;
     try {
       delete process.env.AYNA_CHROME_CHANNEL;
-      assert.equal(chromeChannel(), 'chrome');
+      // Unset means "whatever this machine has", not "chrome" — a user with
+      // only Brave installed must not be told to install Chrome.
+      assert.equal(chromeChannel(), undefined);
       process.env.AYNA_CHROME_CHANNEL = 'chromium';
       assert.equal(chromeChannel(), 'chromium');
     } finally {
@@ -362,8 +366,8 @@ describe('running somewhere that is not a laptop', () => {
   test('a missing browser says which one it wanted', async () => {
     const { openBrowser } = await import('../src/browser.mjs');
     await assert.rejects(
-      () => openBrowser({ headless: true, channel: 'not-a-browser' }),
-      /AYNA_CHROME_CHANNEL|not-a-browser/,
+      () => openBrowser({ headless: true, browser: 'not-a-browser' }),
+      /AYNA_CHROME_CHANNEL|not-a-browser|not a browser ayna knows/,
       'a generic launch failure leaves the reader guessing what to install',
     );
   });
@@ -373,8 +377,8 @@ describe('running somewhere that is not a laptop', () => {
     const tmp = await mkdtemp(path.join(tmpdir(), 'ayna-profile-'));
     try {
       await assert.rejects(
-        () => openPersistentContext({ profileDir: tmp, headless: true, channel: 'not-a-browser' }),
-        /AYNA_CHROME_CHANNEL|not-a-browser/,
+        () => openPersistentContext({ profileDir: tmp, headless: true, browser: 'not-a-browser' }),
+        /AYNA_CHROME_CHANNEL|not-a-browser|not a browser ayna knows/,
         'a persistent launch failure leaves the reader guessing what to install',
       );
     } finally {

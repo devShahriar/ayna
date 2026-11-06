@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { chromium } from 'playwright-core';
-import { capture } from '../src/browser.mjs';
+import { capture, openBrowser } from '../src/browser.mjs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,7 +27,7 @@ const CARD = `<!doctype html><meta charset="utf-8"><body>
 </body>`;
 
 async function errorsFor(watchMs) {
-  const browser = await chromium.launch({ channel: 'chrome' });
+  const browser = await openBrowser({ headless: true });
   try {
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-watch-'));
     const file = path.join(dir, 'card.html');
@@ -67,7 +66,7 @@ test('the watch window hides and shows the page, so the error surfaces', async (
 test('the page is left visible, so later checks still animate', async () => {
   // A page left believing it is hidden stops its own animation, and every check
   // after it would measure a frozen card and call that the truth.
-  const browser = await chromium.launch({ channel: 'chrome' });
+  const browser = await openBrowser({ headless: true });
   try {
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-watch-'));
     const file = path.join(dir, 'card.html');

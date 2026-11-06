@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { chromium } from 'playwright-core';
-import { whyBlank } from '../src/browser.mjs';
+import { openBrowser, whyBlank } from '../src/browser.mjs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -23,7 +22,10 @@ const COLLAPSED = `<!doctype html><meta charset="utf-8"><style>
 const FINE = COLLAPSED.replace('body { margin:0;', 'html, body, section { height:100%; } body { margin:0;');
 
 async function diagnose(html) {
-  const browser = await chromium.launch({ channel: 'chrome' });
+  // openBrowser, not chromium.launch({channel:'chrome'}) — the browser is
+  // whatever this machine has. A hardcoded chrome channel fails on a machine
+  // with only Brave, which is a working setup, not a broken test.
+  const browser = await openBrowser({ headless: true });
   try {
     const dir = await mkdtemp(path.join(tmpdir(), 'whyblank-'));
     const file = path.join(dir, 'card.html');

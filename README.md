@@ -25,8 +25,17 @@ npm run setup        # links the skill and the `ayna` command
 ```
 
 Requires **Node 22.13 or newer** (the store is `node:sqlite`, which 22.12 and
-earlier do not have without a flag) and a Chrome or Chromium on the machine.
-Nothing is downloaded at runtime.
+earlier do not have without a flag) and a Chromium-family browser on the
+machine — Google Chrome, Chromium, Brave, Edge or Vivaldi. Nothing is
+downloaded at runtime.
+
+ayna drives whichever of those you already have. If Chrome is missing it uses
+another one, and you can name the browser yourself:
+
+```bash
+ayna shot --browser brave
+ayna shot --browser /path/to/Brave\ Browser.app/Contents/MacOS/Brave\ Browser
+```
 
 Start a new Claude Code or puku-cli session and try `/ayna:review` (or just
 `/ayna`), or run `ayna` yourself.
@@ -306,7 +315,8 @@ condition under which it is finished, and taste has none.
   "target": { "url": "http://localhost:3000" },
   "viewports": [{ "name": "desktop", "width": 1440, "height": 900 }],
   "theme": { "accent": "#ccfe05", "surface": "#0a0a0a", "bar": "#000000" },
-  "brains": { "cursor": { "cmd": "cursor-agent", "args": ["--headless"] } }
+  "brains": { "cursor": { "cmd": "cursor-agent", "args": ["--headless"] } },
+  "browser": { "channel": "brave" }
 }
 ```
 
@@ -328,6 +338,36 @@ darkened until it does.
 ```
 
 ![The review window in a light theme](docs/screens/08-light.png)
+
+### Which browser
+
+ayna drives the Chromium-family browser you already have. With nothing set, it
+uses Google Chrome if Chrome is installed, and otherwise the first of Brave,
+Edge, Chromium or Vivaldi it finds — so a machine with only Brave works without
+being told to install Chrome.
+
+To choose explicitly:
+
+```bash
+ayna shot --browser brave        # a name
+ayna shot --browser /path/to/browser   # or a path
+```
+
+```jsonc
+{ "browser": { "channel": "brave" } }
+{ "browser": { "executablePath": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" } }
+```
+
+`AYNA_CHROME_CHANNEL` works the same way as `--browser`.
+
+Brave, Edge and Vivaldi are reached by executable path, not by Playwright
+channel — Playwright resolves only a fixed list (`chrome`, `msedge`,
+`chromium`, …) and has no `brave` channel, so `channel: "brave"` is refused by
+Playwright itself.
+
+**One caveat.** Brave ships shields and an ad blocker that change what a page
+loads and how it looks. A screenshot taken in Brave is not always what a user
+sees in Chrome, so review in the browser your users actually use.
 
 ### In a container
 
