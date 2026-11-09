@@ -158,6 +158,19 @@ them since.
 Nothing is approved on your behalf. Closing the window keeps whatever you did not
 judge.
 
+### 6. See the whole project
+
+**Dashboard**, at the top of the activity rail, opens the project's dashboard in
+a tab beside the review: every task wherever it stands, what is stuck and on
+whom, which page is worst, each task's history and each window's rounds as one
+box apiece, and every agent that worked here. It refreshes itself while the
+window is open and comes back to the view you were on. The Tasks list links to
+it too.
+
+`ayna dashboard --open` writes the same page as a snapshot — one static file,
+no server, nothing changed. It comes in two themes, **Ayna** (the window's own)
+and **Light**, and remembers which you chose.
+
 ---
 
 ## Flow 2 — Inspect: visual QA an agent runs for itself
@@ -283,6 +296,7 @@ condition under which it is finished, and taste has none.
 | `ayna say "…"` | put a line in the rail you are looking at |
 | `ayna events --since 0` | everything that happened, and what is owed — survives every process |
 | `ayna tasks` · `ayna task <id> --status s` | the queue, and moving one through it |
+| `ayna dashboard --open` | every task, page, agent and review as one page; the window's Dashboard button opens a live one |
 | `ayna inspect --selector ".x"` | one region, headless: its crop and its faults |
 | `ayna audit` | layout faults the whole page can prove |
 | `ayna verify` | ask each open task whether it still applies |
@@ -408,6 +422,8 @@ src/rounds.mjs      what a round changed, and taking it back
 src/verify.mjs      does this task still apply?
 src/worker.mjs      the queue, unattended
 src/db.mjs          sqlite: sessions, tabs, tasks, events
+src/dashboard.mjs   that store as one page — what is owed, stuck, sent back, and why
+src/theme.mjs       what a theme's colours become once they have to be read
 src/watchd.mjs      the bookkeeper
 scripts/ui-shots.mjs · self-taste.mjs · readme-shots.mjs
 demo/               a deliberately mediocre landing page to improve
@@ -415,4 +431,4 @@ demo/               a deliberately mediocre landing page to improve
 
 Plain ESM, no TypeScript, no build step. One dependency: `playwright-core`.
 
-**193 tests.** `npm test`.
+**362 tests.** `npm test`.

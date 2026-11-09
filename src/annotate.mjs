@@ -1,12 +1,13 @@
 import { mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
 import { watch } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { gotoSettled, reloadSettled } from './browser.mjs';
 import { snapshotProject, roundChanges, hunks, undoChanges } from './rounds.mjs';
 import { SKIP_DIRS } from './skipdirs.mjs';
+import { themeTokens } from './theme.mjs';
 
 /**
  * Point-and-comment review on the live page.
@@ -1220,6 +1221,43 @@ export async function runAnnotate({
   }));
 
   /*
+    The dashboard, in a tab beside the review.
+
+    The window shows one page's work; the dashboard shows the project's. It opens
+    in this same browser so it needs no second window and no server, and it is
+    handed two functions so it can stay live: one to ask whether the store has
+    moved, one to write itself again. Pressing the button again brings the same
+    tab forward with fresh contents rather than stacking another. The overlay is
+    injected only into the review page, so the dashboard tab gets none of it.
+  */
+  let dashTab = null;
+  let dashDb = null;
+  await page.exposeFunction('__aynaDashboard', async () => {
+    if (!projectDir) return { ok: false, error: 'no project directory to read' };
+    try {
+      const { writeDashboard, dashboardVersion } = await import('./dashboard.mjs');
+      if (!dashDb) dashDb = store?.db ?? (await (await import('./db.mjs')).openDb(projectDir));
+      const db = dashDb;
+      const { file } = await writeDashboard(projectDir, { db, theme });
+      if (!dashTab || dashTab.isClosed()) {
+        dashTab = await context.newPage();
+        await dashTab.exposeFunction('__aynaDashboardVersion', async () => dashboardVersion(db));
+        await dashTab.exposeFunction('__aynaDashboardRefresh', async () => {
+          await writeDashboard(projectDir, { db, theme });
+          return true;
+        });
+        await dashTab.goto(pathToFileURL(file).href);
+      } else {
+        await dashTab.reload();
+      }
+      await dashTab.bringToFront();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message.split('\n')[0] };
+    }
+  });
+
+  /*
     Inject on every load rather than with addInitScript.
 
     addInitScript captures the source once, so an open window kept running
@@ -1233,97 +1271,19 @@ export async function runAnnotate({
     say what ayna should look like in its own config and everything unset keeps
     the default.
   */
+  /*
+    What each colour becomes once it has to be read — ink on the accent, lane
+    colours walked until they read on the surface, the accent's text shade, the
+    well — is worked out in src/theme.mjs, which the dashboard paints from too.
+    The page only receives the answers.
+  */
   const applyTheme = async () => {
     if (!theme) return;
+    const tokens = themeTokens(theme);
     await page
-      .evaluate((t) => {
-        for (const [k, v] of Object.entries(t)) {
-          if (typeof v === 'string') document.documentElement.style.setProperty('--ayna-' + k, v);
-        }
-
-        /*
-          Work out what colour text belongs on each of those, rather than
-          assuming white.
-
-          A brand colour is often bright — kormoOS's is #ccfe05, where white text
-          measures 1.18:1 and is simply not readable. Hardcoding white meant any
-          light accent produced invisible buttons, so the theme would look
-          "applied" and be unusable. The luminance decides, the same arithmetic
-          ayna uses to judge everyone else's contrast.
-        */
-        const luminance = (hex) => {
-          const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
-          if (!m) return null;
-          const ch = [0, 2, 4]
-            .map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255)
-            .map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)));
-          return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
-        };
-
-        /*
-          Whichever ink actually reads better, measured, not a luminance cut-off.
-
-          The cut-off was 0.4, on the belief that black overtakes white there.
-          It overtakes at about 0.18 — where (L+0.05)/0.05 meets 1.05/(L+0.05).
-          ayna's own accent sits at 0.37, between the two, so every install got
-          white on orange at 2.5:1 for its one call to action, and the active
-          mode, which borrows this ink, went white on ivory and disappeared.
-        */
-        const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-        const INK_DARK = luminance('#0a0a0a');
-
-        /*
-          A light surface, and what has to follow it.
-
-          The defaults were tuned for a near-black rail, so a white one turned
-          the lane colours — the names that sign each line, the green of a
-          clean check — into pastels at under 2:1, and the accent, used for
-          labels as well as for the one call to action, into orange text at
-          2.4:1. Any of them that cannot be read on the surface is walked
-          toward the text colour until it can; one that already reads is left
-          exactly as given. The accent keeps its own value for fills and gets
-          a separate one for text. And a recessed well — the message box, a
-          diff — is a shade below the surface, which over white is a whisper
-          rather than the .32 black it is over the dark rail.
-        */
-        const rgb = (hex) => {
-          const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
-          return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null;
-        };
-        const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
-        const ground = luminance(t.surface);
-        const towards = rgb(t.text) ?? (ground !== null && ground > 0.5 ? [10, 10, 10] : [244, 242, 239]);
-        const readable = (hex) => {
-          const from = rgb(hex);
-          if (!from || ground === null) return hex;
-          for (let k = 0; k <= 1.0001; k += 0.05) {
-            const mixed = hexOf(from.map((v, i) => v + (towards[i] - v) * k));
-            if (ratio(luminance(mixed), ground) >= 4.5) return k === 0 ? hex : mixed;
-          }
-          return hexOf(towards);
-        };
-        for (const key of ['you', 'agent', 'ayna', 'good', 'warn', 'bad', 'live']) {
-          if (typeof t[key] !== 'string') continue;
-          const fixed = readable(t[key]);
-          if (fixed !== t[key]) {
-            t = { ...t, [key]: fixed };
-            document.documentElement.style.setProperty('--ayna-' + key, fixed);
-          }
-        }
-        if (typeof t.accent === 'string') {
-          document.documentElement.style.setProperty('--ayna-accent-text', readable(t.accent));
-        }
-        if (ground !== null) {
-          document.documentElement.style.setProperty('--ayna-well', ground > 0.5 ? 'rgba(0,0,0,.045)' : 'rgba(0,0,0,.32)');
-        }
-
-        for (const key of ['accent', 'good', 'bad', 'warn', 'live']) {
-          const l = luminance(t[key]);
-          if (l === null) continue;
-          const dark = ratio(l, INK_DARK) >= ratio(l, 1);
-          document.documentElement.style.setProperty('--ayna-on-' + key, dark ? '#0a0a0a' : '#ffffff');
-        }
-      }, theme)
+      .evaluate((tk) => {
+        for (const [k, v] of Object.entries(tk)) document.documentElement.style.setProperty('--ayna-' + k, v);
+      }, tokens)
       .catch(() => {});
   };
 
