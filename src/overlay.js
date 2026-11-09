@@ -43,6 +43,22 @@
     'stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/>' +
     '<path d="M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="' + NS + '-label">Tasks</span>';
   /*
+    The project's dashboard, opened in a tab beside this one.
+
+    It lives in the activity rail's header, which shares the bar's line, and not
+    on the bar itself: the bar is full at a half-screen window, and a fifth
+    button there turned every mode's name into an icon for everyone at that
+    width. The rail shows this window's story and the dashboard shows the whole
+    project's, so the two sit together. Folded, the rail drops it; the Tasks
+    list links to the dashboard as well, at every width.
+  */
+  const DASH_BUTTON =
+    '<button data-act="dashboard" class="' + NS + '-rail-dash" aria-label="Dashboard" title="Every task, page and agent in this project — opens in a new tab">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="10" rx="1.5"/>' +
+    '<rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/>' +
+    '<rect x="3" y="15" width="8" height="6" rx="1.5"/></svg><span class="' + NS + '-label">Dashboard</span></button>';
+  /*
     The rail's width, as the browser's arithmetic rather than a number.
 
     A fixed 264px was an eighth of a 2000px window — prose wrapped at thirty-odd
@@ -378,6 +394,18 @@
       width: 28px; height: 28px; padding: 0; display: grid; place-items: center; flex: none;
     }
     .${NS}-console-head [data-act=fold] svg { width: 16px; height: 16px; }
+    .${NS}-console-head .${NS}-rail-dash {
+      display: inline-flex; align-items: center; gap: 6px; height: var(--ayna-tap, 32px); padding: 0 11px; flex: none;
+      border: 1px solid color-mix(in srgb, var(--ayna-text, #f4f2ef) 14%, transparent); border-radius: 8px;
+      color: var(--ayna-text, #f4f2ef); font: 600 12px/1 -apple-system, system-ui, sans-serif;
+    }
+    .${NS}-console-head .${NS}-rail-dash:hover {
+      background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent);
+      border-color: color-mix(in srgb, var(--ayna-text, #f4f2ef) 24%, transparent);
+    }
+    .${NS}-console-head .${NS}-rail-dash:focus-visible { outline: 2px solid var(--ayna-accent, #de9446); outline-offset: 2px; }
+    .${NS}-console-head .${NS}-rail-dash svg { width: 14px; height: 14px; flex: none; }
+    .${NS}-console.${NS}-min .${NS}-rail-dash { display: none; }
     /*
       Who is working takes a row of its own, under the title rather than
       between it and the fold. It comes after the fold in the markup; written
@@ -1002,6 +1030,13 @@
       margin-left: auto; background: transparent; border: 0; color: var(--ayna-muted, #8b93a7);
       font: inherit; cursor: pointer; padding: 2px 6px;
     }
+    /* The way out to every page's work; the close button sits right beside it. */
+    .${NS}-panel-head .${NS}-panel-dash {
+      color: var(--ayna-accent-text, var(--ayna-accent, #de9446)); font-size: 12px; font-weight: 600; border-radius: 6px;
+    }
+    .${NS}-panel-head .${NS}-panel-dash:hover { background: color-mix(in srgb, var(--ayna-text, #f4f2ef) 6%, transparent); }
+    .${NS}-panel-head .${NS}-panel-dash + button { margin-left: 2px; }
+    .${NS}-rail-dash[data-busy], .${NS}-panel-dash[data-busy] { opacity: .6; cursor: progress; }
     .${NS}-panel-list { overflow: auto; min-height: 0; }
     .${NS}-group {
       padding: 8px 14px 4px; font-size: 11px; letter-spacing: .04em; color: var(--ayna-dim, rgba(255,255,255,.46));
@@ -4313,6 +4348,7 @@
       '<div class="' + NS + '-console-head">' +
         '<span class="' + NS + '-dotlive"></span><span class="' + NS + '-console-title">Activity</span>' +
         '<span class="' + NS + '-spacer"></span>' +
+        DASH_BUTTON +
         '<button data-act="fold">' + RAIL_ICON + '</button>' +
         '<span class="' + NS + '-agents"></span>' +
       '</div>' +
@@ -4356,6 +4392,7 @@
     setRailTint();
 
     consoleEl.querySelector('[data-act=fold]').addEventListener('click', () => setConsoleMinimised(!consoleMin));
+    consoleEl.querySelector('[data-act=dashboard]').addEventListener('click', (ev) => openDashboard(ev.currentTarget));
     buildDrawer();
     consoleEl.querySelector('[data-act=earlier]').addEventListener('click', () => togglePanel());
 
@@ -4422,6 +4459,21 @@
     that opened it, so it read as something floating loose rather than as that
     button's menu.
   */
+  /*
+    Ask Node to write the dashboard and bring its tab forward. A failure says
+    why on the button rather than vanishing: a dashboard that would not open is
+    something the user pressed and is waiting on.
+  */
+  async function openDashboard(btn) {
+    if (!window.__aynaDashboard || (btn && btn.dataset.busy)) return;
+    if (btn) btn.dataset.busy = '1';
+    const res = await window.__aynaDashboard().catch((err) => ({ ok: false, error: String(err && err.message || err) }));
+    if (btn) {
+      delete btn.dataset.busy;
+      btn.title = res && res.ok ? 'Every task, page and agent in this project — opens in a new tab' : 'Could not open the dashboard: ' + ((res && res.error) || 'unknown');
+    }
+  }
+
   function placePanel() {
     const under = bar ? Math.round(bar.getBoundingClientRect().bottom) : 0;
     panel.style.top = under + 6 + 'px';
@@ -4452,10 +4504,12 @@
     const pending = tasks.filter((t) => t.status !== 'approved').length;
     panel.innerHTML =
       '<div class="' + NS + '-panel-head">Tasks · ' + pending + ' pending' +
+      '<button data-act="panel-dashboard" class="' + NS + '-panel-dash" title="Every task in this project, in a new tab">All in Dashboard ↗</button>' +
       '<button data-act="close-panel" title="Close">×</button></div>' +
       '<div class="' + NS + '-panel-list"></div>';
     document.documentElement.appendChild(panel);
     panel.querySelector('[data-act=close-panel]').addEventListener('click', closePanel);
+    panel.querySelector('[data-act=panel-dashboard]').addEventListener('click', (ev) => openDashboard(ev.currentTarget));
 
     const list = panel.querySelector('.' + NS + '-panel-list');
     if (!tasks.length) {

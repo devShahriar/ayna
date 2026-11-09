@@ -12,7 +12,7 @@
 import { mkdtemp, rm, mkdir, writeFile, readFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -43,7 +43,11 @@ async function main() {
   await cp(path.join(ROOT, 'demo'), site, { recursive: true });
   const server = await serveStatic(site, 4620);
   const browser = await openBrowser({ headless: true });
-  const store = await openStore(dir);
+  // Named after the demo's product, because the dashboard shows the project's
+  // name across its top and a temp folder's random suffix is not a name.
+  const project = path.join(dir, 'meridian');
+  await mkdir(project, { recursive: true });
+  const store = await openStore(project);
   const shots = [];
 
   const shoot = async (page, name, clip) => {
@@ -51,7 +55,7 @@ async function main() {
     shots.push(name);
     console.log(`  ${name}`);
   };
-  const say = (text) => exec('node', [BIN, 'say', text], { cwd: dir }).catch(() => {});
+  const say = (text) => exec('node', [BIN, 'say', text], { cwd: project }).catch(() => {});
 
   const done = runAnnotate({
     browser,
@@ -133,11 +137,38 @@ async function main() {
       });
       await shoot(page, '06-round', { x: 0, y: 0, width: rail.width, height: Math.min(860, rail.bottom + 16) });
 
+      // The verdicts the dashboard below is about: the spacing change, which
+      // really landed, looks right; the card grid, which nothing touched, goes
+      // back for another attempt.
+      await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-ok');
+      await page.waitForTimeout(400);
+      await page.click('.ayna-ov-revbar >> nth=1 >> .ayna-ov-no');
+      await page.waitForTimeout(600);
+
       await page.close();
     },
   });
 
   await Promise.race([done, new Promise((r) => setTimeout(r, 90_000))]);
+
+  // 9–11 — the dashboard, written from the review that just ended and before
+  // the windows below add anything: the same store, the two notes with their
+  // crops and verdicts, the round, the file it changed and what was said.
+  // Opened from a review window it sits live beside the review; this is the
+  // same page, as `ayna dashboard` writes it.
+  const { writeDashboard } = await import('../src/dashboard.mjs');
+  const { file } = await writeDashboard(project, { db: store.db, theme: DEFAULT_THEME });
+  for (const [name, view] of [
+    ['09-dashboard', '?theme=ayna#overview'],
+    ['10-dashboard-task', '?theme=light#tasks/task-0002'],
+    ['11-dashboard-activity', '?theme=ayna#activity'],
+  ]) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 860 } });
+    await page.goto(pathToFileURL(file).href + view);
+    await page.waitForTimeout(500);
+    await shoot(page, name);
+    await page.close();
+  }
 
   // 7 — a phone-sized window: the rail takes no width and opens as a drawer
   // from the bar, so the app keeps the whole screen.
@@ -191,6 +222,7 @@ async function main() {
   ]);
   await browser.close().catch(() => {});
   await server.close?.();
+  store.db.close();
   await rm(dir, { recursive: true, force: true });
 
   await writeFile(path.join(OUT, 'index.json'), JSON.stringify({ shots }, null, 2));

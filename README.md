@@ -14,6 +14,9 @@ Three ways to use it, and they share one store:
 | **Inspect** | an agent | check one region headlessly, before reporting work done |
 | **Work** | nobody | drain the queue unattended, verifying as it goes |
 
+[The dashboard](#the-dashboard) shows that store as one page: every task,
+wherever it stands.
+
 ---
 
 ## Install
@@ -158,6 +161,11 @@ them since.
 Nothing is approved on your behalf. Closing the window keeps whatever you did not
 judge.
 
+### 6. See the whole project
+
+**Dashboard**, at the top of the activity rail, opens every page's work in a tab
+beside the review — see [The dashboard](#the-dashboard).
+
 ---
 
 ## Flow 2 — Inspect: visual QA an agent runs for itself
@@ -246,6 +254,46 @@ The brain is any command — `claude -p` by default, Cursor or anything else via
 
 ---
 
+## The dashboard
+
+The review window shows one page. The dashboard shows the whole project, on a
+page of its own: every note from every review, where each one stands, and what
+happened to it.
+
+![The dashboard: what is outstanding, what waits on you, what is stuck, and what happened last](docs/screens/09-dashboard.png)
+
+**Open it** with **Dashboard** at the top of the activity rail, or *All in
+Dashboard ↗* in the Tasks list. It opens in a tab beside the review and keeps
+itself up to date: leave a note or land a round and it refreshes within a few
+seconds, back on the view you were looking at.
+
+Or write it from the terminal — a snapshot in one file, no server needed:
+
+```bash
+ayna dashboard --open
+```
+
+| View | What it shows |
+|---|---|
+| **Overview** | how much is outstanding, what is waiting on you, what is stuck and why, and the latest activity |
+| **Tasks** | every note in a list. Open one to see the crop of what it pointed at, the files it probably lives in, and every status it went through. Filter by open or done, search, or narrow to one page |
+| **Activity** | one box per note telling its story, and one per review window with its rounds, messages, changed files and checks — signed *You*, *Claude* or *Ayna* |
+| **Pages** | which page has the most left to do |
+| **Agents** | every agent session that worked here, including ones that went away |
+
+![A note sent back for another attempt, in the Light theme: the crop, where it lives, and its history](docs/screens/10-dashboard-task.png)
+
+It comes in two themes — **Ayna**, the review window's own, and **Light** — and
+remembers which you chose. Times read the way you would say them: *2 hours
+ago*, *Yesterday at 09:10*.
+
+![The activity: a review window's round, the file Claude changed and what ayna measured, then each note's own history](docs/screens/11-dashboard-activity.png)
+
+The dashboard only reads. It never changes a task, it works offline, and it
+passes ayna's own audit in both themes, on a desktop and on a phone.
+
+---
+
 ## What it can prove
 
 `audit` reports only what the page can demonstrate, which is what lets a fixing
@@ -283,6 +331,7 @@ condition under which it is finished, and taste has none.
 | `ayna say "…"` | put a line in the rail you are looking at |
 | `ayna events --since 0` | everything that happened, and what is owed — survives every process |
 | `ayna tasks` · `ayna task <id> --status s` | the queue, and moving one through it |
+| `ayna dashboard --open` | every task, page, agent and review as one page; the window's Dashboard button opens a live one |
 | `ayna inspect --selector ".x"` | one region, headless: its crop and its faults |
 | `ayna audit` | layout faults the whole page can prove |
 | `ayna verify` | ask each open task whether it still applies |
@@ -408,6 +457,8 @@ src/rounds.mjs      what a round changed, and taking it back
 src/verify.mjs      does this task still apply?
 src/worker.mjs      the queue, unattended
 src/db.mjs          sqlite: sessions, tabs, tasks, events
+src/dashboard.mjs   that store as one page — what is owed, stuck, sent back, and why
+src/theme.mjs       what a theme's colours become once they have to be read
 src/watchd.mjs      the bookkeeper
 scripts/ui-shots.mjs · self-taste.mjs · readme-shots.mjs
 demo/               a deliberately mediocre landing page to improve
@@ -415,4 +466,4 @@ demo/               a deliberately mediocre landing page to improve
 
 Plain ESM, no TypeScript, no build step. One dependency: `playwright-core`.
 
-**193 tests.** `npm test`.
+**367 tests.** `npm test`.
