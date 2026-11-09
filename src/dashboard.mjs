@@ -225,6 +225,9 @@ export function describeEvent(e) {
 const QUIET_EVENTS = new Set([
   'ready', 'swept', 'pruned', 'leases-expired', 'edits', 'session-started', 'session-ended',
   'session-died', 'tab-claimed', 'released', 'skipped',
+  // The window says `closed` itself, with whether it was approved; the
+  // bookkeeper's `tab-closed` for the same moment would only say it twice.
+  'tab-closed',
 ]);
 
 const dayKey = (ms) => {
@@ -265,15 +268,36 @@ export function groupActivity({ tasks = [], events = [], tabs = [] } = {}) {
     });
   }
 
+  /*
+    `ayna say` and `ayna preview` file their events under no window: they cannot
+    know which one is open. The rail shows them in the window that was open when
+    they were said, so the dashboard does too — an untagged event inside a
+    window's lifetime belongs to that window. One never marked closed is taken
+    to have ended half an hour after the last thing filed under it, so a window
+    that crashed does not adopt everything said for days afterwards.
+  */
+  const lastTagged = new Map();
+  for (const e of events) if (e.tabId) lastTagged.set(e.tabId, Math.max(lastTagged.get(e.tabId) ?? 0, e.at));
+  const windowAt = (at) => {
+    let best = null;
+    for (const t of tabs) {
+      if (!Number.isFinite(t.openedAt) || t.openedAt > at) continue;
+      const end = t.closedAt ?? Math.max(t.openedAt, lastTagged.get(t.id) ?? 0) + 30 * 60_000;
+      if (at <= end && (!best || t.openedAt > best.openedAt)) best = t;
+    }
+    return best?.id ?? null;
+  };
+
   for (const e of events) {
     // A task tells its own story from its history; its events would repeat it.
     if (QUIET_EVENTS.has(e.event) || e.event === 'task' || e.taskId) continue;
-    const key = e.tabId ? `tab:${e.tabId}` : `day:${dayKey(e.at)}`;
+    const tabId = e.tabId ?? windowAt(e.at);
+    const key = tabId ? `tab:${tabId}` : `day:${dayKey(e.at)}`;
     let box = boxes.get(key);
     if (!box) {
-      const tab = e.tabId ? tabById.get(e.tabId) : null;
+      const tab = tabId ? tabById.get(tabId) : null;
       const where = tab?.url ? pageOf(tab.url).label : '';
-      box = e.tabId
+      box = tabId
         ? { key, kind: 'window', title: where || 'Review window', label: where ? `Review of ${where}` : 'Review window', sub: '', steps: [], latestAt: 0 }
         : { key, kind: 'other', title: 'Between reviews', label: 'Between reviews', sub: 'Said or offered while no review window was open', steps: [], latestAt: 0 };
       boxes.set(key, box);
@@ -669,7 +693,8 @@ function taskDetail(t, d, outDir) {
   const page = pageOf(t.url);
   const crop = assetUrl(t.regionScreenshot, outDir);
   const atts = (t.attachments ?? []).map((a) => assetUrl(a, outDir));
-  const sources = (t.sourceCandidates ?? []).slice(0, 5).map(sourceLabel).filter(Boolean);
+  // The source scan can find one line through two needles; it is one place to look.
+  const sources = [...new Set((t.sourceCandidates ?? []).map(sourceLabel).filter(Boolean))].slice(0, 5);
   const verdict = t.verdict?.verdict ? `${t.verdict.verdict}${t.verdict.why ? ` — ${t.verdict.why}` : ''}` : null;
   const props = [
     ['Status', `${esc(labelOf(t.status))} <span class="muted">— ${esc(hintOf(t.status))}</span>`],

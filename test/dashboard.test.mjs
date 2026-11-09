@@ -60,7 +60,8 @@ async function seeded(dir) {
   db.prepare(
     'INSERT INTO sessions (id, tool, pid, project, started_at, heartbeat_at, ended_at, status) VALUES (?,?,?,?,?,?,?,?)',
   ).run('claude-session-1', 'claude', 1, dir, now - 7_200_000, now - 3_600_000, null, 'dead');
-  db.prepare('INSERT INTO tabs (id, url, opened_at) VALUES (?,?,?)').run('tab-1', 'http://localhost:3000/pricing', now - 3_000_000);
+  // A window already closed, so a message said after it belongs to no window.
+  db.prepare('INSERT INTO tabs (id, url, opened_at, closed_at) VALUES (?,?,?,?)').run('tab-1', 'http://localhost:3000/pricing', now - 3_000_000, now - 600_000);
 
   const make = async (comment, url, steps = [], extra = {}) => {
     const t = await store.create({ comment, url, selector: '.x', ...extra }, { regionScreenshot: crop });
@@ -154,6 +155,27 @@ describe('dashboard: what it reads', () => {
     const outside = data.boxes.find((b) => b.kind === 'other');
     assert.equal(outside.label, 'Between reviews');
     assert.ok(!data.boxes.some((b) => b.steps.some((s) => /^task-\d+ /.test(s.text))), 'task events do not repeat the history');
+  });
+
+  test('something said while a window was open is filed under that window', () => {
+    const t0 = 1_000_000;
+    const boxes = groupActivity({
+      tabs: [
+        { id: 'tab-a', url: 'http://x/', openedAt: t0, closedAt: t0 + 60_000 },
+        { id: 'tab-crashed', url: 'http://x/b', openedAt: t0 + 100_000, closedAt: null },
+      ],
+      events: [
+        { seq: 1, at: t0 + 10_000, event: 'round', tabId: 'tab-a', round: 1, comments: 1 },
+        { seq: 2, at: t0 + 20_000, event: 'message', from: 'claude', text: 'on it' },
+        { seq: 3, at: t0 + 110_000, event: 'round', tabId: 'tab-crashed', round: 1, comments: 1 },
+        { seq: 4, at: t0 + 110_000 + 4 * 3_600_000, event: 'message', from: 'claude', text: 'much later' },
+      ],
+    });
+    const a = boxes.find((b) => b.key === 'tab:tab-a');
+    assert.deepEqual(a.steps.map((s) => s.detail), ['1 note', 'on it'], 'said during the review, shown in it');
+    const crashed = boxes.find((b) => b.key === 'tab:tab-crashed');
+    assert.equal(crashed.steps.length, 1, 'a window that never closed does not adopt what came hours later');
+    assert.equal(boxes.find((b) => b.kind === 'other').steps[0].detail, 'much later');
   });
 
   test('version moves when the store does', async () => {
