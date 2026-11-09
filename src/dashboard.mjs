@@ -887,7 +887,7 @@ ${CSS}
 <div class="app">
   <header class="top">
     <span class="brand">Ayna</span>
-    <span class="crumb"><b>${esc(d.project)}</b><span class="sep" aria-hidden="true">/</span><span id="view-name">Overview</span></span>
+    <span class="crumb"><b title="${esc(d.project)}">${esc(d.project)}</b><span class="sep" aria-hidden="true">/</span><span id="view-name">Overview</span></span>
     <div class="top-end">
       <span class="stamp"><span class="live-dot" aria-hidden="true"></span><span data-stamp-label>Snapshot ·</span> ${when(d.generatedAt, d.generatedAt)}</span>
       <button type="button" class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh now">${icon('refresh')}</button>
@@ -1196,7 +1196,7 @@ code{font:12.5px/1.4 var(--mono)}
 .brand{display:inline-flex;align-items:center;gap:8px;flex:none;padding-right:14px;border-right:1px solid var(--line);font-weight:700;letter-spacing:.01em}
 .brand::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--accent)}
 .crumb{display:flex;align-items:baseline;gap:8px;min-width:0}
-.crumb b{font-weight:600;overflow-wrap:anywhere}
+.crumb b{min-width:0;overflow:hidden;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
 .crumb .sep{color:var(--dim)}
 #view-name{color:var(--muted)}
 .top-end{display:flex;align-items:center;gap:2px;margin-left:auto}
@@ -1361,7 +1361,7 @@ a.box-title:hover .title{text-decoration:underline}
 .avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:8px;background:var(--sel);font-size:13px;font-weight:700}
 
 @media (max-width:900px){
-  .app{grid-template-columns:minmax(0,1fr);background:none}
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--top-h) auto 1fr;background:none}
   .top{gap:10px;padding:0 4px 0 14px}
   .stamp,#view-name,.crumb .sep{display:none}
   .seg button span{display:none}
@@ -1376,6 +1376,7 @@ a.box-title:hover .title{text-decoration:underline}
   .row .when{grid-column:2;text-align:left}
   .split{grid-template-columns:minmax(0,1fr)}
   .list-pane{border-right:0}
+  .list-tools{border-radius:var(--rc) var(--rc) 0 0}
   .split[data-has-detail] .list-pane{display:none}
   .split:not([data-has-detail]) .detail-pane{display:none}
   .detail .back{display:inline-flex}

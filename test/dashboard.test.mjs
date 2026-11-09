@@ -12,7 +12,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { existsSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -454,6 +454,82 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
       assert.equal(await page.locator('.list-pane').isVisible(), false);
       await page.locator('.detail:visible .back').click();
       await page.locator('.list-pane').waitFor({ state: 'visible' });
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('on a phone the Tasks card keeps both top corners round', async () => {
+    // Beside the detail, the list's header rounds only its left corner. On a
+    // phone it spans the card, and a square right corner paints over the
+    // card's round one. Read the screenshot just inside each corner's curve:
+    // it should be the page around the card, not the header.
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    try {
+      await page.goto(`${url}#tasks`);
+      const card = await page.locator('.split').boundingBox();
+      const shot = 'data:image/png;base64,' + (await page.screenshot()).toString('base64');
+      const pixel = (x, y) =>
+        page.evaluate(
+          async ([src, px, py]) => {
+            const img = new Image();
+            img.src = src;
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = img.width;
+            c.height = img.height;
+            const g = c.getContext('2d');
+            g.drawImage(img, 0, 0);
+            return [...g.getImageData(px, py, 1, 1).data.slice(0, 3)].join(',');
+          },
+          [shot, Math.floor(x), Math.floor(y)],
+        );
+      const top = card.y + 1;
+      const around = await pixel(card.x + card.width + 4, top);
+      assert.equal(await pixel(card.x + 1, top), around, 'top-left corner');
+      assert.equal(await pixel(card.x + card.width - 2, top), around, 'top-right corner');
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('on a phone a short view starts right under the nav', async () => {
+    // The nav is a row of its own there. A view shorter than the screen left
+    // room over, and the rows shared it: a band of nothing opened under the
+    // nav and pushed the view's title down.
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    try {
+      for (const view of ['pages', 'agents']) {
+        await page.goto(`${url}#${view}`);
+        const { navBottom, mainTop, viewBottom } = await page.evaluate((id) => ({
+          navBottom: document.querySelector('.side').getBoundingClientRect().bottom,
+          mainTop: document.querySelector('.main').getBoundingClientRect().top,
+          viewBottom: document.querySelector(`[data-view="${id}"]`).getBoundingClientRect().bottom,
+        }), view);
+        assert.ok(viewBottom < 844, `${view} is shorter than the screen, which is the case this is about`);
+        assert.equal(mainTop, navBottom, `${view} begins where the nav ends`);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('on a phone a long project name stays on one line in the bar', async () => {
+    // The name is the project's folder, and folders get long. Wrapped, it took
+    // three lines in a bar one line tall and spilled out of both its edges.
+    const dir = path.join(tmp.dir, 'acme-customer-portal-frontend-v2');
+    await mkdir(dir, { recursive: true });
+    const { file } = await writeDashboard(dir);
+    const page = await browser.newPage({ viewport: { width: 320, height: 640 } });
+    try {
+      await page.goto(pathToFileURL(file).href);
+      const { name, bar, full } = await page.evaluate(() => {
+        const box = (el) => ({ top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom });
+        const b = document.querySelector('.crumb b');
+        return { name: box(b), bar: box(document.querySelector('.top')), full: b.title };
+      });
+      assert.ok(name.top >= bar.top && name.bottom <= bar.bottom, `the name sits inside the bar: ${JSON.stringify({ name, bar })}`);
+      assert.equal(full, 'acme-customer-portal-frontend-v2', 'the whole name is still there to read');
     } finally {
       await page.close();
     }
