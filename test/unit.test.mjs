@@ -294,7 +294,7 @@ describe('startTarget', () => {
       const start = Date.now();
       await assert.rejects(
         () => startTarget(cfg),
-        /dev server exited prematurely with code 1/,
+        /the dev command exited with code 1 before/,
       );
       assert.ok(Date.now() - start < 5000, 'should fail quickly without waiting 60s');
     } finally {
