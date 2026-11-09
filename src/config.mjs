@@ -27,6 +27,24 @@ export const DEFAULT_CONFIG = {
     { name: 'desktop', width: 1440, height: 900 },
     { name: 'mobile', width: 390, height: 844 },
   ],
+  /*
+    Which browser to drive.
+
+    A name ("chrome", "brave", "edge", "chromium"), a path to an executable, or
+    nothing at all — in which case ayna uses Chrome if it is installed and
+    otherwise falls back to another Chromium-family browser on the machine.
+
+    Playwright resolves only a fixed list of channels (chrome, msedge,
+    chromium…), so Brave and the rest are driven by executable path instead.
+    Either way this is the same kind of setting as `target.url`: a fact about
+    the user's machine, not a preference ayna has opinions about.
+  */
+  browser: {
+    // 'channel' — 'chrome' | 'brave' | 'edge' | 'chromium' | 'vivaldi' | 'arc'
+    channel: null,
+    // 'executablePath' — an absolute path to the browser binary
+    executablePath: null,
+  },
   loop: {
     iterations: 3,
     model: 'opus',

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { chromium } from 'playwright-core';
-import { renderPDF } from '../src/browser.mjs';
+import { openBrowser, renderPDF } from '../src/browser.mjs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,7 +18,7 @@ const DARK = `<!doctype html><meta charset="utf-8"><style>
 </style><section><h1>The price of entry</h1></section>`;
 
 async function pdfOf(html) {
-  const browser = await chromium.launch({ channel: 'chrome' });
+  const browser = await openBrowser({ headless: true });
   try {
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-pdf-'));
     const file = path.join(dir, 'slide.html');
@@ -43,7 +42,7 @@ test('a dark slide keeps its background in the PDF', async () => {
 // A page that will not load must say so rather than hand back an empty file that
 // looks like a successful export — the caller would attach it to an email.
 test('an unreachable page is reported, not returned as an empty PDF', async () => {
-  const browser = await chromium.launch({ channel: 'chrome' });
+  const browser = await openBrowser({ headless: true });
   try {
     const out = await renderPDF({ browser, url: 'http://127.0.0.1:9/nothing', settleMs: 500 });
     assert.equal(out.ok, false, 'an unreachable page reported success');

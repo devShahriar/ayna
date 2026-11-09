@@ -97,6 +97,8 @@ ${bold('OPTIONS')}
   -m, --model <name>     model for the brain (opus|sonnet|haiku, or puku-ai-2.7)
   -b, --brain <name>     headless agent (work: any; loop/critique: claude|puku)
       --url <url>        The page to open — path, query and hash are honoured
+      --browser <name>   Which browser to drive: chrome, brave, edge, chromium
+                         (or a path to the executable)
       --routes <list>    Several pages at once, e.g. /,/pricing,/about
       --root <dir>       The UI directory to snapshot/restore
       --file <path>      A specific comments.json (comments)
@@ -148,6 +150,7 @@ const ARG_SPEC = {
     'keep-open': { type: 'boolean' },
     'watch-ms': { type: 'string' },
     url: { type: 'string' },
+    browser: { type: 'string' },
     open: { type: 'boolean' },
     json: { type: 'boolean' },
     root: { type: 'string' },
@@ -467,9 +470,14 @@ async function main() {
       const server = await startTarget(cfg);
       const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
       const context = profileDir
-        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        ? await openPersistentContext({
+            profileDir,
+            headless: headlessMode(cfg),
+            viewport: cfg.viewports[0],
+            browser: browserMode(cfg),
+          })
         : null;
-      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
 
       const suite = await runSuite({
         browser,
@@ -537,6 +545,7 @@ async function main() {
         profileDir,
         url: target,
         viewport: cfg.viewports[0],
+        browser: browserMode(cfg),
         onState: (e) => {
           if (e.state === 'waiting') info('sign in in the window — I will wait, and I never see what you type');
           if (e.state === 'already-signed-in') ok('already signed in');
@@ -656,7 +665,7 @@ async function main() {
         serve failed before it ever reached the page it was told to look at.
       */
       const server = values.url ? null : await startTarget(cfg);
-      const browser = await openBrowser({ headless: true });
+      const browser = await openBrowser({ headless: true, browser: browserMode(cfg) });
       const steps = values.flow
         ? (JSON.parse(await readFile(path.resolve(PROJECT, values.flow), 'utf8')).steps ?? [])
         : [];
@@ -801,7 +810,7 @@ async function main() {
 
       const brain = brainFor(cfg, values.brain);
       const server = await startTarget(cfg).catch(() => null);
-      const browser = server ? await openBrowser({ headless: true }) : null;
+      const browser = server ? await openBrowser({ headless: true, browser: browserMode(cfg) }) : null;
 
       // One browser for the whole run, handed to the checker.
       const verify = browser
@@ -860,7 +869,7 @@ async function main() {
       }
 
       const server = await startTarget(cfg);
-      const browser = await openBrowser({ headless: headlessMode(cfg) });
+      const browser = await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
       let verdicts = [];
       try {
         // One page per URL: the tasks belong to whatever they were raised on.
@@ -1148,7 +1157,7 @@ async function main() {
       const server = values.url ? null : await startTarget(cfg);
       const target = values.url ?? new URL(routes[0] ?? '/', server.url).toString();
 
-      const browser = await openBrowser({ headless: headlessMode(cfg) });
+      const browser = await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
       let report;
       try {
         report = await auditPage({
@@ -1397,9 +1406,10 @@ async function main() {
             headless: headlessMode(cfg),
             viewport: cfg.viewports[0],
             followWindow: false,
+            browser: browserMode(cfg),
           })
         : null;
-      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
 
       const target = new URL(routes[0] ?? '/', server.url).toString();
       // --flow reaches a state first, so what you have to click into gets audited too.
@@ -1479,9 +1489,9 @@ async function main() {
         const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
         const viewport = cfg.viewports[0] ?? { width: 1440, height: 900 };
         const ctx = profileDir
-          ? await openPersistentContext({ profileDir, headless: true, viewport })
+          ? await openPersistentContext({ profileDir, headless: true, viewport, browser: browserMode(cfg) })
           : null;
-        const browser = ctx ? null : await openBrowser({ headless: true });
+        const browser = ctx ? null : await openBrowser({ headless: true, browser: browserMode(cfg) });
         try {
           const context = ctx ?? (await browser.newContext({ viewport }));
           const page = await context.newPage();
@@ -1541,9 +1551,14 @@ async function main() {
       // Reuse the saved profile, so a flow behind a login starts signed in.
       const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
       const context = profileDir
-        ? await openPersistentContext({ profileDir, headless: headlessMode(cfg), viewport: cfg.viewports[0] })
+        ? await openPersistentContext({
+            profileDir,
+            headless: headlessMode(cfg),
+            viewport: cfg.viewports[0],
+            browser: browserMode(cfg),
+          })
         : null;
-      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg) });
+      const browser = context ? null : await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
 
       const record = await runFlow({
         browser,
@@ -1590,9 +1605,14 @@ async function main() {
       // starts clean (useful for checking a signed-out view).
       const profileDir = values['fresh-profile'] ? null : path.join(PROJECT, '.ayna', 'profile');
       let context = profileDir
-        ? await openPersistentContext({ profileDir, headless: false, viewport: cfg.viewports[0] })
+        ? await openPersistentContext({
+            profileDir,
+            headless: false,
+            viewport: cfg.viewports[0],
+            browser: browserMode(cfg),
+          })
         : null;
-      const browser = context ? null : await openBrowser({ headless: false });
+      const browser = context ? null : await openBrowser({ headless: false, browser: browserMode(cfg) });
       if (!context) {
         // viewport null so the page follows the window the user resizes, rather
         // than staying the size it launched at with dead space around it.
@@ -2183,6 +2203,20 @@ function headlessMode(cfg) {
   return values.headless ?? cfg.loop.headless;
 }
 
+/**
+ * Which browser to drive, from the flag, then the config, then the default.
+ *
+ * A path in the config wins over a name: it is the more specific answer, and
+ * somebody who set `executablePath` meant that exact binary.
+ */
+function browserMode(cfg) {
+  if (values.browser) return values.browser;
+  const b = cfg.browser ?? {};
+  if (b.executablePath) return b.executablePath;
+  if (b.channel) return b.channel;
+  return undefined; // let the browser module resolve the default
+}
+
 /** Shared setup for the one-shot commands: server up, browser open, output dir ready. */
 async function prepare(cfg, kind) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -2193,7 +2227,7 @@ async function prepare(cfg, kind) {
   // too. Previously only `loop` honored it and everything else silently served
   // target.root as static files instead.
   const server = await startTarget(cfg);
-  const browser = await openBrowser({ headless: headlessMode(cfg) });
+  const browser = await openBrowser({ headless: headlessMode(cfg), browser: browserMode(cfg) });
 
   return {
     browser,
