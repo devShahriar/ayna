@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFile, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -28,6 +28,19 @@ import { DEFAULT_THEME } from '../src/config.mjs';
 import { tempDir, hasBrowser, fixtureSite } from './helpers.mjs';
 
 const exec = promisify(execFile);
+
+/*
+  Close a database before its folder is deleted. Windows will not delete a file
+  anything still holds: these tests were green on Linux while every temp-folder
+  cleanup on Windows failed with EBUSY.
+*/
+const closeQuietly = (db) => {
+  try {
+    db?.close();
+  } catch {
+    // Already closed.
+  }
+};
 const BIN = path.resolve(fileURLToPath(new URL('../bin/ayna.mjs', import.meta.url)));
 
 // A real 1×1 PNG, so a crop is a loadable image rather than a broken one.
@@ -81,13 +94,17 @@ describe('dashboard: what it reads', () => {
   let tmp;
   let data;
   let ids;
+  let seed;
   before(async () => {
     tmp = await tempDir('ayna-dash-');
-    const s = await seeded(tmp.dir);
-    ids = s.ids;
-    data = await gatherDashboard(tmp.dir, { db: s.db });
+    seed = await seeded(tmp.dir);
+    ids = seed.ids;
+    data = await gatherDashboard(tmp.dir, { db: seed.db });
   });
-  after(() => tmp.dispose());
+  after(async () => {
+    closeQuietly(seed?.db);
+    await tmp.dispose();
+  });
 
   test('counts every state, and what is still owed', () => {
     assert.equal(data.counts.total, 7);
@@ -142,9 +159,13 @@ describe('dashboard: what it reads', () => {
   test('version moves when the store does', async () => {
     const { dashboardVersion } = await import('../src/dashboard.mjs');
     const db = await openDb(tmp.dir);
-    const before = dashboardVersion(db);
-    appendEvent(db, { event: 'message', from: 'claude', text: 'hello' });
-    assert.notEqual(dashboardVersion(db), before);
+    try {
+      const before = dashboardVersion(db);
+      appendEvent(db, { event: 'message', from: 'claude', text: 'hello' });
+      assert.notEqual(dashboardVersion(db), before);
+    } finally {
+      closeQuietly(db);
+    }
   });
 });
 
@@ -197,8 +218,9 @@ describe('dashboard: words and colours', () => {
 describe('dashboard: the page it writes', () => {
   test('user text cannot break out of the page', async () => {
     const tmp = await tempDir('ayna-dash-');
+    let store = null;
     try {
-      const store = await openStore(tmp.dir);
+      store = await openStore(tmp.dir);
       const evil = '</script><img src=x onerror=alert(1)>';
       // Not a parseable URL, so it reaches the page — and the page's JSON — as raw text.
       await store.create({ comment: evil, url: 'see </script><b>here', selector: '<b>' });
@@ -208,6 +230,7 @@ describe('dashboard: the page it writes', () => {
       assert.equal(html.split('</script>').length - 1, 3, 'only the three real script blocks end');
       assert.ok(html.includes('\\u003c/script>'), 'the embedded JSON escapes `<`');
     } finally {
+      closeQuietly(store?.db);
       await tmp.dispose();
     }
   });
@@ -229,7 +252,7 @@ describe('dashboard: the page it writes', () => {
   test('crops are linked relative to the page, with forward slashes', async () => {
     const tmp = await tempDir('ayna-dash-');
     try {
-      await seeded(tmp.dir);
+      closeQuietly((await seeded(tmp.dir)).db);
       const { file } = await writeDashboard(tmp.dir);
       const html = await readFile(file, 'utf8');
       assert.ok(html.includes('src="../tasks/task-0001/region.png"'), 'a crop resolves from .ayna/dashboard/');
@@ -242,12 +265,44 @@ describe('dashboard: the page it writes', () => {
   test('`ayna dashboard` works in a project with no config', async () => {
     const tmp = await tempDir('ayna-dash-');
     try {
-      await seeded(tmp.dir);
+      closeQuietly((await seeded(tmp.dir)).db);
       const { stdout } = await exec('node', [BIN, 'dashboard', '--json'], { cwd: tmp.dir, timeout: 60_000 });
       const out = JSON.parse(stdout);
       assert.ok(existsSync(out.file), 'the page is written');
       assert.equal(path.dirname(out.file), path.join(tmp.dir, '.ayna', 'dashboard'), 'into the project, not the plugin');
       assert.equal(out.counts.total, 7);
+    } finally {
+      await tmp.dispose();
+    }
+  });
+
+  test('reading the store leaves none of its files open', { skip: process.platform !== 'linux' && 'counts open files through /proc' }, async () => {
+    /*
+      What Windows reported as EBUSY, measured where it can be measured: an open
+      database is a file descriptor, and /proc lists them. gatherDashboard opened
+      a connection of its own and never closed it.
+    */
+    const tmp = await tempDir('ayna-dash-');
+    const held = () => {
+      const file = path.join(realpathSync(tmp.dir), '.ayna', 'ayna.db');
+      return readdirSync('/proc/self/fd')
+        .map((fd) => {
+          try {
+            return readlinkSync(`/proc/self/fd/${fd}`);
+          } catch {
+            return '';
+          }
+        })
+        .filter((target) => target.startsWith(file));
+    };
+    try {
+      const s = await seeded(tmp.dir);
+      assert.ok(held().length > 0, 'the count can see a store that is open');
+      closeQuietly(s.db);
+      assert.deepEqual(held(), []);
+      await gatherDashboard(tmp.dir);
+      await writeDashboard(tmp.dir);
+      assert.deepEqual(held(), [], 'nothing it opened is still open');
     } finally {
       await tmp.dispose();
     }
@@ -261,7 +316,7 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
   before(async () => {
     const { openBrowser } = await import('../src/browser.mjs');
     tmp = await tempDir('ayna-dash-');
-    await seeded(tmp.dir);
+    closeQuietly((await seeded(tmp.dir)).db);
     const { file } = await writeDashboard(tmp.dir);
     url = pathToFileURL(file).href;
     browser = await openBrowser({ headless: true });
@@ -392,8 +447,9 @@ describe('dashboard: beside a review window', { skip: !hasBrowser && 'AYNA_SKIP_
     const browser = await openBrowser({ headless: true });
     const server = await serveStatic(await fixtureSite(path.join(tmp.dir, 'site')), 0);
     const seen = {};
+    let store = null;
     try {
-      const store = await openStore(tmp.dir);
+      store = await openStore(tmp.dir);
       await store.create({ comment: 'There before the dashboard opened', url: server.url, selector: 'h1' });
       await runAnnotate({
         browser,
@@ -443,6 +499,7 @@ describe('dashboard: beside a review window', { skip: !hasBrowser && 'AYNA_SKIP_
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
+      closeQuietly(store?.db);
       await tmp.dispose();
     }
   });

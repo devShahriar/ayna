@@ -331,6 +331,21 @@ export function dashboardVersion(db) {
 /** Everything the page shows, gathered without writing to the store. */
 export async function gatherDashboard(projectDir, { db: given, now = Date.now(), activityLimit = 400 } = {}) {
   const db = given ?? (await openDb(projectDir));
+  try {
+    return await collect(projectDir, db, now, activityLimit);
+  } finally {
+    /*
+      A connection this opened is this one's to close. Left open, it held
+      ayna.db and its -wal and -shm files for as long as the process lived — and
+      on Windows an open file cannot be deleted or moved, so whatever tried to
+      clean up after `ayna dashboard` failed with EBUSY. One handed in belongs to
+      the caller: a review window keeps its own open for the whole review.
+    */
+    if (!given) db.close();
+  }
+}
+
+async function collect(projectDir, db, now, activityLimit) {
   const store = await openStore(projectDir, { db });
   const tasks = await store.list();
 

@@ -431,4 +431,4 @@ demo/               a deliberately mediocre landing page to improve
 
 Plain ESM, no TypeScript, no build step. One dependency: `playwright-core`.
 
-**362 tests.** `npm test`.
+**363 tests.** `npm test`.
