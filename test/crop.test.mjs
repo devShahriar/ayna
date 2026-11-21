@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { openBrowser } from '../src/browser.mjs';
-import { cropRegion, captureCrop, holdTheFrame } from '../src/annotate.mjs';
+import { cropRegion, captureCrop, captureRegion, holdTheFrame } from '../src/annotate.mjs';
 import { cropPng, pngSize } from '../src/png.mjs';
 import { hasBrowser } from './helpers.mjs';
 
@@ -204,6 +204,48 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     assert.equal(await page.evaluate(() => !!document.getElementById('ayna-capture')), false, 'the capture style is gone');
   });
 
+  /*
+    The hiding rule and the marks are shared, so two captures in flight at once
+    — a region's preview, then the comment saved before it finished — undid
+    each other and ayna's chrome landed in a crop.
+  */
+  test('captures that overlap still each hide the chrome over their region', async () => {
+    await page.evaluate(() => scrollTo(0, 800));
+    await page.waitForTimeout(200);
+    // Two targets side by side, each with one of ayna's marks over it, and
+    // frames slowed so the first capture is still waiting when the second
+    // starts — the window in which they used to clear each other's marks.
+    const rects = await page.evaluate(() => {
+      const out = [];
+      for (const [id, x, colour] of [['a', 20, 'rgb(0,0,255)'], ['b', 300, 'rgb(255,255,0)']]) {
+        const el = document.createElement('div');
+        el.id = 'target-' + id;
+        el.style.cssText = `position:absolute;left:${x}px;top:${scrollY + 100}px;width:150px;height:80px;background:${colour}`;
+        document.body.appendChild(el);
+        const mark = document.createElement('div');
+        mark.className = 'overlap-mark';
+        mark.setAttribute('data-ayna', '1');
+        mark.style.cssText = `position:absolute;left:${x}px;top:${scrollY + 100}px;width:150px;height:80px;background:rgb(255,0,255)`;
+        document.body.appendChild(mark);
+        out.push({ x, y: scrollY + 100, width: 150, height: 80 });
+      }
+      window.__raf = window.requestAnimationFrame;
+      window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 250);
+      return out;
+    });
+    try {
+      const [a, b] = await Promise.all([captureRegion(page, rects[0], 4), captureRegion(page, rects[1], 4)]);
+      assert.equal(await middlePixel(a.png), '0,0,255', "the first crop shows ayna's mark");
+      assert.equal(await middlePixel(b.png), '255,255,0', "the second crop shows ayna's mark");
+      assert.equal(await page.evaluate(() => !!document.getElementById('ayna-capture')), false);
+    } finally {
+      await page.evaluate(() => {
+        window.requestAnimationFrame = window.__raf;
+        document.querySelectorAll('[id^=target-], .overlap-mark').forEach((m) => m.remove());
+      });
+    }
+  });
+
   test('cropPng clamps to the image and refuses an empty crop', async () => {
     const full = await page.screenshot();
     const { width, height } = pngSize(full);
@@ -300,6 +342,26 @@ describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYN
         };
       });
       assert.deepEqual(copy, { text: 'Send to Claude', bg: 'rgb(1, 2, 3)', clickable: 'none', slab: 'none', y: 53 });
+
+      // A same-origin iframe shares the storage but is not the review window.
+      const inFrame = await page.evaluate(async () => {
+        const frame = document.createElement('iframe');
+        frame.src = '/';
+        document.body.appendChild(frame);
+        await new Promise((r) => frame.addEventListener('load', r, { once: true }));
+        const doc = frame.contentDocument;
+        return { standIn: !!doc.getElementById('ayna-reserve'), copy: !!doc.getElementById('ayna-reserve-snap') };
+      });
+      assert.deepEqual(inFrame, { standIn: false, copy: false }, 'nothing is put up inside an iframe');
+
+      // With no overlay arriving to take it down, it goes by itself.
+      await page.waitForTimeout(5500);
+      const left = await page.evaluate(() => ({
+        standIn: !!document.getElementById('ayna-reserve'),
+        copy: !!document.getElementById('ayna-reserve-snap'),
+        y: Math.round(document.getElementById('t').getBoundingClientRect().y),
+      }));
+      assert.deepEqual(left, { standIn: false, copy: false, y: 0 }, 'a stand-in no overlay replaced must not stay up');
     } finally {
       await browser.close();
     }

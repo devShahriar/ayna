@@ -178,14 +178,26 @@ export async function cropRegion(page, rect, pad) {
 /**
  * Re-fetch the page's same-origin stylesheets in place. True when the page's
  * rules changed as a result — the caller reloads otherwise.
+ *
+ * `files` are the round's changed stylesheets, project-relative. Every one has
+ * to be a sheet the page links directly: only a <link>'s URL can be
+ * cache-busted, so a changed file reached through @import (or bundled, or
+ * served under another name) could keep its old rules while the linked sheet
+ * that pulls it in changed — the hash would move and half the fix would be
+ * missing. Anything not linked means a reload.
  */
-async function swapStylesheets(page) {
+async function swapStylesheets(page, files) {
   // A hash of every readable rule, so an edit that keeps the length still counts.
+  // Only the app's sheets: ayna adds and removes its own (a crop's hiding rule,
+  // a variant preview, the reload stand-in), and one of those coming or going
+  // mid-swap would read as the app's CSS having changed.
   const rulesHash = () =>
     page
       .evaluate(() => {
         let h = 0;
         for (const sheet of document.styleSheets) {
+          const owner = sheet.ownerNode;
+          if (owner && (owner.hasAttribute?.('data-ayna') || /^ayna-/.test(owner.id || ''))) continue;
           try {
             for (const rule of sheet.cssRules) {
               const t = rule.cssText;
@@ -201,7 +213,7 @@ async function swapStylesheets(page) {
 
   const before = await rulesHash();
   const done = await page
-    .evaluate(async () => {
+    .evaluate(async (changed) => {
       const links = [...document.querySelectorAll('link[rel~="stylesheet"][href]')].filter((l) => {
         try {
           return new URL(l.href).origin === location.origin;
@@ -210,6 +222,11 @@ async function swapStylesheets(page) {
         }
       });
       if (!links.length) return false;
+      // demo/styles.css is served as /styles.css: a linked path that ends the
+      // file's path, on a folder boundary, is that file.
+      const served = links.map((l) => decodeURIComponent(new URL(l.href).pathname).replace(/^\/+/, ''));
+      const linked = (rel) => served.some((p) => p && (rel === p || rel.endsWith('/' + p)));
+      if (!changed.every(linked)) return false;
       const stamp = String(Date.now());
       await Promise.all(
         links.map(
@@ -236,7 +253,7 @@ async function swapStylesheets(page) {
         ),
       );
       return true;
-    })
+    }, files)
     .catch(() => false);
   if (!done) return false;
   const after = await rulesHash();
@@ -268,7 +285,8 @@ export async function captureCrop(page, crop) {
       document.getElementById('ayna-capture')?.remove();
       const style = document.createElement('style');
       style.id = 'ayna-capture';
-      style.textContent = css;
+      // Playwright hid the caret for its captures; a raw capture has to say so.
+      style.textContent = css + ' * { caret-color: transparent !important; }';
       document.documentElement.appendChild(style);
       // Two frames: the hidden chrome has to be painted out before the capture.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -297,6 +315,26 @@ export async function captureCrop(page, crop) {
 }
 
 /*
+  Mark, hide and capture, one region at a time per page.
+
+  cropRegion marks the chrome to hide and captureCrop hides it with one shared
+  rule, so two captures that overlap — a region's preview still running when the
+  comment is saved — undo each other: one clears the other's marks, or removes
+  the rule while the other is still waiting to capture, and ayna's chrome lands
+  in the crop. Playwright queued its own screenshots per page; this does the
+  same for the whole sequence.
+*/
+const captureQueue = new WeakMap();
+export function captureRegion(page, rect, pad) {
+  const run = (captureQueue.get(page) ?? Promise.resolve()).then(async () => {
+    const crop = await cropRegion(page, rect, pad);
+    return { crop, png: await captureCrop(page, crop) };
+  });
+  captureQueue.set(page, run.catch(() => {}));
+  return run;
+}
+
+/*
   Runs at the start of every document in the review window, before the app
   paints.
 
@@ -313,6 +351,13 @@ export async function captureCrop(page, crop) {
   Self-contained on purpose: Playwright serialises it into the page.
 */
 export function holdTheFrame() {
+  /*
+    The top document only. An init script runs in every frame, and a
+    same-origin iframe shares the tab's sessionStorage — so it read the frame
+    meant for the page around it and put the stand-in up inside itself, where no
+    overlay ever runs to take it down again.
+  */
+  if (window !== window.top) return;
   let f = null;
   try {
     f = JSON.parse(sessionStorage.getItem('ayna-reserve') || 'null');
@@ -354,6 +399,17 @@ export function holdTheFrame() {
   }
   const mount = () => {
     document.documentElement.appendChild(style);
+    /*
+      The overlay takes this down, and it only arrives on `load`. A page whose
+      load never fires — a hung request — or an overlay that failed to inject
+      would otherwise sit shifted under a frozen, unclickable copy for good.
+      Bounded, and the bare page back is the old behaviour.
+    */
+    setTimeout(() => {
+      if (window.__aynaLoaded) return;
+      style.remove();
+      snap?.remove();
+    }, 5000);
     if (!snap) return;
     document.documentElement.appendChild(snap);
     // The rail was scrolled to where the reader was; put the copy there too,
@@ -624,9 +680,10 @@ export async function runAnnotate({
     // Set when only part of the region was on screen, so the crop shows that part.
     let cropTruncated = false;
     try {
-      const crop = await cropRegion(page, payload.rect, 12);
+      const { crop, png } = await captureRegion(page, payload.rect, 12);
+      await writeFile(regionFile, png);
+      // Only once there is a crop for the flag to describe.
       cropTruncated = crop.truncated;
-      await writeFile(regionFile, await captureCrop(page, crop));
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
     }
@@ -1330,7 +1387,7 @@ export async function runAnnotate({
   */
   await page.exposeFunction('__aynaPreview', async (rect) => {
     try {
-      const buf = await captureCrop(page, await cropRegion(page, rect, 8));
+      const { png: buf } = await captureRegion(page, rect, 8);
       return 'data:image/png;base64,' + buf.toString('base64');
     } catch {
       return null;
@@ -1707,7 +1764,7 @@ export async function runAnnotate({
         did not reach), it reloads after all.
       */
       const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
-      const swapped = !changedItself && cssOnly && (await swapStylesheets(page));
+      const swapped = !changedItself && cssOnly && (await swapStylesheets(page, changes.map((c) => c.file)));
 
       emit({
         event: 'applied',

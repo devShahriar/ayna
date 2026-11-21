@@ -105,6 +105,22 @@ describe('when a round lands', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
     assert.equal(seen.applied.reloaded, false);
   });
 
+  /*
+    Only a linked sheet's URL can be cache-busted. A changed file reached
+    through @import could keep its old rules while the sheet importing it
+    changed, and the swap would call half a fix done.
+  */
+  test('a changed sheet the page only @imports means a reload, not a swap', async () => {
+    const seen = await round(browser, async (dir) => {
+      await writeFile(path.join(dir, 'extra.css'), 'h1 { font-style: italic; }\n');
+      await writeFile(path.join(dir, 'styles.css'), "@import 'extra.css';\nh1 { color: rgb(1, 2, 3); }\n");
+    });
+    assert.equal(seen.applied.swapped, false);
+    assert.equal(seen.applied.reloaded, true);
+    assert.equal(seen.loads, 1);
+    assert.equal(seen.style, 'italic', 'after the reload the imported sheet is in effect');
+  });
+
   test('a round that touched markup still reloads', async () => {
     const seen = await round(browser, async (dir) => {
       const file = path.join(dir, 'index.html');
@@ -145,7 +161,11 @@ test('isTestPath knows a test from a component that merely mentions one', () => 
   for (const p of ['test/a.mjs', 'src/a.test.tsx', 'src/a.spec.ts', 'x/a_test.go', 'test_ui.py', 'app/__tests__/A.jsx', 'e2e/login.ts']) {
     assert.equal(isTestPath(p), true, p);
   }
-  for (const p of ['demo/index.html', 'src/contest.js', 'src/testimonials.tsx', 'src/spectrum.css', 'src/components/Test.vue', 'attest/x.js']) {
+  for (const p of [
+    'demo/index.html', 'src/contest.js', 'src/testimonials.tsx', 'src/spectrum.css', 'src/components/Test.vue', 'attest/x.js',
+    // Ordinary UI files that only look like tests; ignoring one would lose its edits.
+    'src/components/Test/Button.vue', 'pages/tech-specs.html', 'ab-test.css', 'speed-test.html', 'split_test.js',
+  ]) {
     assert.equal(isTestPath(p), false, p);
   }
 });

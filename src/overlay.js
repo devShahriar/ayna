@@ -1539,6 +1539,28 @@
     pin.style.visibility = '';
   }
 
+  /*
+    Show a held pin once its comment is saved — or take it back if saving
+    failed. A failure used to leave the pin hidden for good while the count had
+    already gone up, so the number on the bar and the pins on the page
+    disagreed about how many notes there were.
+  */
+  async function settlePin(pin, saving) {
+    let res;
+    try {
+      res = await saving;
+    } catch {
+      pin.remove();
+      state.pins = state.pins.filter((p) => p !== pin);
+      state.seq = Math.max(0, state.seq - 1);
+      refreshCount();
+      return null;
+    }
+    showPin(pin);
+    bindPinRemoval(pin, res && res.id);
+    return res;
+  }
+
   function bindPinRemoval(pin, id) {
     if (!id) return;
     pin.addEventListener('click', async (ev) => {
@@ -2261,7 +2283,7 @@
       const pin = makePin(n, rectOf(d.el), { held: true });
       refreshCount();
 
-      const res = await window.__aynaSubmit({
+      await settlePin(pin, window.__aynaSubmit({
         kind: 'move',
         comment:
           'Reorder: move ' + movedDesc + ' ' + (d.placeBefore ? 'before ' : 'after ') + beforeDesc +
@@ -2287,9 +2309,7 @@
         images: [],
         viewport: { width: window.innerWidth, height: window.innerHeight },
         url: location.href,
-      });
-      showPin(pin);
-      bindPinRemoval(pin, res && res.id);
+      }));
       refreshTaskCount();
     },
     true,
@@ -3096,9 +3116,7 @@
       const pin = makePin(n, r, { held: true });
       refreshCount();
 
-      const res = await window.__aynaSubmit(payload);
-      showPin(pin);
-      bindPinRemoval(pin, res && res.id);
+      await settlePin(pin, window.__aynaSubmit(payload));
       refreshTaskCount(); // the list gained one; say so without opening it
     });
   }

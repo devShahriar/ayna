@@ -26,16 +26,22 @@ export const SKIP_DIRS = [
   had not been made. A test is also never where a UI is edited, so it is no use
   as a source location either.
 
-  Folders by name anywhere in the path, files by the conventions the common
-  runners use (foo.test.js, foo.spec.ts, foo_test.go, test_foo.py).
+  Narrow on purpose: a false positive is worse than a miss. An ignored UI file
+  never lands a round, never shows in its changes and cannot be undone, so the
+  rule only claims what is unmistakably a test —
+    folders  test, tests, __tests__, __mocks__, spec, e2e, cypress — exactly,
+             lowercase, so a component folder called Test/ stays a component
+    files    foo.test.js, foo.spec.ts (any extension after .test/.spec),
+             foo_test.go, test_foo.py, foo_test.py, foo_spec.rb
+  Hyphenated names (ab-test.css, tech-specs.html) are ordinary UI files.
 */
-const TEST_DIRS = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'e2e', 'cypress', 'playwright-report', 'test-results']);
-const TEST_FILE = /[._-](test|spec)s?\.[^/\\]+$|^test_[^/\\]+\.py$|_test\.[^/\\]+$/i;
+const TEST_DIRS = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'e2e', 'cypress']);
+const TEST_FILE = /\.(test|spec)\.[^/\\]+$|_test\.go$|^test_[^/\\]+\.py$|_test\.py$|_spec\.rb$/;
 
 /** True for a project-relative path that belongs to the tests. */
 export function isTestPath(rel) {
   const parts = String(rel).split(/[\\/]/).filter(Boolean);
   if (!parts.length) return false;
-  if (parts.slice(0, -1).some((p) => TEST_DIRS.has(p.toLowerCase()))) return true;
+  if (parts.slice(0, -1).some((p) => TEST_DIRS.has(p))) return true;
   return TEST_FILE.test(parts[parts.length - 1]);
 }
