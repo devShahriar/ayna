@@ -490,7 +490,7 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
           await run(page);
           if (!page.isClosed()) {
             await press(page, 'close');
-            await page.waitForTimeout(2000);
+            await page.waitForEvent('close', { timeout: 5000 });
           }
         },
       });

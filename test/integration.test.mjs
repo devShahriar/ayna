@@ -953,7 +953,15 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
             await page.waitForSelector('.ayna-ov-card');
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
-              /resolved/,
+              /approved/i,
+            );
+            // Approved reads as done: green, not the amber of work still owed.
+            assert.deepEqual(
+              await page.evaluate(() => [
+                getComputedStyle(document.querySelector('.ayna-ov-badge')).backgroundColor,
+                getComputedStyle(document.querySelector('.ayna-ov-revpin[data-status=approved]')).backgroundColor,
+              ]),
+              ['rgb(220, 252, 231)', 'rgb(123, 196, 127)'],
             );
             await press(page, 'close');
           },
@@ -1722,20 +1730,22 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
           projectDir: site,
           viewport: { width: 900, height: 600 },
           onReady: async (page) => {
-            await page.mouse.move(80, 80);
+            // Inside the app's area: the rail owns the left edge and the bar the top.
+            const app = await page.evaluate(() => {
+              const r = document.querySelector('#c').getBoundingClientRect();
+              return { x: Math.max(r.left, 0), y: Math.max(r.top, 0) };
+            });
+            await page.mouse.move(app.x + 40, app.y + 40);
             await page.mouse.down();
-            await page.mouse.move(330, 250, { steps: 10 });
+            await page.mouse.move(app.x + 290, app.y + 210, { steps: 10 });
             await page.mouse.up();
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
-            await page.waitForFunction(() => !!document.querySelector('.ayna-ov-auto img'), {
+            await page.waitForFunction(() => !!document.querySelector('.ayna-ov-preview img'), {
               timeout: 10000,
             });
-            assert.ok(
-              await page.evaluate(() =>
-                [...document.querySelectorAll('.ayna-ov-hint')].some((h) =>
-                  /attached automatically/.test(h.textContent),
-                ),
-              ),
+            assert.match(
+              await page.evaluate(() => document.querySelector('.ayna-ov-preview .ayna-ov-cap')?.textContent ?? ''),
+              /^attached · \d+×\d+$/,
               'the box says the region travels with the comment',
             );
             await page.close();
@@ -2380,9 +2390,9 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             const clear = await page.evaluate(() => {
               const pop = document.querySelector('.ayna-ov-pop').getBoundingClientRect();
               const bar = document.querySelector('.ayna-ov-bar').getBoundingClientRect();
-              return pop.bottom <= bar.top;
+              return pop.bottom <= bar.top || pop.top >= bar.bottom;
             });
-            assert.ok(clear, 'the box sits above the bar, so its buttons are clickable');
+            assert.ok(clear, 'the box does not overlap the bar, so its buttons are clickable');
             // and it is genuinely clickable
             await page.fill('.ayna-ov-pop textarea', 'reachable');
             await page.click('.ayna-ov-save');
@@ -2494,7 +2504,7 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
       return {
         onScreen:
           b.left >= 0 && b.top >= 0 && b.right <= innerWidth + 1 && b.bottom <= innerHeight + 1,
-        clearOfBar: !barB || b.bottom <= barB.top + 1,
+        clearOfBar: !barB || b.bottom <= barB.top + 1 || b.top >= barB.bottom - 1,
       };
     }, sel);
 
@@ -2845,7 +2855,8 @@ describe('auditing the window that is already open', { skip: !hasBrowser && 'AYN
             const before = await askForAudit();
             assert.equal(before.counts.covered, 0, 'nothing is covered in the state it loads in');
 
-            // The user clicks into the state where things collide.
+            // The user switches to Browse and clicks into the state where things collide.
+            await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('#go');
             await page.waitForTimeout(400);
 

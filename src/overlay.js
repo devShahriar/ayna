@@ -999,7 +999,7 @@
       background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a); display: flex; align-items: center;
       justify-content: center; cursor: pointer; white-space: nowrap;
     }
-    .${NS}-revpin[data-status=resolved] { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-revpin[data-status=approved], .${NS}-revpin[data-status=resolved] { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
     .${NS}-revpin[data-status=rejected] { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-revbar button {
       border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
@@ -1085,7 +1085,7 @@
       letter-spacing: .08em; font-weight: 700; padding: 3px 9px; border-radius: 999px;
       background: #fef3c7; color: #92400e; margin-bottom: 8px;
     }
-    .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
+    .${NS}-card[data-status=approved] .${NS}-badge, .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
     .${NS}-card[data-status=rejected] .${NS}-badge { background: #fee2e2; color: #991b1b; }
     .${NS}-card[data-status=proposed] .${NS}-badge { background: #ede9fe; color: #5b21b6; }
     .${NS}-card textarea {

@@ -1327,12 +1327,15 @@ export async function runAnnotate({
   // Lets tests and scripted flows drive the overlay without a human at the mouse.
   // Deliberately not awaited: a real user clicks while the watch loop below is
   // running, and awaiting here would stall that loop and deadlock the round-trip.
+  let scripted = null;
+  let scriptError = null;
   if (onReady) {
-    onReady(page).catch(async (err) => {
+    scripted = onReady(page).catch(async (err) => {
       // Swallowing this would leave the watch loop below waiting for an approval
       // that can never come — an infinite hang with no explanation. Close the page
       // so the loop exits and the failure is visible.
       process.stderr.write(`[ayna] scripted interaction failed: ${err.message}\n`);
+      scriptError = err;
       await page.close().catch(() => {});
     });
   }
@@ -1562,6 +1565,13 @@ export async function runAnnotate({
     comments,
   };
   await writeFile(commentsFile, JSON.stringify(manifest, null, 2));
+  /*
+    A scripted flow that failed is the caller's failure, not a review that
+    ended. Logging it and returning normally let every assertion inside a
+    test's onReady fail silently while the test passed.
+  */
+  if (scripted) await Promise.race([scripted, new Promise((r) => setTimeout(r, 2000))]);
+  if (scriptError) throw scriptError;
   return manifest;
 }
 
