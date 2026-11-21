@@ -291,7 +291,14 @@ describe('dashboard: the page it writes', () => {
       const { stdout } = await exec('node', [BIN, 'dashboard', '--json'], { cwd: tmp.dir, timeout: 60_000 });
       const out = JSON.parse(stdout);
       assert.ok(existsSync(out.file), 'the page is written');
-      assert.equal(path.dirname(out.file), path.join(tmp.dir, '.ayna', 'dashboard'), 'into the project, not the plugin');
+      // Real paths on both sides: the CLI learns its project from process.cwd(),
+      // which macOS reports through the /private symlink (/private/var/folders/…)
+      // while the temp dir was named /var/folders/… — the same folder.
+      assert.equal(
+        realpathSync(path.dirname(out.file)),
+        path.join(realpathSync(tmp.dir), '.ayna', 'dashboard'),
+        'into the project, not the plugin',
+      );
       assert.equal(out.counts.total, 7);
     } finally {
       await tmp.dispose();
