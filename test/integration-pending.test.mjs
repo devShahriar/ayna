@@ -14,7 +14,22 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// The note is saved, the round is open (old markers cleared), and the edits have landed.
+async function sendAndApply(page, out) {
+  await eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= 1, {
+    timeout: 10000,
+    message: 'the note never reached the window',
+  });
+  await page.click('[data-act=send]');
+  await eventually(async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).round >= 1, {
+    timeout: 10000,
+    message: 'the round was never sent',
+  });
+  await writeFile(path.join(out, 'applied'), '1');
+  await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 15000 });
+}
 
 describe('pending work survives, and closing is not a verdict', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -44,18 +59,16 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'needs work');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(450);
-            await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
-            await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
-              timeout: 15000,
-            });
-            await page.waitForTimeout(400);
+            await sendAndApply(page, out);
+            await page.waitForSelector('.ayna-ov-rev', { timeout: 10000 });
 
             // The user hits refresh while a change is waiting on their verdict.
             await page.reload({ waitUntil: 'networkidle' });
-            await page.waitForTimeout(1200);
+            await page
+              .waitForFunction(() => document.querySelector('[data-act=close]') && document.querySelector('.ayna-ov-rev'), null, {
+                timeout: 10000,
+              })
+              .catch(() => {}); // a miss is reported by the asserts below
 
             assert.ok(
               await page.evaluate(() => !!document.querySelector('[data-act=close]')),
@@ -96,14 +109,7 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'never judged');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(450);
-            await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
-            await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
-              timeout: 15000,
-            });
-            await page.waitForTimeout(300);
+            await sendAndApply(page, out);
             await press(page, 'close'); // close without judging
           },
         });

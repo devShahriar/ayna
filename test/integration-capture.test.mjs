@@ -14,7 +14,17 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// The pin shows at once; the comment is stored once the Tasks count includes it.
+const saved = (page, n) =>
+  page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
+// Send returns before Node has cleared old markers; status.json says when it has.
+const sent = (out) =>
+  eventually(
+    async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase === 'awaiting-claude',
+    { timeout: 10000 },
+  );
 
 describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -283,13 +293,13 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'home heading');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
 
             // Browse mode, then follow the link.
             await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('.nav');
-            await page.waitForLoadState('networkidle');
-            await page.waitForTimeout(400);
+            await page.waitForSelector('.about');
+            await saved(page, 1).catch(() => {});
 
             /*
               The overlay is rebuilt, but the count and mode must survive.
@@ -309,12 +319,12 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'about heading');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 2);
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             await press(page, 'close');
@@ -381,7 +391,7 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
             // Browse mode, then navigate using the app's own control.
             await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('#go');
-            await page.waitForTimeout(350);
+            await page.waitForSelector('.panel');
 
             assert.equal(await page.evaluate(() => location.pathname), '/d/abc123');
             assert.ok(
@@ -394,15 +404,14 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.fill('.ayna-ov-pop textarea', 'more padding here');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            await page.waitForTimeout(400);
 
             // The reload must land back on the SPA route, not a 404 or the root.
             assert.equal(
@@ -488,7 +497,7 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
             await page.click('#pw');
             await page.keyboard.type('correct horse battery');
             await page.click('button[type=submit]');
-            await page.waitForTimeout(300);
+            await page.waitForSelector('#app', { timeout: 5000 }).catch(() => {});
             assert.ok(
               await page.evaluate(() => document.getElementById('app').style.display === 'block'),
               'the login went through',
@@ -499,9 +508,9 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.fill('.ayna-ov-pop textarea', 'heading needs work');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(400);
+            await sent(path.join(dir, 'out'));
             await page.close();
           },
         });
@@ -554,7 +563,7 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
             await page.click('#email');
             await page.keyboard.type('me@example.com');
             await page.click('#go');
-            await page.waitForTimeout(350);
+            await page.waitForSelector('#app', { timeout: 5000 }).catch(() => {});
             assert.ok(
               await page.evaluate(() => document.getElementById('app').style.display === 'block'),
               'the submit button submits rather than opening a comment box',
@@ -710,7 +719,11 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
               return (c ? Math.round(c.getBoundingClientRect().right) : 0) + 40;
             });
             await page.mouse.move(clear, 180);
-            await page.waitForTimeout(200);
+            await page
+              .waitForFunction(() => /drag a box/.test(document.querySelector('.ayna-ov-tag')?.textContent), null, {
+                timeout: 5000,
+              })
+              .catch(() => {});
             assert.match(
               await page.evaluate(() => document.querySelector('.ayna-ov-tag').textContent),
               /drag a box/,
@@ -720,7 +733,6 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
             await page.mouse.move(clear, 100);
             await page.mouse.down();
             await page.mouse.move(clear + 270, 260, { steps: 12 });
-            await page.waitForTimeout(150);
             await page.mouse.up();
 
             assert.equal(
@@ -732,9 +744,9 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.fill('.ayna-ov-pop textarea', 'this node is too cramped');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(600);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(path.join(dir, 'out'));
             await page.close();
           },
         });

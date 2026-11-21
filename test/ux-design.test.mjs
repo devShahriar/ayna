@@ -17,7 +17,11 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// Two frames: layout, observers and anything queued on rAF have all run.
+const frames = (page) =>
+  page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -81,7 +85,7 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
         store: await openStore(dir),
         viewport: { width: 1000, height: 700 },
         onReady: async (page) => {
-          await page.waitForTimeout(800);
+          await page.waitForSelector('.ayna-ov-console .ayna-ov-console-lines', { state: 'attached' });
           await run(page, dir);
           await page.close();
         },
@@ -108,6 +112,13 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
   };
 
   const size = (page) => page.evaluate(() => getComputedStyle(document.querySelector('.t')).fontSize);
+  const showing = (page, n) => page.waitForFunction((k) => document.querySelector('.ayna-ov-preview-bar [data-part=label]')?.textContent.includes(` ${k}/`), n, { timeout: 5000 });
+  // The answer, once the window has written it to the log.
+  const answered = (dir, from, kind) =>
+    eventually(async () => {
+      const { eventsSince, openDb } = await import('../src/db.mjs');
+      return eventsSince(await openDb(dir), from).find((e) => e.event === kind);
+    }).catch(() => null);
 
   test('the variants actually render, over the page’s own inline styles', async () => {
     /*
@@ -121,10 +132,10 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
       seen.push(await size(page));
       await offer(dir);
       await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
-      await page.waitForTimeout(400);
+      await showing(page, 1);
       seen.push(await size(page));
       await page.keyboard.press('ArrowRight');
-      await page.waitForTimeout(400);
+      await showing(page, 2);
       seen.push(await size(page));
     });
     assert.deepEqual(seen, ['20px', '34px', '44px']);
@@ -139,13 +150,10 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
       const from = await offer(dir);
       await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
       await page.keyboard.press('ArrowRight');
-      await page.waitForTimeout(300);
+      await showing(page, 2);
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(700);
-
+      answer = await answered(dir, from, 'preview-accepted');
       after = await size(page);
-      const { eventsSince, openDb } = await import('../src/db.mjs');
-      answer = eventsSince(await openDb(dir), from).find((e) => e.event === 'preview-accepted');
     });
 
     assert.equal(after, '20px', 'the preview must come down when it is answered');
@@ -161,9 +169,7 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
       const from = await offer(dir);
       await page.waitForSelector('.ayna-ov-preview-bar', { timeout: 10000 });
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(700);
-      const { eventsSince, openDb } = await import('../src/db.mjs');
-      answer = eventsSince(await openDb(dir), from).find((e) => e.event === 'preview-rejected');
+      answer = await answered(dir, from, 'preview-rejected');
     });
     assert.ok(answer, 'a refusal is an answer and has to travel too');
     assert.equal(answer.css, null, 'nothing to write when nothing was chosen');
@@ -213,11 +219,12 @@ describe('asking for a design direction', { skip: !hasBrowser && 'AYNA_SKIP_BROW
         onReady: async (page) => {
           await page.click('#c0 h3');
           await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
-          await page.waitForTimeout(300);
           offered = await page.$$eval('.ayna-ov-act', (els) => els.map((e) => e.dataset.action));
           if (note) await page.fill('.ayna-ov-pop textarea', note);
           await page.click(`.ayna-ov-act[data-action=${action}]`);
-          await page.waitForTimeout(500);
+          // The box closes once Node has the request; the log write follows it.
+          await page.waitForSelector('.ayna-ov-pop', { state: 'detached', timeout: 5000 }).catch(() => {});
+          await eventually(async () => (await pendingEvents(dir)).events.some((e) => e.event === 'design-request')).catch(() => {});
           await page.close();
         },
       });
@@ -292,7 +299,8 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
         store: await openStore(dir),
         viewport: { width: 390, height: 844 },
         onReady: async (page) => {
-          await page.waitForTimeout(900);
+          await page.waitForSelector('.ayna-ov-bar [data-act=send]');
+          await frames(page);
           seen.open = await page.evaluate(() => {
             const r = (s) => document.querySelector(s)?.getBoundingClientRect();
             const shown = (s) => {
@@ -319,12 +327,15 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
           });
           await page.fill('.ayna-ov-pop textarea', 'tighter');
           await page.click('.ayna-ov-save');
-          await page.waitForTimeout(400);
+          await page.waitForFunction(async () => (await window.__aynaCount()) === 1, null, { polling: 50, timeout: 10000 });
           await page.click('[data-act=send]');
-          await page.waitForTimeout(600);
+          // The round must be open before the marker: opening it clears any earlier one.
+          await page.waitForSelector('.ayna-ov-round[data-state=waiting]', { state: 'attached', timeout: 10000 });
           await writeFile(path.join(dir, 'out', 'applied'), '1');
           await page.waitForSelector('[data-act=overflow]', { state: 'visible', timeout: 20000 });
-          await page.waitForTimeout(800);
+          // The reloaded rail has read the round back, so the bar knows it is your turn.
+          await page.waitForSelector('.ayna-ov-round[data-state=ready]', { state: 'attached', timeout: 10000 });
+          await frames(page);
 
           const visible = (s) => page.evaluate((s) => {
             const el = document.querySelector(s);
@@ -344,7 +355,8 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
 
           seen.dot = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-activity-dot')).display);
           await page.click('.ayna-ov-bar [data-act=activity]');
-          await page.waitForTimeout(600);
+          await page.waitForSelector('.ayna-ov-console.ayna-ov-open');
+          await frames(page);
           seen.sheet = await page.evaluate(() => {
             const r = document.querySelector('.ayna-ov-console').getBoundingClientRect();
             const bar = document.querySelector('.ayna-ov-bar').getBoundingClientRect();
@@ -361,12 +373,12 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
             };
           });
           await page.mouse.click(380, 400); // the backdrop, beside the drawer
-          await page.waitForTimeout(300);
+          await page.waitForSelector('.ayna-ov-console', { state: 'hidden', timeout: 2000 }).catch(() => {});
           seen.closed = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-console')).display);
           await page.click('.ayna-ov-bar [data-act=activity]');
-          await page.waitForTimeout(300);
+          await page.waitForSelector('.ayna-ov-console.ayna-ov-open');
           await page.keyboard.press('Escape');
-          await page.waitForTimeout(300);
+          await page.waitForSelector('.ayna-ov-console', { state: 'hidden', timeout: 2000 }).catch(() => {});
           seen.escaped = await page.evaluate(() => getComputedStyle(document.querySelector('.ayna-ov-console')).display);
           await page.close();
         },

@@ -9,6 +9,7 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,7 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -67,33 +68,43 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
     something that had happened. There are now three ways out, and all three must
     keep working, because the failure is indistinguishable from Claude being slow.
   */
-  async function reachesReview(escape) {
+  async function reachesReview(escape, { within = 20000 } = {}) {
     const { srv, url } = await pollingServer('<h1 class="title">Hello</h1>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-wait-'));
+    const out = path.join(dir, 'out');
+    const events = [];
     try {
       await writeFile(path.join(dir, 'app.css'), 'h1{font-size:20px}');
       let reached = false;
       await runAnnotate({
         browser,
         url,
-        outDir: path.join(dir, 'out'),
+        outDir: out,
         projectDir: dir,
         viewport: { width: 1000, height: 700 },
+        onEvent: (e) => events.push(e),
         onReady: async (page) => {
           await page.click('.title');
           await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
           await page.fill('.ayna-ov-pop textarea', 'make it bigger');
           await page.click('.ayna-ov-save');
-          await page.waitForTimeout(300);
+          await eventually(() => existsSync(path.join(out, 'comment-01', 'comment.json')), {
+            timeout: 10000,
+            message: 'the comment was never saved',
+          });
           await page.click('[data-act=send]');
           await page.waitForSelector('.ayna-ov-waiting', { timeout: 10000 });
-          await page.waitForTimeout(400);
+          // The round is announced once the project is snapshotted and watched.
+          await eventually(() => events.some((e) => e.event === 'round'), {
+            timeout: 10000,
+            message: 'the round was never announced',
+          });
 
           await escape(page, dir);
 
           reached = await page
-            .waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
-              timeout: 20000,
+            .waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
+              timeout: within,
             })
             .then(() => true)
             .catch(() => false);
@@ -135,8 +146,8 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
       await mkdir(path.join(dir, '.ayna'), { recursive: true });
       await writeFile(path.join(dir, '.ayna', 'noise.json'), '{"a":1}');
       await writeFile(path.join(dir, 'node_modules-ish.txt'), 'not source');
-      await new Promise((r) => setTimeout(r, 3500));
-    });
+      // A counted write ends the wait in ~3.5s: 1.8s of quiet, a 300ms poll, the reload.
+    }, { within: 6000 });
     assert.equal(reached, false, 'writing under .ayna must not be read as an applied fix');
   });
 });

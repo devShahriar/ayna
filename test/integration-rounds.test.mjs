@@ -14,7 +14,17 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// The pin shows at once; the comment is stored once the Tasks count includes it.
+const saved = (page, n) =>
+  page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
+// Send returns before Node has cleared old markers; status.json says when it has.
+const sent = (out) =>
+  eventually(
+    async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase === 'awaiting-claude',
+    { timeout: 10000 },
+  );
 
 describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -41,31 +51,33 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
           projectDir: site,
           viewport: { width: 1100, height: 700 },
           onReady: async (page) => {
+            // Only the round's own comment is pending: round one is approved by then.
             const add = async (sel, txt) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', txt);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(450);
+              await saved(page, 1);
             };
+            const settle = (check) => eventually(async () => check(await phase())).catch(() => {});
 
             await add('.title', 'round one');
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             assert.equal((await phase()).round, 1);
 
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
-            await page.waitForTimeout(400);
+            await page.waitForSelector('.ayna-ov-revbar .ayna-ov-ok');
             await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-ok');
-            await page.waitForTimeout(400);
+            await settle((p) => p.resolved === 1);
             assert.equal((await phase()).resolved, 1);
 
             // Same window, another round.
             await press(page, 'more');
-            await page.waitForTimeout(400);
+            await settle((p) => p.phase === 'commenting');
             assert.equal((await phase()).phase, 'commenting');
             assert.equal(
               await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
@@ -75,7 +87,7 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
 
             await add('.lede', 'round two');
             await page.click('[data-act=send]');
-            await page.waitForTimeout(400);
+            await settle((p) => p.phase === 'awaiting-claude');
 
             const p = await phase();
             assert.equal(p.phase, 'awaiting-claude', 'the new round is announced');
@@ -153,7 +165,11 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
               { width: 480, height: 820 }, // narrow and tall
             ]) {
               await page.setViewportSize(size);
-              await page.waitForTimeout(350);
+              // Relayout runs on the next frame and settles 120ms after the last resize.
+              await eventually(async () => {
+                const b = await inspect(page, '.ayna-ov-pop');
+                return b.onScreen && b.clearOfBar && (await clickable(page, '.ayna-ov-save'));
+              }, { timeout: 2000 }).catch(() => {});
               const box = await inspect(page, '.ayna-ov-pop');
               assert.ok(box.onScreen, `comment box on screen at ${size.width}x${size.height}`);
               assert.ok(box.clearOfBar, `comment box clear of the bar at ${size.width}x${size.height}`);
@@ -192,14 +208,14 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'x');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            await page.waitForTimeout(400);
+            await page.waitForSelector('.ayna-ov-rev', { state: 'attached' });
 
             const boxOf = () =>
               page.evaluate(() => {
@@ -212,9 +228,12 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
             assert.ok(Math.abs(before.markerLeft - before.targetLeft) < 6, 'marker starts aligned');
 
             await page.setViewportSize({ width: 700, height: 900 });
-            await page.waitForTimeout(500);
-
-            const after = await boxOf();
+            // Repositioned on the next frame, re-rendered 200ms after; mid-render there is no marker.
+            const aligned = async () => {
+              const b = await boxOf();
+              return Math.abs(b.markerLeft - b.targetLeft) < 6 && b;
+            };
+            const after = await eventually(aligned, { timeout: 2000 }).catch(boxOf);
             assert.ok(
               Math.abs(after.markerLeft - after.targetLeft) < 6,
               'marker followed the element after the resize instead of staying put',
@@ -279,7 +298,7 @@ describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () =
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'home heading too big');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(600);
+            await saved(page, 2).catch(() => {});
 
             assert.match(
               await page.evaluate(() => document.querySelector('[data-act=tasks]').getAttribute('aria-label')),
@@ -302,7 +321,9 @@ describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () =
             );
 
             await page.click('.ayna-ov-task .ayna-ov-task-acts button[data-act=ok]');
-            await page.waitForTimeout(700);
+            await eventually(async () =>
+              (await store.list()).some((t) => t.comment === 'home heading too big' && t.status === 'approved'),
+            ).catch(() => {});
             await page.close();
           },
         });
@@ -357,9 +378,10 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
           viewport: { width: 1100, height: 700 },
           onEvent: (e) => events.push(e),
           onReady: async (page) => {
-            await page.waitForTimeout(500);
             await page.evaluate(() => window.__aynaReview && window.__aynaReview());
-            await page.waitForTimeout(600);
+            await page
+              .waitForFunction(() => document.querySelectorAll('.ayna-ov-rev').length >= 2, null, { timeout: 5000 })
+              .catch(() => {});
 
             assert.deepEqual(
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
@@ -381,15 +403,20 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-card button')].map((b) => b.textContent)),
               ['Leave it', 'Go ahead'],
             );
+            // Answering re-renders the markers; click one of the new ones, not a doomed old one.
+            await page.evaluate(() => document.querySelectorAll('.ayna-ov-revbar').forEach((n) => (n.__stale = true)));
             await page.click('[data-act=go]');
-            await page.waitForTimeout(500);
+            await page.waitForFunction(() => {
+              const bars = [...document.querySelectorAll('.ayna-ov-revbar')];
+              return bars.length === 2 && bars.every((n) => !n.__stale);
+            }, null, { timeout: 5000 });
 
             // The second one: redirect it instead of accepting it.
             await page.click('.ayna-ov-revbar >> nth=1 >> .ayna-ov-revpin');
             await page.waitForSelector('.ayna-ov-card textarea');
             await page.fill('.ayna-ov-card textarea', 'no — hide it on mobile instead');
             await page.click('[data-act=go]');
-            await page.waitForTimeout(600);
+            await eventually(() => events.filter((e) => e.event === 'task').length >= 2).catch(() => {});
             await page.close();
           },
         });
@@ -461,8 +488,7 @@ describe('auditing the window that is already open', { skip: !hasBrowser && 'AYN
               const res = path.join(out, 'audit-live.json');
               await (await import('node:fs/promises')).rm(res, { force: true });
               await writeFile(path.join(out, 'audit-request'), '1');
-              const deadline = Date.now() + 20000;
-              while (Date.now() < deadline && !existsSync(res)) await page.waitForTimeout(200);
+              await eventually(() => existsSync(res), { timeout: 20000 }).catch(() => {});
               return JSON.parse(await readFile(res, 'utf8'));
             };
 
@@ -472,7 +498,7 @@ describe('auditing the window that is already open', { skip: !hasBrowser && 'AYN
             // The user switches to Browse and clicks into the state where things collide.
             await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('#go');
-            await page.waitForTimeout(400);
+            await page.waitForSelector('#deploy');
 
             const after = await askForAudit();
             assert.equal(

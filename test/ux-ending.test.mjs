@@ -9,6 +9,7 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,7 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -51,6 +52,19 @@ const cards = (n) =>
   Array.from({ length: n }, (_, i) => `<div class="card" id="c${i}"><h3>Card ${i}</h3><button>Go ${i}</button></div>`).join('');
 const CARD_CSS = '<style>.card{border:1px solid #ccc;padding:10px;margin:6px}</style>';
 
+const progress = (page) => page.evaluate(() => document.querySelector('.ayna-ov-progress')?.textContent ?? '');
+
+/** Press a verdict and wait for the bar to count it. */
+async function judge(page, button) {
+  const before = await progress(page);
+  await button.click({ timeout: 5000 });
+  await page.waitForFunction(
+    (was) => (document.querySelector('.ayna-ov-progress')?.textContent ?? '') !== was,
+    before,
+    { timeout: 5000 },
+  );
+}
+
 describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
   beforeEach(async () => {
@@ -64,13 +78,18 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
   async function reviewing(run, { wideText = false } = {}) {
     const { srv, url } = await pollingServer('<h1 class="a">Right at the top</h1><p class="b">Two</p>');
     const dir = await mkdtemp(path.join(tmpdir(), 'ayna-end-'));
+    const out = path.join(dir, 'out');
+    const events = [];
+    const heard = (name) =>
+      eventually(() => events.some((e) => e.event === name), { timeout: 20000, message: `no ${name} event` });
     try {
       await runAnnotate({
         browser,
         url,
-        outDir: path.join(dir, 'out'),
+        outDir: out,
         projectDir: dir,
         viewport: { width: 1000, height: 700 },
+        onEvent: (e) => events.push(e),
         onReady: async (page) => {
           if (wideText) {
             // Wider text than the bar's widths were measured with, from the first
@@ -83,20 +102,28 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
             }), css);
             await page.addStyleTag({ content: css });
           }
-          for (const [sel, text] of [['.a', 'first'], ['.b', 'second']]) {
+          for (const [n, sel, text] of [[1, '.a', 'first'], [2, '.b', 'second']]) {
             await page.click(sel);
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 10000 });
             await page.fill('.ayna-ov-pop textarea', text);
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(250);
+            await eventually(() => existsSync(path.join(out, `comment-0${n}`, 'comment.json')), {
+              timeout: 10000,
+              message: `comment ${n} was never saved`,
+            });
           }
           await page.click('[data-act=send]');
-          await page.waitForTimeout(300);
-          await writeFile(path.join(dir, 'out', 'applied'), '1');
-          await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
-            timeout: 20000,
-          });
-          await page.waitForTimeout(500);
+          // Sending clears any old marker, so it is written only once the round is out.
+          await heard('round');
+          await writeFile(path.join(out, 'applied'), '1');
+          await heard('gate');
+          await page.waitForFunction(
+            () =>
+              document.querySelectorAll('.ayna-ov-revbar').length === 2 &&
+              document.querySelector('.ayna-ov-progress')?.textContent,
+            null,
+            { timeout: 20000 },
+          );
           await run(page);
           if (!page.isClosed()) {
             await press(page, 'close');
@@ -130,9 +157,8 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
       for (const bar of await page.$$('.ayna-ov-revbar')) {
         const ok = await bar.$('.ayna-ov-ok');
         if (!ok) continue;
-        await ok.click({ timeout: 5000 });
+        await judge(page, ok);
         clicked += 1;
-        await page.waitForTimeout(300);
       }
     });
     assert.equal(hidden, 0, 'a verdict bar was behind the review bar');
@@ -179,8 +205,8 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     await reviewing(async (page) => {
       labels.push(await page.evaluate(() => document.querySelector('[data-act=close]').textContent));
       for (const bar of await page.$$('.ayna-ov-revbar')) {
-        await bar.$('.ayna-ov-ok').then((b) => b?.click());
-        await page.waitForTimeout(300);
+        const ok = await bar.$('.ayna-ov-ok');
+        if (ok) await judge(page, ok);
       }
       labels.push(await page.evaluate(() => document.querySelector('[data-act=close]').textContent));
       labels.push(await page.evaluate(() => document.querySelector('.ayna-ov-progress').textContent));
@@ -203,11 +229,12 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
     let ended = null;
     await reviewing(async (page) => {
       await press(page, 'close');
-      await page.waitForTimeout(400);
+      const pressed = Date.now();
+      await page.waitForSelector('[data-act=stay]', { timeout: 5000 });
       midway = await page.evaluate(() => document.querySelector('.ayna-ov-hint')?.textContent);
       await page.click('[data-act=stay]');
-      // Past the 1.5s countdown, which Node holds: Stay has to cancel it there.
-      await page.waitForTimeout(2200);
+      // Past the 1.5s countdown, which Node holds, and the 300ms poll that closes the window.
+      await page.waitForTimeout(Math.max(0, pressed + 2200 - Date.now()));
       stillOpen = !page.isClosed();
 
       await press(page, 'close');

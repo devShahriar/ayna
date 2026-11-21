@@ -14,7 +14,14 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// The pin shows at once; the comment is stored once the Tasks count includes it.
+const saved = (page, n) =>
+  page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
+// Send returns before Node has cleared old markers; status.json says when it has.
+const phaseOf = async (out) => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
+const sent = (out) => eventually(async () => (await phaseOf(out)) === 'awaiting-claude', { timeout: 10000 });
 
 describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -44,9 +51,9 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'too big');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(700);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(400);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
             await page.waitForFunction(
               () => document.querySelector('[data-act=close]') !== null,
@@ -92,22 +99,21 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
           projectDir: site,
           viewport: { width: 1200, height: 800 },
           onReady: async (page) => {
-            const phase = async () =>
-              JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
+            const phase = () => phaseOf(out);
 
             await page.click('.title');
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'x');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(700);
+            await saved(page, 1);
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(400);
+            await sent(out);
             phases.push(await phase());
             assert.equal(page.isClosed(), false, 'window must stay open after send');
 
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             phases.push(await phase());
@@ -150,12 +156,14 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'x');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(700);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(700);
-            phaseAfterSend = JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
+            await sent(out);
+            // Two 300ms watch ticks: a stale marker would have been acted on by now.
+            await page.waitForTimeout(600);
+            phaseAfterSend = await phaseOf(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             await press(page, 'close');
@@ -206,12 +214,14 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
       await fixtureSite(site);
       const { page, cleanup } = await overlayPage(site, 4520);
       try {
+        const tag = () => page.evaluate(() => document.querySelector('.ayna-ov-tag b')?.textContent);
         await page.hover('.list li:nth-of-type(2)');
-        await page.waitForTimeout(150);
-        const before = await page.evaluate(() => document.querySelector('.ayna-ov-tag b')?.textContent);
+        const before = await eventually(tag);
         await page.keyboard.press('ArrowUp');
-        await page.waitForTimeout(120);
-        const after = await page.evaluate(() => document.querySelector('.ayna-ov-tag b')?.textContent);
+        const after = await eventually(async () => {
+          const t = await tag();
+          return t !== before && t;
+        }).catch(tag);
         assert.equal(before, 'li');
         assert.equal(after, 'ul.list', 'ArrowUp selects the parent');
       } finally {
@@ -235,7 +245,7 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
         await page.waitForSelector('.ayna-ov-pop textarea');
         await page.fill('.ayna-ov-pop textarea', 'align these');
         await page.click('.ayna-ov-save');
-        await page.waitForTimeout(400);
+        await eventually(() => submissions.length > 0);
 
         assert.equal(submissions.length, 1);
         assert.equal(submissions[0].elements.length, 3, 'all three carried in one comment');
@@ -265,9 +275,8 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
         await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
         await page.mouse.down();
         await page.mouse.move(dst.x + 4, dst.y + 2, { steps: 10 });
-        await page.waitForTimeout(150);
         await page.mouse.up();
-        await page.waitForTimeout(400);
+        await eventually(() => submissions.length > 0);
 
         assert.deepEqual(await order(), ['three', 'one', 'two'], 'DOM reordered live');
         const move = submissions.at(-1);
@@ -299,7 +308,9 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
         await page.waitForSelector('.ayna-ov-pop textarea');
         await page.fill('.ayna-ov-pop textarea', 'x');
         await page.click('.ayna-ov-save');
-        await page.waitForTimeout(400);
+        await page
+          .waitForFunction(() => !document.querySelector('[data-act=send]').disabled, null, { timeout: 5000 })
+          .catch(() => {});
         assert.equal(
           await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
           false,
@@ -364,20 +375,19 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.mouse.move(Math.max(box.x - 6, rail + 8), box.y - 6);
             await page.mouse.down();
             await page.mouse.move(box.x + box.width + 6, box.y + box.height + 6, { steps: 12 });
-            await page.waitForTimeout(150);
             await page.mouse.up();
 
             await page.waitForSelector('.ayna-ov-pop textarea', { timeout: 5000 });
             await page.setInputFiles('.ayna-ov-attach input', ref);
-            await page.waitForTimeout(300);
+            await page.waitForSelector('.ayna-ov-thumbs img');
             await page.fill('.ayna-ov-pop textarea', 'this block is cramped');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(700);
+            await saved(page, 1);
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             await press(page, 'close');
@@ -419,11 +429,11 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'tighten this');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(600);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             await press(page, 'close');
@@ -464,12 +474,13 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
           projectDir: site,
           viewport: { width: 1200, height: 800 },
           onReady: async (page) => {
+            let added = 0;
             const add = async (sel, text) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', text);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(500);
+              await saved(page, ++added);
             };
             await add('.title', 'first');
             await add('.lede', 'second');
@@ -478,7 +489,7 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
 
             // Remove the middle one.
             await page.click('.ayna-ov-pin >> nth=1');
-            await page.waitForTimeout(500);
+            await saved(page, 2);
             assert.equal(await page.evaluate(() => document.querySelectorAll('.ayna-ov-pin').length), 2);
             assert.deepEqual(
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-pin b')].map((b) => b.textContent)),
@@ -492,9 +503,9 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
             );
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
             await press(page, 'close');
@@ -531,11 +542,11 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'only one');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
             assert.equal(await page.evaluate(() => document.querySelector('[data-act=send]').disabled), false);
 
             await page.click('.ayna-ov-pin');
-            await page.waitForTimeout(500);
+            await page.waitForSelector('.ayna-ov-pin', { state: 'detached', timeout: 5000 }).catch(() => {});
             assert.equal(
               await page.evaluate(() => document.querySelector('[data-act=send]').disabled),
               true,
@@ -577,23 +588,27 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
           projectDir: site,
           viewport: { width: 1200, height: 800 },
           onReady: async (page) => {
+            let added = 0;
             const add = async (sel, txt) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', txt);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(450);
+              await saved(page, ++added);
             };
             await add('.title', 'headline too big');
             await add('.lede', 'body copy cramped');
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
-            await page.waitForTimeout(500);
+            // The markers are drawn, then the progress line is filled in.
+            await page.waitForFunction(() => document.querySelector('.ayna-ov-progress')?.textContent, null, {
+              timeout: 5000,
+            });
 
             assert.equal(
               await page.evaluate(() => document.querySelectorAll('.ayna-ov-rev').length),
@@ -608,9 +623,14 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
             // Approve the first, send the second back.
             // The verdict buttons sit on each changed element — no card needed.
             await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-ok');
-            await page.waitForTimeout(350);
+            await page.waitForSelector('.ayna-ov-rev[data-status=approved]', { state: 'attached' });
             await page.click('.ayna-ov-revbar >> nth=1 >> .ayna-ov-no');
-            await page.waitForTimeout(350);
+            await page.waitForSelector('.ayna-ov-rev[data-status=rejected]', { state: 'attached' });
+            await page
+              .waitForFunction(() => /^1 left/.test(document.querySelector('.ayna-ov-progress').textContent), null, {
+                timeout: 5000,
+              })
+              .catch(() => {});
 
             assert.deepEqual(
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-rev')].map((n) => n.dataset.status)),
@@ -691,7 +711,7 @@ describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set'
             await page.click('.title');
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.click('.ayna-ov-cancel');
-            await page.waitForTimeout(250);
+            await page.waitForSelector('.ayna-ov-pop', { state: 'detached' });
             assert.equal(
               await page.evaluate(() => document.querySelectorAll('.ayna-ov-picked').length),
               0,
@@ -707,10 +727,10 @@ describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set'
             );
             await page.fill('.ayna-ov-pop textarea', 'just this one');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
 
             await page.click('[data-act=send]');
-            await page.waitForTimeout(300);
+            await sent(out);
             await page.close();
           },
         });
@@ -763,7 +783,7 @@ describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set'
               });
               assert.ok(fits, `comment box fully visible for ${sel}`);
               await page.click('.ayna-ov-cancel');
-              await page.waitForTimeout(200);
+              await page.waitForSelector('.ayna-ov-pop', { state: 'detached' });
             }
             await page.close();
           },

@@ -14,7 +14,21 @@ import { fileURLToPath } from 'node:url';
 import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runAnnotate, cropRegion } from '../src/annotate.mjs';
-import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+
+// The window holds `count` notes: __aynaSubmit has finished, so a Send after this carries them.
+const saved = (page, count) =>
+  eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= count, {
+    timeout: 10000,
+    message: `the window never held ${count} note(s)`,
+  });
+
+// Round `round` is open: the baseline and snapshot are taken and old markers cleared.
+const sent = (out, round) =>
+  eventually(async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).round >= round, {
+    timeout: 10000,
+    message: `round ${round} was never sent`,
+  });
 
 describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
@@ -62,31 +76,40 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           projectDir: dir,
           viewport: { width: 1100, height: 700 },
           onReady: async (page) => {
-            const add = async (sel, txt) => {
+            const add = async (sel, txt, count) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', txt);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(400);
+              await saved(page, count);
             };
 
-            await add('.title', 'round one');
+            await add('.title', 'round one', 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(400);
+            await sent(out, 1);
 
             // The only waiting command an agent runs after finishing its edits.
             const pending = applied();
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            await page.waitForTimeout(500);
+            // `applied` has read the current round once its heartbeat is in.
+            const { openDb } = await import('../src/db.mjs');
+            const db = await openDb(dir);
+            try {
+              await eventually(() => db.prepare("SELECT 1 FROM cursors WHERE consumer LIKE 'listen:%'").get(), {
+                timeout: 15000,
+                message: '`ayna applied` never started following',
+              });
+            } finally {
+              db.close();
+            }
 
             // A second round, with nothing re-armed in between.
             await press(page, 'more');
-            await page.waitForTimeout(400);
-            await add('.lede', 'round two');
+            await page.waitForSelector('[data-act=send]');
+            await add('.lede', 'round two', 2);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(700);
 
             returned = await pending;
             await page.close();
@@ -121,32 +144,34 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           viewport: { width: 1100, height: 700 },
           onEvent: (e) => events.push(e),
           onReady: async (page) => {
-            const add = async (sel, txt) => {
+            const add = async (sel, txt, count) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', txt);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(400);
+              await saved(page, count);
             };
+            const heard = (kind, n = 1) =>
+              eventually(() => events.filter((e) => e.event === kind).length >= n, { message: `no ${kind} event` });
 
-            await add('.title', 'round one');
+            await add('.title', 'round one', 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(500);
+            await sent(out, 1);
 
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            await page.waitForTimeout(400);
+            await heard('gate');
 
             await page.click('.ayna-ov-revbar >> nth=0 >> .ayna-ov-no');
-            await page.waitForTimeout(400);
+            await heard('rejected');
 
             await press(page, 'more');
-            await page.waitForTimeout(400);
-            await add('.lede', 'round two');
+            await page.waitForSelector('[data-act=send]');
+            await add('.lede', 'round two', 2);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(600);
+            await heard('round', 2);
             await page.close();
           },
         });
@@ -207,9 +232,9 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'tighten this');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(500);
+            await sent(out, 1);
 
             // A dev server's hot reload: the page restyles itself before ayna looks.
             await page.evaluate(() => {
@@ -218,15 +243,14 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
               document.head.append(s);
             });
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, {
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            await page.waitForTimeout(400);
+            await eventually(() => events.some((e) => e.event === 'gate'), { message: 'no gate event' });
 
             // "Needs work", then "Needs work" again on the same note.
             await page.evaluate(() => window.__aynaResolve(1, 'rejected'));
             await page.evaluate(() => window.__aynaResolve(1, 'rejected'));
-            await page.waitForTimeout(300);
             await page.close();
           },
         });
@@ -276,16 +300,18 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           await page.waitForSelector('.ayna-ov-pop textarea');
           await page.fill('.ayna-ov-pop textarea', 'tighten this');
           await page.click('.ayna-ov-save');
-          await page.waitForTimeout(400);
+          await saved(page, 1);
           await page.click('[data-act=send]');
-          await page.waitForTimeout(500);
+          await sent(path.join(dir, 'out-1'), 1);
           await page.close();
         });
 
         let seen = null;
         await open(path.join(dir, 'out-2'), async (page) => {
-          await page.waitForFunction(() => !document.querySelector('.ayna-ov-earlier')?.hidden, null, { timeout: 10000 });
-          await page.waitForTimeout(1200); // a couple of feed polls
+          await page.waitForFunction(() => document.querySelector('.ayna-ov-earlier')?.hidden === false, null, {
+            timeout: 10000,
+          });
+          await page.waitForTimeout(1200); // the feed polls every 1s: a leaked row would be drawn by now
           seen = await page.evaluate(() => ({
             earlier: document.querySelector('.ayna-ov-earlier span').textContent,
             log: document.querySelector('.ayna-ov-console-lines').textContent,
@@ -328,14 +354,14 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           viewport: { width: 1100, height: 700 },
           onEvent: (e) => events.push(e),
           onReady: async (page) => {
-            const send = async (sel, txt) => {
+            const send = async (sel, txt, n) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
               await page.fill('.ayna-ov-pop textarea', txt);
               await page.click('.ayna-ov-save');
-              await page.waitForTimeout(400);
+              await saved(page, n);
               await page.click('[data-act=send]');
-              await page.waitForTimeout(600);
+              await sent(out, n);
             };
             const checkLine = async (n) => {
               await page.waitForFunction(
@@ -350,14 +376,14 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             };
 
             // Round 1 changes nothing measurable.
-            await send('.title', 'tighten this');
+            await send('.title', 'tighten this', 1);
             await writeFile(path.join(out, 'applied'), '1');
             said.push(await checkLine(1));
 
             // Round 2 brings a second line of tiny text with it.
             await press(page, 'more');
-            await page.waitForTimeout(400);
-            await send('.lede', 'add a disclaimer');
+            await page.waitForSelector('[data-act=send]');
+            await send('.lede', 'add a disclaimer', 2);
             const html = path.join(site, 'index.html');
             const page2 = (await readFile(html, 'utf8')).replace(
               '</main>',
@@ -416,9 +442,9 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'tighten the headline');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(600);
+            await sent(out, 1);
 
             // Claude's edit, and a file it saved without changing.
             await writeFile(css, original + '.title{letter-spacing:-0.02em}\n');
@@ -524,15 +550,19 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'written here');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 2); // with the one carried in
             await page.click('[data-act=send]');
-            await page.waitForTimeout(600);
+            await sent(out, 1);
             await writeFile(path.join(out, 'applied'), '1');
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
 
             // A note filed from outside the window while this one is open.
             await store.create({ comment: 'filed by the CLI', url: server.url });
-            await page.waitForTimeout(1500);
+            await page.waitForFunction(
+              () => [...document.querySelectorAll('.ayna-ov-item > span')].some((s) => s.textContent === 'filed by the CLI'),
+              null,
+              { timeout: 10000 },
+            );
             seen.outside = await page.evaluate(() =>
               [...document.querySelectorAll('.ayna-ov-item')]
                 .map((n) => n.querySelector('span').textContent + ' | ' + (n.querySelector('small')?.textContent ?? ''))
@@ -545,11 +575,24 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             );
 
             // Only the note written here is judged: the carried one still waits.
+            const approvals = (n) =>
+              page.waitForFunction(
+                (n) =>
+                  [...document.querySelectorAll('.ayna-ov-round .ayna-ov-item[data-lane=you] > span')].filter(
+                    (s) => s.textContent === 'Approved',
+                  ).length >= n,
+                n,
+                { timeout: 10000 },
+              );
             await page.evaluate(() => window.__aynaResolve(2, 'approved'));
-            await page.waitForTimeout(1300);
+            await approvals(1); // the card has drawn this verdict, so its pill is final for it
             seen.half = await card();
             await page.evaluate(() => window.__aynaResolve(1, 'approved'));
-            await page.waitForTimeout(1300);
+            await page
+              .waitForFunction(() => document.querySelector('.ayna-ov-round .ayna-ov-pill')?.textContent === 'Approved', null, {
+                timeout: 10000,
+              })
+              .catch(() => {});
             seen.all = await card();
             await page.close();
           },
@@ -587,7 +630,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForSelector('.ayna-ov-pop textarea');
             await page.fill('.ayna-ov-pop textarea', 'tighten this');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(500);
+            await saved(page, 1);
             const png = await readFile(path.join(out, 'comment-01', 'region.png'));
             // Count pixels in ayna's accent orange — the selection box, its label
             // and the numbered pin. The fixture's headline is dark text on white.
@@ -652,7 +695,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             // and it is genuinely clickable
             await page.fill('.ayna-ov-pop textarea', 'reachable');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 1);
             assert.equal(await page.evaluate(() => document.querySelectorAll('.ayna-ov-pin').length), 1);
             await page.close();
           },
@@ -706,21 +749,33 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
               }));
             await page.click('.title');
             await page.waitForSelector('.ayna-ov-pop textarea');
+            // The label is rechecked every 2s and the chips every 1s; a miss falls through to the asserts.
+            const shows = (says, chips) =>
+              page
+                .waitForFunction(
+                  ([says, chips]) =>
+                    new RegExp(says).test(document.querySelector('.ayna-ov-waiting')?.textContent ?? '') &&
+                    [...document.querySelectorAll('.ayna-ov-agent')].map((c) => c.textContent).join() === chips,
+                  [says, chips],
+                  { timeout: 8000 },
+                )
+                .catch(() => {});
             await page.fill('.ayna-ov-pop textarea', 'tighten this');
             await page.click('.ayna-ov-save');
-            await page.waitForTimeout(400);
+            await saved(page, 1);
             await page.click('[data-act=send]');
-            await page.waitForTimeout(2600);
+            await shows('no Claude session is listening', '');
+            await page.waitForTimeout(1200); // one chip refresh (1s) past the label: an empty strip is not just stale
             seen.nobody = await bar();
 
             // Claude starts listening: `ayna wait` hears the round, and its heartbeat says so.
             seen.wait = await ayna('wait');
-            await page.waitForTimeout(2600);
+            await shows('waiting for Claude to pick this up', 'claudelistening');
             seen.listening = await bar();
 
             // Reading the round's notes is picking it up.
             await ayna('comments', '--json');
-            await page.waitForTimeout(2600);
+            await shows('Claude has picked this up', 'claudeworking');
             seen.pickedUp = await bar();
             await page.close();
           },

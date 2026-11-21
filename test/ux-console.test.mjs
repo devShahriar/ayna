@@ -17,7 +17,7 @@ import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser, press, launchBrowser } from './helpers.mjs';
+import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {
@@ -84,7 +84,8 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
         agent: { tool: 'claude', agentId: 'claude:test', agentPid: process.pid, how: 'env:CLAUDE_CODE_SESSION_ID' },
         viewport: { width: 1200, height: 800 },
         onReady: async (page) => {
-          await page.waitForTimeout(900);
+          await page.waitForSelector('.ayna-ov-console .ayna-ov-console-lines');
+          await frames(page);
           await run(page, dir);
           await page.close();
         },
@@ -94,6 +95,16 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       await rm(dir, { recursive: true, force: true });
     }
   }
+
+  // Two frames: layout, observers and anything queued on rAF have all run.
+  const frames = (page) =>
+    page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+  // Until the rail shows `text` (it polls Node about once a second). A miss is left to the assertions.
+  const railShows = (page, text, sel = '.ayna-ov-console') =>
+    page
+      .waitForFunction(([s, t]) => [...document.querySelectorAll(s)].some((n) => n.textContent.includes(t)), [sel, text], { timeout: 5000 })
+      .catch(() => {});
 
   // The console is a rail down the left now, so the edge that can be covered is
   // the page's left one, not its bottom.
@@ -110,13 +121,14 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     await page.waitForSelector('.ayna-ov-pop textarea');
     await page.fill('.ayna-ov-pop textarea', text);
     await page.click('.ayna-ov-save');
-    await page.waitForTimeout(400);
+    await railShows(page, text, '.ayna-ov-round .ayna-ov-item');
   };
 
   // Send what is noted, have it land, and approve it: round 1, settled.
   const approvedRound = async (page, dir) => {
     await page.click('[data-act=send]');
-    await page.waitForTimeout(600);
+    // The round must be open before the marker: opening it clears any earlier one.
+    await page.waitForSelector('.ayna-ov-round[data-state=waiting]', { timeout: 10000 });
     await writeFile(path.join(dir, 'out', 'applied'), '1');
     await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
     await page.evaluate(() => window.__aynaResolve(1, 'approved'));
@@ -136,16 +148,23 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       };
     });
 
+  // The newest card once `ok` holds of it, or as it stands when time runs out.
+  const cardWhen = async (page, ok, timeout = 10000) => {
+    let c;
+    await eventually(async () => (c = await lastCard(page)) && ok(c), { timeout }).catch(() => {});
+    return c;
+  };
+
   test('carries both sides of the conversation', async () => {
     const lines = [];
     await withConsole(async (page, dir) => {
       const { appendEvent, openDb } = await import('../src/db.mjs');
       appendEvent(await openDb(dir), { event: 'message', from: 'claude', text: 'starting on the nav now' });
-      await page.waitForTimeout(1500);
+      await railShows(page, 'starting on the nav now', '.ayna-ov-line');
 
       await page.fill('.ayna-ov-console input', 'make it wider too');
       await page.click('[data-act=say]');
-      await page.waitForTimeout(1300);
+      await railShows(page, 'make it wider too', '.ayna-ov-line');
 
       lines.push(...(await page.evaluate(() =>
         [...document.querySelectorAll('.ayna-ov-line')].map((n) => n.dataset.kind + ':' + n.querySelector('span').textContent),
@@ -163,7 +182,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     let brand = null;
     let head = null;
     await withConsole(async (page, dir) => {
-      const card = () => lastCard(page);
+      const card = (ok) => cardWhen(page, ok);
 
       // innerText, not textContent: it is the name as drawn, after any CSS case change.
       brand = await page.evaluate(() => document.querySelector('.ayna-ov-brand').innerText);
@@ -171,12 +190,10 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       await page.waitForSelector('.ayna-ov-pop textarea');
       await page.fill('.ayna-ov-pop textarea', 'make it bigger');
       await page.click('.ayna-ov-save');
-      await page.waitForTimeout(1300);
-      seen.push(await card());
+      seen.push(await card((c) => c.lines.length));
 
       await page.click('[data-act=send]');
-      await page.waitForTimeout(1300);
-      seen.push(await card());
+      seen.push(await card((c) => c.title === 'Round 1'));
       // With "claude working" showing, the fold stays on the title's line; the chips wrap below.
       await page.waitForSelector('.ayna-ov-agent', { timeout: 5000 });
       head = await page.evaluate(() => {
@@ -189,12 +206,10 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
 
       await writeFile(path.join(dir, 'out', 'applied'), '1');
       await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
-      await page.waitForTimeout(1500);
-      seen.push(await card());
+      seen.push(await card((c) => c.lines.includes('Claude: Finished') && c.lines.some((l) => l.startsWith('Ayna: '))));
 
       await page.evaluate(() => window.__aynaResolve(1, 'approved'));
-      await page.waitForTimeout(1300);
-      seen.push(await card());
+      seen.push(await card((c) => c.pill === 'Approved'));
     });
 
     const [drafting, sent, landed, judged] = seen;
@@ -220,8 +235,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       async (page, dir) => {
         await note(page, 'make it bigger');
         await approvedRound(page, dir);
-        await page.waitForTimeout(1300);
-        judged = await lastCard(page);
+        judged = await cardWhen(page, (c) => c.pill === 'Approved');
       },
       { store: false },
     );
@@ -248,14 +262,15 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       const { appendEvent, openDb } = await import('../src/db.mjs');
       appendEvent(await openDb(dir), { event: 'message', from: 'claude', text: 'tidied the spacing too' });
       await (await openStore(dir)).create({ status: 'proposed', kind: 'proposal', comment: 'try a darker blue', source: 'claude', url: null });
-      await page.waitForTimeout(1500);
+      await railShows(page, 'tidied the spacing too');
+      await railShows(page, 'try a darker blue');
+      await cardWhen(page, (c) => c.pill === 'Approved');
       seen.judged = await rounds();
 
       // The next round begins: the approved one gets out of the way.
       await press(page, 'more');
-      await page.waitForTimeout(400);
+      await page.waitForFunction(async () => (await window.__aynaState()).phase === 'commenting', null, { polling: 50, timeout: 5000 });
       await note(page, 'and bolder');
-      await page.waitForTimeout(1300);
       seen.next = await rounds();
       seen.loose = await page.evaluate(() => {
         const shown = (el) => Boolean(el && !el.closest('.ayna-ov-round') && el.getClientRects().length);
@@ -274,8 +289,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       // Opened by hand, it stays open through a reload.
       await page.click('.ayna-ov-round-head');
       await page.reload();
-      await page.waitForSelector('.ayna-ov-round', { timeout: 10000 });
-      await page.waitForTimeout(1500);
+      await page.waitForFunction(() => document.querySelectorAll('.ayna-ov-round').length === 2, null, { timeout: 10000 });
       seen.reloaded = (await rounds())[0];
     });
 
@@ -312,7 +326,8 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       seen.open = await overlap(page);
       seen.foldOpen = await fold(page);
       await page.click('[data-act=fold]');
-      await page.waitForTimeout(800);
+      await page.waitForSelector('.ayna-ov-console.ayna-ov-min');
+      await frames(page);
       seen.minimised = await overlap(page);
       seen.foldMin = await fold(page);
       // Folded, the live dot sits beside the icon on one line, as in "● Activity".
@@ -322,7 +337,8 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
         return d.right <= b.left && Math.abs((d.top + d.bottom) / 2 - (b.top + b.bottom) / 2) <= 1 ? 'side by side' : 'stacked';
       });
       await page.click('[data-act=fold]');
-      await page.waitForTimeout(800);
+      await page.waitForSelector('.ayna-ov-console:not(.ayna-ov-min)');
+      await frames(page);
       seen.reopened = await overlap(page);
     });
     // The fold is the Activity icon in both states, with which way it goes in its label.
@@ -380,7 +396,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       await page.fill('.ayna-ov-console input', 'escape and arrows and all');
       await page.press('.ayna-ov-console input', 'Escape');
       await page.press('.ayna-ov-console input', 'ArrowUp');
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(150); // proving a negative: room for a shortcut to open one
       comments = await page.evaluate(() => document.querySelectorAll('.ayna-ov-pop').length);
     });
     assert.equal(comments, 0, 'typing in the console disturbed the review');
