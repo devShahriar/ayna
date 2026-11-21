@@ -2,7 +2,8 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { openBrowser } from '../src/browser.mjs';
-import { cropRegion, holdTheFrame } from '../src/annotate.mjs';
+import { cropRegion, captureCrop, holdTheFrame } from '../src/annotate.mjs';
+import { cropPng, pngSize } from '../src/png.mjs';
 import { hasBrowser } from './helpers.mjs';
 
 /*
@@ -185,6 +186,31 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
       await chrome.close();
     }
   });
+  /*
+    A clipped capture flashes the clip, scaled up, in a headed window. The crop
+    is cut from an unclipped capture instead, and has to be the same picture.
+  */
+  test('the crop is cut from an unclipped capture, at the same place and size', async () => {
+    await page.evaluate(() => scrollTo(0, 800));
+    await page.waitForTimeout(200);
+    await drain();
+    const opts = await cropRegion(page, await pageRect('#low'), 12);
+    const ours = await captureCrop(page, opts);
+    const theirs = await page.screenshot(opts);
+    assert.deepEqual(pngSize(ours), pngSize(theirs), 'same size as the clipped capture');
+    assert.equal(await middlePixel(ours), '0,0,255');
+    assert.equal(await pixelAt(ours, 2, 2), await pixelAt(theirs, 2, 2), 'same corner, so not shifted');
+    assert.deepEqual(await drain(), [], 'no resize while capturing');
+    assert.equal(await page.evaluate(() => !!document.getElementById('ayna-capture')), false, 'the capture style is gone');
+  });
+
+  test('cropPng clamps to the image and refuses an empty crop', async () => {
+    const full = await page.screenshot();
+    const { width, height } = pngSize(full);
+    assert.deepEqual(pngSize(cropPng(full, { x: width - 10, y: height - 10, width: 50, height: 50 })), { width: 10, height: 10 });
+    assert.throws(() => cropPng(full, { x: width + 5, y: 0, width: 10, height: 10 }), /empty/);
+  });
+
   /*
     Partly under the bar is still in the app. Treating it as "outside" made the
     crop use the whole window, which took in the bar and the rail and hid them —

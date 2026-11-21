@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { gotoSettled, reloadSettled } from './browser.mjs';
+import { cropPng, pngSize } from './png.mjs';
 import { snapshotProject, roundChanges, hunks, undoChanges } from './rounds.mjs';
 import { SKIP_DIRS } from './skipdirs.mjs';
 import { themeTokens } from './theme.mjs';
@@ -244,6 +245,56 @@ async function swapStylesheets(page) {
 
 /** cropRegion's answer, as page.screenshot options. */
 const shotOptions = ({ truncated, ...opts }) => opts;
+
+/*
+  Take cropRegion's crop without asking Chromium for a clip.
+
+  A clipped capture — which is every Playwright screenshot, since it always
+  sends one — has Chromium re-emulate the view onto the clip while it captures.
+  Headless, nobody sees that. In the review window it is a frame of the cropped
+  area blown up to fill the window: MEASURED with a screencast, one frame at
+  1789x1342 showing nothing but the clip, between frames of the normal 2400x1342
+  page — on every comment saved and every region framed. Capturing the whole
+  viewport unclipped produced no such frame, so the window is captured whole and
+  the crop is cut out in Node.
+
+  The full-page fallback (a region entirely out of view) still goes through
+  Playwright; there is no unclipped way to reach pixels that are not on screen.
+*/
+export async function captureCrop(page, crop) {
+  if (crop.fullPage) return page.screenshot(shotOptions(crop));
+  try {
+    const view = await page.evaluate(async (css) => {
+      document.getElementById('ayna-capture')?.remove();
+      const style = document.createElement('style');
+      style.id = 'ayna-capture';
+      style.textContent = css;
+      document.documentElement.appendChild(style);
+      // Two frames: the hidden chrome has to be painted out before the capture.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return { width: innerWidth, height: innerHeight };
+    }, crop.style ?? '');
+    let png;
+    try {
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        png = Buffer.from((await cdp.send('Page.captureScreenshot', { format: 'png' })).data, 'base64');
+      } finally {
+        cdp.detach().catch(() => {});
+      }
+    } finally {
+      await page.evaluate(() => document.getElementById('ayna-capture')?.remove()).catch(() => {});
+    }
+    // Image pixels per CSS pixel, measured rather than read from devicePixelRatio,
+    // so browser zoom cannot put the crop in the wrong place.
+    const scale = pngSize(png).width / view.width;
+    const c = crop.clip;
+    return cropPng(png, { x: c.x * scale, y: c.y * scale, width: c.width * scale, height: c.height * scale });
+  } catch {
+    // Not Chromium, or a PNG this cannot read: a flicker beats no crop.
+    return page.screenshot(shotOptions(crop));
+  }
+}
 
 /*
   Runs at the start of every document in the review window, before the app
@@ -541,7 +592,7 @@ export async function runAnnotate({
     try {
       const crop = await cropRegion(page, payload.rect, 12);
       cropTruncated = crop.truncated;
-      await page.screenshot({ path: regionFile, ...shotOptions(crop) });
+      await writeFile(regionFile, await captureCrop(page, crop));
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
     }
@@ -1243,7 +1294,7 @@ export async function runAnnotate({
   */
   await page.exposeFunction('__aynaPreview', async (rect) => {
     try {
-      const buf = await page.screenshot(shotOptions(await cropRegion(page, rect, 8)));
+      const buf = await captureCrop(page, await cropRegion(page, rect, 8));
       return 'data:image/png;base64,' + buf.toString('base64');
     } catch {
       return null;
