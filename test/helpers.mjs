@@ -35,20 +35,6 @@ export async function fixtureSite(dir, { overflow = false, tinyText = false, bla
 
 export const hasBrowser = !process.env.AYNA_SKIP_BROWSER;
 
-/*
-  A browser per test, not per describe.
-
-  On macOS a headless browser that may not run in the background is quit by the
-  system about thirty seconds after launch (see explainBackgroundQuit in
-  src/browser.mjs). A browser shared by a describe outlived that, so whichever
-  test was running at the thirty-second mark failed with a wrong answer, and
-  every test after it with "Target page, context or browser has been closed" —
-  eight failures on a full run, all passing alone. Launching per test costs
-  about half a second and gives every test the same full window, whatever ran
-  before it.
-
-  Use it from beforeEach, and close it in afterEach.
-*/
 export async function launchBrowser() {
   const { openBrowser } = await import('../src/browser.mjs');
   return openBrowser({ headless: true });

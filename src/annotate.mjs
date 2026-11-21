@@ -179,7 +179,6 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
   return rankByPage(hits, pageUrl);
 }
 
-
 const GREP_EXCLUDES = SKIP_DIRS.map((d) => `--exclude-dir=${d}`);
 const TEXT_EXT = new Set([
   '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx', '.mjs', '.cjs',
@@ -1548,14 +1547,6 @@ export async function runAnnotate({
       .catch(() => true);
     await page.screenshot({ path: fullFile, fullPage: overflows, style: WITHOUT_CHROME }).catch(() => {});
   }
-  /*
-    Close a context this made however the window went — not only when the page
-    was still open. A window closed by its user (or by a scripted flow) left the
-    context behind on the shared browser, with whatever it still held: the
-    dashboard tab, service workers, timers. Tests run one review after another
-    on one browser, and after three leaked contexts Chrome quit outright
-    mid-test, failing every test after it with "browser has been closed".
-  */
   if (ownsContext) await context.close().catch(() => {});
 
   phase = done ? 'approved' : 'closed';

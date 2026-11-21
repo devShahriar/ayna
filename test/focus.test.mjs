@@ -49,7 +49,6 @@ function serve(body) {
 
 describe('focus indicators', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });

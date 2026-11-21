@@ -66,7 +66,6 @@ function serve(body) {
 
 describe('the overlay must not sit on the app', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -173,7 +172,6 @@ describe('the overlay must not sit on the app', { skip: !hasBrowser && 'AYNA_SKI
 */
 describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -240,7 +238,6 @@ describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
 */
 describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -350,7 +347,6 @@ describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_B
 */
 describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });

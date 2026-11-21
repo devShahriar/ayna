@@ -156,11 +156,6 @@ describe('choosing one', () => {
       handing Playwright `channel: 'brave'` gets `Unsupported chromium
       channel "brave"`, which is a worse error than the one it replaced.
     */
-    /*
-      Without Brave installed there is nothing to resolve to, and the right
-      answer is the refusal that says so and where it looked — not a channel
-      Playwright would then reject. This failed on every machine without Brave.
-    */
     if (!findBrowser('brave')) {
       assert.throws(() => resolveBrowser('brave'), /Brave is not installed[\s\S]*Looked in/);
       return;

@@ -45,7 +45,6 @@ async function appFixture(dir) {
 
 describe('flow', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -229,7 +228,6 @@ describe('flow', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
 
 describe('qa', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -407,7 +405,6 @@ describe('qa', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
 
 describe('hitting a sign-in wall', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });

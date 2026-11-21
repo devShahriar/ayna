@@ -18,7 +18,6 @@ import { tempDir, fixtureSite, hasBrowser, press, launchBrowser } from './helper
 
 describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -153,7 +152,6 @@ describe('browser capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
 
 describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -308,7 +306,6 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
 
 describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -452,7 +449,6 @@ describe('selection and layout editing', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
 
 describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -545,7 +541,6 @@ describe('multi-page review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, 
 
 describe('multi-route capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -642,7 +637,6 @@ describe('multi-route capture', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
 
 describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -769,7 +763,6 @@ describe('region selection and image attachment', { skip: !hasBrowser && 'AYNA_S
 
 describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -883,7 +876,6 @@ describe('removing a comment', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
 
 describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -986,7 +978,6 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
 
 describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1078,7 +1069,6 @@ describe('navigating the app during a review', { skip: !hasBrowser && 'AYNA_SKIP
 
 describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1317,7 +1307,6 @@ describe('signing in during a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
 
 describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1432,7 +1421,6 @@ describe('comment box behaviour', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set'
 
 describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1518,7 +1506,6 @@ describe('canvas-rendered apps', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
 
 describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1603,7 +1590,6 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
 
 describe('pending work survives, and closing is not a verdict', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -1766,7 +1752,6 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
 
 describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -2493,7 +2478,6 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
 
 describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -2625,7 +2609,6 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
 
 describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -2714,7 +2697,6 @@ describe('the task list', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () =
 
 describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -2810,7 +2792,6 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
 
 describe('auditing the window that is already open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });

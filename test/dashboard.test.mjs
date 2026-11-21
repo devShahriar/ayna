@@ -291,9 +291,6 @@ describe('dashboard: the page it writes', () => {
       const { stdout } = await exec('node', [BIN, 'dashboard', '--json'], { cwd: tmp.dir, timeout: 60_000 });
       const out = JSON.parse(stdout);
       assert.ok(existsSync(out.file), 'the page is written');
-      // Real paths on both sides: the CLI learns its project from process.cwd(),
-      // which macOS reports through the /private symlink (/private/var/folders/…)
-      // while the temp dir was named /var/folders/… — the same folder.
       assert.equal(
         realpathSync(path.dirname(out.file)),
         path.join(realpathSync(tmp.dir), '.ayna', 'dashboard'),
@@ -351,7 +348,6 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
   after(async () => {
     await tmp?.dispose();
   });
-  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
   beforeEach(async () => {
     browser = await launchBrowser();
   });
@@ -364,7 +360,6 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
     const found = [];
     for (const theme of ['ayna', 'light']) {
       for (const view of ['overview', 'tasks/task-0004', 'activity', 'agents']) {
-        // Sixteen audits outlast one browser on macOS, so each page gets its own.
         const own = await launchBrowser();
         const report = await auditPage({
           browser: own,
