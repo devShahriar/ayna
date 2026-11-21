@@ -184,6 +184,7 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await writeFile(path.join(out, 'applied'), '1');
             await page.waitForFunction(
               () => document.querySelector('[data-act=close]') !== null,
+              null,
               { timeout: 15000 },
             );
             await press(page, 'close');
@@ -2028,7 +2029,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
 
         let seen = null;
         await open(path.join(dir, 'out-2'), async (page) => {
-          await page.waitForFunction(() => !document.querySelector('.ayna-ov-earlier')?.hidden, { timeout: 10000 });
+          await page.waitForFunction(() => !document.querySelector('.ayna-ov-earlier')?.hidden, null, { timeout: 10000 });
           await page.waitForTimeout(1200); // a couple of feed polls
           seen = await page.evaluate(() => ({
             earlier: document.querySelector('.ayna-ov-earlier span').textContent,
@@ -2272,7 +2273,7 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.click('[data-act=send]');
             await page.waitForTimeout(600);
             await writeFile(path.join(out, 'applied'), '1');
-            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, { timeout: 20000 });
+            await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
 
             // A note filed from outside the window while this one is open.
             await store.create({ comment: 'filed by the CLI', url: server.url });

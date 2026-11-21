@@ -680,7 +680,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     await page.click('[data-act=send]');
     await page.waitForTimeout(600);
     await writeFile(path.join(dir, 'out', 'applied'), '1');
-    await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
     await page.evaluate(() => window.__aynaResolve(1, 'approved'));
   };
 
@@ -750,7 +750,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       });
 
       await writeFile(path.join(dir, 'out', 'applied'), '1');
-      await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, { timeout: 20000 });
+      await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
       await page.waitForTimeout(1500);
       seen.push(await card());
 
