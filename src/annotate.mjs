@@ -36,8 +36,10 @@ import { themeTokens } from './theme.mjs';
  * A clip *without* `fullPage` fires no resize events at all. Its coordinates are
  * viewport-relative rather than page-relative, so subtract the scroll offset. That
  * only works while the region is on screen — which it is, because the user just
- * pointed at it. Anything scrolled out falls back to the disruptive path, since a
- * silently truncated crop of what they framed would be worse than a flinch.
+ * pointed at it. A region only partly on screen (a section taller than the
+ * window, say) is cropped to the part that shows and reported `truncated`, so the
+ * crop is never silently short; only a region entirely out of view still takes
+ * the disruptive path.
  */
 /*
   ayna's own chrome, hidden for the length of a capture.
@@ -59,7 +61,20 @@ import { themeTokens } from './theme.mjs';
   shadow put a dark smudge along the top of every crop of a nav.
 */
 export const WITHOUT_CHROME = '[data-ayna] { visibility: hidden !important; }';
-const WITHOUT_MARKED = '[data-ayna-crop] { visibility: hidden !important; } [data-ayna] { box-shadow: none !important; }';
+/*
+  Shadows go only where they would reach the crop.
+
+  This was `[data-ayna] { box-shadow: none }` — every shadow ayna draws, the
+  comment box's, the bar's, every pin's, switched off and back on for the
+  length of each capture. That is a blink across the whole window on every note,
+  to keep a shadow or two out of a few hundred pixels. Elements that sit close
+  enough for their shadow to fall into the crop are marked flat; everything
+  else is left alone.
+*/
+const WITHOUT_MARKED =
+  '[data-ayna-crop] { visibility: hidden !important; } [data-ayna-flat] { box-shadow: none !important; }';
+// The widest shadow ayna casts (the comment box's 0 6px 20px), with room to spare.
+const SHADOW_REACH = 28;
 
 /*
   Replace a file whole, never in place.
@@ -81,18 +96,10 @@ export async function cropRegion(page, rect, pad) {
   // One trip to the page: measure, work out the clip, and mark what it covers.
   const onScreen = await page
     .evaluate(
-      ([r, pad]) => {
-        // Judge visibility on the region itself, then clamp the padding to the
-        // edges. Testing the padded box instead rejects anything full-width —
-        // the padding alone puts it past the right edge — which is most of what
-        // people click, so the fast path would exist and never be taken.
+      ([r, pad, reach]) => {
         const x = r.x - scrollX;
         const y = r.y - scrollY;
-        if (x < 0 || y < 0 || x + r.width > innerWidth || y + r.height > innerHeight) return null;
-
-        // A region inside the app's own area is padded only up to that area's
-        // edge, so the bar and the rail beside it are never in the crop and
-        // never need hiding. One already under them keeps the viewport's edges.
+        const view = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
         const css = getComputedStyle(document.documentElement);
         const inset = (name) => parseFloat(css.getPropertyValue(name)) || 0;
         const app = {
@@ -101,8 +108,34 @@ export async function cropRegion(page, rect, pad) {
           right: innerWidth,
           bottom: innerHeight - inset('--ayna-inset-bottom'),
         };
-        const inApp = x >= app.left && y >= app.top && x + r.width <= app.right && y + r.height <= app.bottom;
-        const edge = inApp ? app : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+        const meets = (e) =>
+          Math.min(e.right, x + r.width) - Math.max(e.left, x) >= 1 &&
+          Math.min(e.bottom, y + r.height) - Math.max(e.top, y) >= 1;
+
+        /*
+          Off screen entirely: nothing here can be captured without the
+          full-page path. Rare — the user pointed at it, so it was on screen a
+          moment ago.
+        */
+        if (!meets(view)) return null;
+
+        /*
+          Partly on screen: capture the part the user can see, and say so.
+
+          This used to take the full-page path whenever any edge of the region
+          ran past the window — which is every section taller than the window,
+          and anything half scrolled away. That path makes Chromium lay the page
+          out at another size and back, and hides ayna's whole frame while it
+          does: the window visibly flinched on a large share of comments. The
+          part on screen is the part the user was looking at when they pointed;
+          the comment carries the element's full rect and selector, and
+          `truncated` tells Claude the crop is not the whole of it.
+
+          The app's own area is the edge when the region reaches into it at
+          all, so the bar and rail are never inside the crop and never need
+          hiding. Whatever lay under them was not visible to the user either.
+        */
+        const edge = meets(app) ? app : view;
         const left = Math.max(edge.left, x - pad);
         const top = Math.max(edge.top, y - pad);
         const clip = {
@@ -111,19 +144,26 @@ export async function cropRegion(page, rect, pad) {
           width: Math.max(8, Math.min(edge.right, x + r.width + pad) - left),
           height: Math.max(8, Math.min(edge.bottom, y + r.height + pad) - top),
         };
+        const truncated = x < edge.left || y < edge.top || x + r.width > edge.right || y + r.height > edge.bottom;
 
-        for (const el of document.querySelectorAll('[data-ayna-crop]')) el.removeAttribute('data-ayna-crop');
+        for (const el of document.querySelectorAll('[data-ayna-crop], [data-ayna-flat]')) {
+          el.removeAttribute('data-ayna-crop');
+          el.removeAttribute('data-ayna-flat');
+        }
+        const hits = (b, m) =>
+          b.right > clip.x - m && b.left < clip.x + clip.width + m && b.bottom > clip.y - m && b.top < clip.y + clip.height + m;
         for (const el of document.querySelectorAll('[data-ayna]')) {
           const b = el.getBoundingClientRect();
-          const overlaps = b.right > clip.x && b.left < clip.x + clip.width && b.bottom > clip.y && b.top < clip.y + clip.height;
-          if (b.width && b.height && overlaps) el.setAttribute('data-ayna-crop', '');
+          if (!b.width || !b.height) continue;
+          if (hits(b, 0)) el.setAttribute('data-ayna-crop', '');
+          else if (hits(b, reach)) el.setAttribute('data-ayna-flat', '');
         }
-        return clip;
+        return { clip, truncated };
       },
-      [rect, pad],
+      [rect, pad, SHADOW_REACH],
     )
     .catch(() => null);
-  if (onScreen) return { clip: onScreen, fullPage: false, style: WITHOUT_MARKED };
+  if (onScreen) return { clip: onScreen.clip, fullPage: false, style: WITHOUT_MARKED, truncated: onScreen.truncated };
 
   const clip = {
     x: Math.max(0, rect.x - pad),
@@ -131,7 +171,135 @@ export async function cropRegion(page, rect, pad) {
     width: Math.max(8, rect.width + pad * 2),
     height: Math.max(8, rect.height + pad * 2),
   };
-  return { clip, fullPage: true, style: WITHOUT_CHROME };
+  return { clip, fullPage: true, style: WITHOUT_CHROME, truncated: false };
+}
+
+/**
+ * Re-fetch the page's same-origin stylesheets in place. True when the page's
+ * rules changed as a result — the caller reloads otherwise.
+ */
+async function swapStylesheets(page) {
+  // A hash of every readable rule, so an edit that keeps the length still counts.
+  const rulesHash = () =>
+    page
+      .evaluate(() => {
+        let h = 0;
+        for (const sheet of document.styleSheets) {
+          try {
+            for (const rule of sheet.cssRules) {
+              const t = rule.cssText;
+              for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0;
+            }
+          } catch {
+            // Cross-origin: unreadable, and not something this swap touches.
+          }
+        }
+        return h;
+      })
+      .catch(() => null);
+
+  const before = await rulesHash();
+  const done = await page
+    .evaluate(async () => {
+      const links = [...document.querySelectorAll('link[rel~="stylesheet"][href]')].filter((l) => {
+        try {
+          return new URL(l.href).origin === location.origin;
+        } catch {
+          return false;
+        }
+      });
+      if (!links.length) return false;
+      const stamp = String(Date.now());
+      await Promise.all(
+        links.map(
+          (old) =>
+            new Promise((resolve) => {
+              const url = new URL(old.href);
+              url.searchParams.set('ayna', stamp);
+              const fresh = old.cloneNode();
+              fresh.href = url.href;
+              let settled = false;
+              // The old sheet stays until the new one has loaded, so nothing
+              // renders unstyled in between.
+              const settle = (ok) => {
+                if (settled) return;
+                settled = true;
+                (ok ? old : fresh).remove();
+                resolve();
+              };
+              fresh.addEventListener('load', () => settle(true), { once: true });
+              fresh.addEventListener('error', () => settle(false), { once: true });
+              setTimeout(() => settle(false), 5000);
+              old.after(fresh);
+            }),
+        ),
+      );
+      return true;
+    })
+    .catch(() => false);
+  if (!done) return false;
+  const after = await rulesHash();
+  return before !== null && after !== null && after !== before;
+}
+
+/** cropRegion's answer, as page.screenshot options. */
+const shotOptions = ({ truncated, ...opts }) => opts;
+
+/*
+  Runs at the start of every document in the review window, before the app
+  paints.
+
+  The overlay is injected on `load` so a reload always picks up its current
+  code — which left every reload's first frames to the bare app: full width, no
+  bar, then a jump right and down when the overlay arrived, and the restored
+  scroll position landing off by the difference. The overlay leaves the frame's
+  geometry in sessionStorage as the page goes (see rememberFrame in overlay.js);
+  this puts the app in that same box straight away and paints the bar's and the
+  rail's places in their colours, so the reload is one layout instead of two.
+  The overlay removes this the moment it reserves the space itself.
+
+  Self-contained on purpose: Playwright serialises it into the page.
+*/
+export function holdTheFrame() {
+  let f = null;
+  try {
+    f = JSON.parse(sessionStorage.getItem('ayna-reserve') || 'null');
+  } catch {
+    return;
+  }
+  if (!f) return;
+  const len = (v) => (/^[\d.]+px$/.test(String(v)) ? v : '0px');
+  const color = (v) => (/^[#\w(),.\s%-]+$/.test(String(v || '')) ? v : '#121214');
+  const slab = (b) =>
+    b
+      ? `content:'';position:fixed;z-index:2147483638;pointer-events:none;left:${+b.x || 0}px;top:${+b.y || 0}px;` +
+        `width:${+b.w || 0}px;height:${+b.h || 0}px;background:${color(b.bg)};`
+      : 'content:none;';
+  const style = document.createElement('style');
+  style.id = 'ayna-reserve';
+  style.setAttribute('data-ayna', '1');
+  style.textContent =
+    `html{--ayna-inset-top:${len(f.top)};--ayna-inset-left:${len(f.left)};--ayna-overshoot:${len(f.over)}}` +
+    'body{transform:translate(var(--ayna-inset-left),var(--ayna-inset-top))!important;' +
+    'height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
+    'min-height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
+    'width:max(200px,calc(100dvw - var(--ayna-inset-left)))!important}' +
+    `html::before{${slab(f.bar)}}html::after{${slab(f.rail)}}`;
+  /*
+    At document start there is no <html> element yet — the parser has not made
+    one. Wait for it: a mutation callback runs at the parser's next microtask
+    checkpoint, which is still before the first paint.
+  */
+  if (document.documentElement) {
+    document.documentElement.appendChild(style);
+    return;
+  }
+  const wait = new MutationObserver(() => {
+    if (!document.documentElement) return;
+    wait.disconnect();
+    document.documentElement.appendChild(style);
+  });
+  wait.observe(document, { childList: true });
 }
 
 /**
@@ -322,6 +490,7 @@ export async function runAnnotate({
     }));
   // A persistent context opens with a page already; reuse it rather than stacking.
   const page = context.pages()[0] ?? (await context.newPage());
+  await page.addInitScript(holdTheFrame);
 
   const comments = [];
   let nextId = 1;
@@ -350,6 +519,7 @@ export async function runAnnotate({
         styles: t.styles ?? {},
         url: t.url,
         regionScreenshot: t.regionScreenshot,
+        regionTruncated: t.regionTruncated ?? false,
         attachments: t.attachments ?? [],
         sourceCandidates: t.sourceCandidates ?? [],
         rounds: [],
@@ -366,8 +536,12 @@ export async function runAnnotate({
 
     // Crop the exact region the user pointed at, with a little breathing room.
     const regionFile = path.join(dir, 'region.png');
+    // Set when only part of the region was on screen, so the crop shows that part.
+    let cropTruncated = false;
     try {
-      await page.screenshot({ path: regionFile, ...(await cropRegion(page, payload.rect, 12)) });
+      const crop = await cropRegion(page, payload.rect, 12);
+      cropTruncated = crop.truncated;
+      await page.screenshot({ path: regionFile, ...shotOptions(crop) });
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
     }
@@ -433,6 +607,8 @@ export async function runAnnotate({
       rect: payload.rect,
       url: payload.url,
       regionScreenshot: existsSync(regionFile) ? regionFile : null,
+      // The crop holds only the on-screen part; `rect` and `elements` are the whole.
+      regionTruncated: cropTruncated,
       attachments,
       sourceCandidates: source,
     };
@@ -458,6 +634,7 @@ export async function runAnnotate({
           rect: record.rect,
           styles: record.styles,
           sourceCandidates: record.sourceCandidates,
+          ...(record.regionTruncated ? { regionTruncated: true } : {}),
         },
         { regionScreenshot: record.regionScreenshot, attachments: record.attachments },
       );
@@ -1066,7 +1243,7 @@ export async function runAnnotate({
   */
   await page.exposeFunction('__aynaPreview', async (rect) => {
     try {
-      const buf = await page.screenshot(await cropRegion(page, rect, 8));
+      const buf = await page.screenshot(shotOptions(await cropRegion(page, rect, 8)));
       return 'data:image/png;base64,' + buf.toString('base64');
     } catch {
       return null;
@@ -1457,10 +1634,27 @@ export async function runAnnotate({
         */
         const at = await page.evaluate(() => ({ x: scrollX, y: scrollY })).catch(() => null);
 
-        if (!changedItself) {
+        /*
+          A round that only touched stylesheets does not need a reload.
+
+          Reloading rebuilds the whole window to show what a stylesheet swap
+          shows in place: the page, the bar and the rail all go and come back,
+          and the scroll position has to be found again. Swapping the changed
+          sheets keeps everything where it is. Proven, not assumed — if the
+          page's rules did not change afterwards (an @import, a sheet the swap
+          did not reach), it reloads after all.
+        */
+        const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
+        const swapped = !changedItself && cssOnly && (await swapStylesheets(page));
+
+        if (!changedItself && !swapped) {
           await reloadSettled(page);
           if (at && (at.x || at.y)) {
-            await page.evaluate((p) => scrollTo(p.x, p.y), at).catch(() => {});
+            // Instant, not the page's own `scroll-behavior: smooth`: a glide
+            // after a reload is the page visibly hunting for where it was.
+            await page
+              .evaluate((p) => scrollTo({ left: p.x, top: p.y, behavior: 'instant' }), at)
+              .catch(() => {});
           }
         }
         // The overlay is injected per load and that is asynchronous — without

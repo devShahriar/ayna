@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { openBrowser } from '../src/browser.mjs';
-import { cropRegion } from '../src/annotate.mjs';
+import { cropRegion, holdTheFrame } from '../src/annotate.mjs';
 import { hasBrowser } from './helpers.mjs';
 
 /*
@@ -102,9 +102,38 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     assert.deepEqual(await drain(), []);
   });
 
-  test('a region scrolled out of view is still captured correctly', async () => {
-    // Correctness wins over smoothness here: a truncated crop of what they framed
-    // would be worse than one flinch.
+  /*
+    A section taller than the window — the most common thing to click once you
+    press ↑ a couple of times — took the full-page path, and the whole window
+    flinched with ayna's frame blinking out. Now the visible part is captured
+    and the crop says it is partial.
+  */
+  test('a region only partly on screen is cropped to what shows, without a flinch', async () => {
+    await page.evaluate(() => scrollTo(0, 800));
+    await page.waitForTimeout(200);
+    await drain();
+    const tall = await page.evaluate(() => {
+      const r = document.querySelector('#low').parentElement.getBoundingClientRect();
+      return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height };
+    });
+    const opts = await cropRegion(page, tall, 12);
+    assert.equal(opts.fullPage, false, 'a partly visible region must not take the full-page path');
+    assert.equal(opts.truncated, true, 'the crop must say it is not the whole region');
+    assert.ok(opts.clip.y >= 0 && opts.clip.y + opts.clip.height <= 600, `clip stays in the window: ${JSON.stringify(opts.clip)}`);
+    const buf = await page.screenshot(opts);
+    await page.waitForTimeout(150);
+    assert.deepEqual(await drain(), [], 'no resize while capturing');
+    assert.equal(await middlePixel(buf), '0,128,0');
+  });
+
+  test('a region fully on screen is not reported truncated', async () => {
+    const opts = await cropRegion(page, await pageRect('#low'), 12);
+    assert.equal(opts.truncated, false);
+  });
+
+  test('a region scrolled entirely out of view is still captured correctly', async () => {
+    // Nothing of it is on screen to crop, so this is the one case left for the
+    // full-page path.
     const opts = await cropRegion(page, await pageRect('#wide'), 12);
     assert.equal(opts.fullPage, true, 'off-screen regions need the full-page path');
     assert.equal(await middlePixel(await page.screenshot(opts)), '255,0,0');
@@ -154,6 +183,78 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
       );
     } finally {
       await chrome.close();
+    }
+  });
+  /*
+    Partly under the bar is still in the app. Treating it as "outside" made the
+    crop use the whole window, which took in the bar and the rail and hid them —
+    both blinked on every such note.
+  */
+  test('a region partly under the bar leaves the bar and rail alone, and far chrome keeps its shadow', async () => {
+    const chrome = await context.newPage();
+    try {
+      await chrome.setContent(`<html style="--ayna-inset-top:50px;--ayna-inset-left:200px"><body style="margin:0">
+        <div id="hero" style="position:absolute;top:20px;left:220px;width:300px;height:200px;background:rgb(0,0,255)"></div>
+        <div class="ayna-ov-bar" data-ayna="1" style="position:fixed;top:0;left:200px;right:0;height:50px;background:#000;box-shadow:0 1px 12px #000"></div>
+        <div class="ayna-ov-console" data-ayna="1" style="position:fixed;top:0;bottom:0;left:0;width:200px;background:#000"></div>
+        <div class="ayna-ov-pin" data-ayna="1" style="position:fixed;top:500px;left:700px;width:20px;height:20px;box-shadow:0 2px 8px #000"></div>
+      </body></html>`);
+      const opts = await cropRegion(chrome, { x: 220, y: 20, width: 300, height: 200 }, 12);
+      assert.equal(opts.fullPage, false);
+      assert.equal(opts.truncated, true, 'the part under the bar is not in the crop');
+      assert.ok(opts.clip.y >= 50 && opts.clip.x >= 200, `the crop stays in the app: ${JSON.stringify(opts.clip)}`);
+      await chrome.addStyleTag({ content: opts.style });
+      const after = await chrome.evaluate(() =>
+        [...document.querySelectorAll('[data-ayna]')].map((el) => {
+          const cs = getComputedStyle(el);
+          return `${el.className}:${cs.visibility}:${cs.boxShadow === 'none' ? 'flat' : 'shadow'}`;
+        }),
+      );
+      assert.deepEqual(after, ['ayna-ov-bar:visible:flat', 'ayna-ov-console:visible:flat', 'ayna-ov-pin:visible:shadow']);
+    } finally {
+      await chrome.close();
+    }
+  });
+});
+
+/*
+  A reload painted the bare app first — full width, no bar — then jumped right
+  and down when the overlay arrived. The init script puts it in its box from the
+  first frame, using what the overlay left behind.
+*/
+describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
+  test('the page is laid out in the reserved box before the overlay exists', async () => {
+    const browser = await openBrowser({ headless: true });
+    try {
+      const context = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+      const page = await context.newPage();
+      await page.route('http://ayna.test/**', (r) =>
+        r.fulfill({ contentType: 'text/html', body: '<!doctype html><body style="margin:0"><h1 id="t" style="margin:0">App</h1></body>' }),
+      );
+      await page.addInitScript(holdTheFrame);
+      await page.goto('http://ayna.test/');
+      assert.equal(await page.evaluate(() => !!document.getElementById('ayna-reserve')), false, 'nothing to hold on a first visit');
+
+      await page.evaluate(() =>
+        sessionStorage.setItem(
+          'ayna-reserve',
+          JSON.stringify({
+            top: '53px',
+            left: '300px',
+            over: '0px',
+            bar: { x: 300, y: 0, w: 700, h: 53, bg: 'rgb(18, 18, 20)' },
+            rail: { x: 0, y: 0, w: 300, h: 700, bg: 'rgb(18, 18, 20)' },
+          }),
+        ),
+      );
+      await page.reload();
+      const at = await page.evaluate(() => {
+        const r = document.getElementById('t').getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y), bar: getComputedStyle(document.documentElement, '::before').backgroundColor };
+      });
+      assert.deepEqual(at, { x: 300, y: 53, bar: 'rgb(18, 18, 20)' });
+    } finally {
+      await browser.close();
     }
   });
 });

@@ -1496,10 +1496,18 @@
     if (send) send.disabled = state.seq === 0;
   }
 
-  function makePin(n, r) {
+  /*
+    `held` keeps a new pin out of sight until its comment's crop has been taken.
+
+    The pin sits on the very element being cropped, so the capture had to hide
+    it — and a pin that appears, vanishes for the length of a screenshot and
+    comes back is a flicker on every note. Arriving a moment later is not.
+  */
+  function makePin(n, r, { held = false } = {}) {
     const pin = document.createElement('div');
     pin.className = NS + '-pin';
     pin.setAttribute('data-ayna', '1');
+    if (held) pin.style.visibility = 'hidden';
     pin.innerHTML = '<b></b><i>×</i>';
     pin.querySelector('b').textContent = String(n);
     pin.title = 'Click to remove this comment';
@@ -1511,6 +1519,10 @@
   }
 
   /* A mistaken pin should be one click to undo, not a reason to restart. */
+  function showPin(pin) {
+    pin.style.visibility = '';
+  }
+
   function bindPinRemoval(pin, id) {
     if (!id) return;
     pin.addEventListener('click', async (ev) => {
@@ -2230,7 +2242,7 @@
 
       const n = ++state.seq;
       // A reorder deserves a marker too, and the same one-click undo.
-      const pin = makePin(n, rectOf(d.el));
+      const pin = makePin(n, rectOf(d.el), { held: true });
       refreshCount();
 
       const res = await window.__aynaSubmit({
@@ -2260,6 +2272,7 @@
         viewport: { width: window.innerWidth, height: window.innerHeight },
         url: location.href,
       });
+      showPin(pin);
       bindPinRemoval(pin, res && res.id);
       refreshTaskCount();
     },
@@ -2471,6 +2484,7 @@
     root.style.setProperty('height', tall, 'important');
     root.style.setProperty('min-height', tall, 'important');
     root.style.setProperty('width', wide, 'important');
+    dropStandIn();
 
     /*
       Then check, because the arithmetic is not the whole story.
@@ -2515,8 +2529,55 @@
     if (Math.abs(next - previous) >= 1) docEl.style.setProperty('--ayna-overshoot', next + 'px');
   }
 
+  /*
+    Hand the frame's geometry to the next document.
+
+    The overlay arrives on `load`, so a reload — the one after every round on a
+    static server, a dev server's full reload, browsing to another page — first
+    painted the app at full size with no bar, then shoved it right by the rail
+    and down by the bar the moment ayna came back. Node's init script reads this
+    at document start and holds the space (and paints where the bar and rail go)
+    until the overlay takes over, so the page is laid out once, in its place.
+  */
+  const RESERVE_KEY = 'ayna-reserve';
+  function rememberFrame() {
+    if (!bar || !reserved) return;
+    try {
+      const cs = getComputedStyle(document.documentElement);
+      const box = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.width && r.height
+          ? { x: r.left, y: r.top, w: r.width, h: r.height, bg: getComputedStyle(el).backgroundColor }
+          : null;
+      };
+      sessionStorage.setItem(
+        RESERVE_KEY,
+        JSON.stringify({
+          top: cs.getPropertyValue('--ayna-inset-top').trim() || '0px',
+          left: cs.getPropertyValue('--ayna-inset-left').trim() || '0px',
+          over: cs.getPropertyValue('--ayna-overshoot').trim() || '0px',
+          bar: box(bar),
+          rail: box(consoleEl),
+        }),
+      );
+    } catch {
+      // Storage blocked: the next load shifts once, as it always did.
+    }
+  }
+  window.addEventListener('pagehide', rememberFrame);
+
+  // The overlay owns the space now; the stand-in from the init script goes.
+  function dropStandIn() {
+    document.getElementById('ayna-reserve')?.remove();
+  }
+
   /** Put the page back exactly as it was; a review must leave no trace. */
   function releaseBarSpace() {
+    dropStandIn();
+    try {
+      sessionStorage.removeItem(RESERVE_KEY);
+    } catch {}
     const root = document.body;
     document.documentElement.style.removeProperty('--ayna-bar-h');
     document.documentElement.style.removeProperty('--ayna-inset-top');
@@ -2678,6 +2739,13 @@
 
   function closePopover() {
     clearInk();
+    /*
+      The highlight stays where the click left it while the box is open — hover
+      tracking is off — and nothing hid it afterwards. Saving a comment then
+      captured with it still drawn over the element, so the crop hid it and the
+      user watched it blink. The next mousemove draws it again where it belongs.
+    */
+    hide();
     if (pop) {
       pop.remove();
       pop = null;
@@ -2976,10 +3044,11 @@
       closePopover();
 
       const n = ++state.seq;
-      const pin = makePin(n, r);
+      const pin = makePin(n, r, { held: true });
       refreshCount();
 
       const res = await window.__aynaSubmit(payload);
+      showPin(pin);
       bindPinRemoval(pin, res && res.id);
       refreshTaskCount(); // the list gained one; say so without opening it
     });
