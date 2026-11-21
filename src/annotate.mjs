@@ -304,10 +304,11 @@ export async function captureCrop(page, crop) {
   code — which left every reload's first frames to the bare app: full width, no
   bar, then a jump right and down when the overlay arrived, and the restored
   scroll position landing off by the difference. The overlay leaves the frame's
-  geometry in sessionStorage as the page goes (see rememberFrame in overlay.js);
-  this puts the app in that same box straight away and paints the bar's and the
-  rail's places in their colours, so the reload is one layout instead of two.
-  The overlay removes this the moment it reserves the space itself.
+  geometry in sessionStorage as the page goes (see rememberFrame in overlay.js),
+  with a copy of the bar and rail as they stood; this puts the app in that same
+  box straight away and shows the copy where the chrome was, so the reload is
+  one layout instead of two and the chrome never blanks. The overlay builds
+  itself hidden behind the copy and removes it once it is in its real state.
 
   Self-contained on purpose: Playwright serialises it into the page.
 */
@@ -326,29 +327,55 @@ export function holdTheFrame() {
       ? `content:'';position:fixed;z-index:2147483638;pointer-events:none;left:${+b.x || 0}px;top:${+b.y || 0}px;` +
         `width:${+b.w || 0}px;height:${+b.h || 0}px;background:${color(b.bg)};`
       : 'content:none;';
+  // The copy of the chrome, when the last page left one; plain slabs otherwise.
+  const copy = typeof f.html === 'string' && f.html && typeof f.css === 'string' && f.css;
+  const vars = (Array.isArray(f.vars) ? f.vars : [])
+    .filter(([n, v]) => /^--ayna-[\w-]+$/.test(String(n)) && !/[;{}]/.test(String(v)))
+    .map(([n, v]) => `${n}:${v};`)
+    .join('');
   const style = document.createElement('style');
   style.id = 'ayna-reserve';
   style.setAttribute('data-ayna', '1');
   style.textContent =
-    `html{--ayna-inset-top:${len(f.top)};--ayna-inset-left:${len(f.left)};--ayna-overshoot:${len(f.over)}}` +
+    (copy ? f.css : '') +
+    `html{${vars}--ayna-inset-top:${len(f.top)};--ayna-inset-left:${len(f.left)};--ayna-overshoot:${len(f.over)}}` +
     'body{transform:translate(var(--ayna-inset-left),var(--ayna-inset-top))!important;' +
     'height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
     'min-height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
     'width:max(200px,calc(100dvw - var(--ayna-inset-left)))!important}' +
-    `html::before{${slab(f.bar)}}html::after{${slab(f.rail)}}`;
+    (copy ? '#ayna-reserve-snap,#ayna-reserve-snap *{pointer-events:none!important}' : `html::before{${slab(f.bar)}}html::after{${slab(f.rail)}}`);
+  let snap = null;
+  if (copy) {
+    snap = document.createElement('div');
+    snap.id = 'ayna-reserve-snap';
+    snap.setAttribute('data-ayna', '1');
+    snap.setAttribute('aria-hidden', 'true');
+    snap.innerHTML = f.html;
+  }
+  const mount = () => {
+    document.documentElement.appendChild(style);
+    if (!snap) return;
+    document.documentElement.appendChild(snap);
+    // The rail was scrolled to where the reader was; put the copy there too,
+    // before the first paint.
+    requestAnimationFrame(() => {
+      const lines = snap.querySelector('[class$="-console-lines"]');
+      if (lines) lines.scrollTop = +f.railScroll || 0;
+    });
+  };
   /*
     At document start there is no <html> element yet — the parser has not made
     one. Wait for it: a mutation callback runs at the parser's next microtask
     checkpoint, which is still before the first paint.
   */
   if (document.documentElement) {
-    document.documentElement.appendChild(style);
+    mount();
     return;
   }
   const wait = new MutationObserver(() => {
     if (!document.documentElement) return;
     wait.disconnect();
-    document.documentElement.appendChild(style);
+    mount();
   });
   wait.observe(document, { childList: true });
 }

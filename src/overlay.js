@@ -125,6 +125,19 @@
     drag: null,
   };
 
+  /*
+    Holding the frame across a reload.
+
+    When Node's init script has put up a stand-in for the bar and rail — a copy
+    of how they looked as the last page went — the real chrome is built hidden
+    and stays hidden until it knows what state it is in. It used to draw its
+    default first ("Nothing yet.", the commenting bar) and switch to the real
+    state a frame or two later, which after every round read as the chrome
+    flashing. Up here because start() runs long before the code that uses it.
+  */
+  let holdingFrame = !!document.getElementById('ayna-reserve');
+  const frameReady = { state: false, feed: false };
+
   // addInitScript runs at document-start, before <html> exists — build the UI only
   // once there is a document to attach it to.
   let hl = null;
@@ -138,6 +151,7 @@
   function start() {
   const css = document.createElement('style');
   css.setAttribute('data-ayna', '1');
+  css.setAttribute('data-ayna-css', '');
   css.textContent = `
     .${NS}-hl {
       position: absolute; pointer-events: none; z-index: 2147483640;
@@ -1140,6 +1154,7 @@
   bar = document.createElement('div');
   bar.className = NS + '-bar';
   bar.setAttribute('data-ayna', '1');
+  if (holdingFrame) bar.style.visibility = 'hidden';
   document.documentElement.appendChild(bar);
   // Listened for on the bar, which outlives the markup each phase rebuilds.
   bar.addEventListener('click', (ev) => {
@@ -1177,7 +1192,8 @@
         if (st.phase === 'reviewing') setPhase('review');
         else if (st.phase === 'awaiting-claude') setPhase('waiting');
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => frameIsReady('state'));
   } else if (window.__aynaCount) {
     window.__aynaCount().then((n) => {
       if (typeof n === 'number' && n > state.seq) {
@@ -2338,7 +2354,7 @@
     measured correction happens once, when the window stops moving.
   */
   function reserveForBar({ correct = true } = {}) {
-    if (!bar) return;
+    if (!bar || holdingFrame) return;
 
     /*
       Re-measure whenever the bar changes shape, not when we think it might have.
@@ -2551,6 +2567,8 @@
           ? { x: r.left, y: r.top, w: r.width, h: r.height, bg: getComputedStyle(el).backgroundColor }
           : null;
       };
+      const root = document.documentElement.style;
+      const lines = consoleEl?.querySelector('.' + NS + '-console-lines');
       sessionStorage.setItem(
         RESERVE_KEY,
         JSON.stringify({
@@ -2559,6 +2577,15 @@
           over: cs.getPropertyValue('--ayna-overshoot').trim() || '0px',
           bar: box(bar),
           rail: box(consoleEl),
+          /*
+            A copy of the chrome as it stands, so the next document can show
+            exactly this until the overlay is back — not blank slabs where the
+            bar and rail were. The theme rides along, since it is applied late.
+          */
+          css: document.querySelector('style[data-ayna-css]')?.textContent ?? '',
+          vars: [...root].filter((n) => n.startsWith('--ayna')).map((n) => [n, root.getPropertyValue(n)]),
+          html: (bar?.outerHTML ?? '') + (consoleEl?.outerHTML ?? ''),
+          railScroll: lines ? lines.scrollTop : 0,
         }),
       );
     } catch {
@@ -2570,7 +2597,29 @@
   // The overlay owns the space now; the stand-in from the init script goes.
   function dropStandIn() {
     document.getElementById('ayna-reserve')?.remove();
+    document.getElementById('ayna-reserve-snap')?.remove();
   }
+
+  /*
+    Reveal the real chrome once its state and its rail are in, and only then
+    take over the space — measured from the bar in its real state, so the page
+    is not moved for a default bar a pixel shorter and then moved back.
+    Bounded: a state call that never answers still lets the window go.
+  */
+  function frameIsReady(part) {
+    frameReady[part] = true;
+    if (holdingFrame && frameReady.state && (frameReady.feed || !consoleEl)) releaseFrame();
+  }
+  function releaseFrame() {
+    if (!holdingFrame) return;
+    holdingFrame = false;
+    if (bar) bar.style.visibility = '';
+    if (consoleEl) consoleEl.style.visibility = '';
+    reserved = ''; // re-measure now that the bar is in its real state
+    reserveForBar();
+    dropStandIn();
+  }
+  if (holdingFrame) setTimeout(releaseFrame, 1500);
 
   /** Put the page back exactly as it was; a review must leave no trace. */
   function releaseBarSpace() {
@@ -4345,6 +4394,7 @@
       await readFeed();
     } finally {
       pumping = false;
+      frameIsReady('feed');
     }
   }
 
@@ -4413,6 +4463,7 @@
     consoleEl = document.createElement('div');
     consoleEl.className = NS + '-console';
     consoleEl.setAttribute('data-ayna', '1');
+    if (holdingFrame) consoleEl.style.visibility = 'hidden';
     consoleEl.innerHTML =
       '<div class="' + NS + '-console-head">' +
         '<span class="' + NS + '-dotlive"></span><span class="' + NS + '-console-title">Activity</span>' +

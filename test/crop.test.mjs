@@ -279,6 +279,27 @@ describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYN
         return { x: Math.round(r.x), y: Math.round(r.y), bar: getComputedStyle(document.documentElement, '::before').backgroundColor };
       });
       assert.deepEqual(at, { x: 300, y: 53, bar: 'rgb(18, 18, 20)' });
+
+      // With a copy of the chrome left behind, that copy is what shows — not
+      // blank slabs — and it cannot be clicked.
+      await page.evaluate(() => {
+        const f = JSON.parse(sessionStorage.getItem('ayna-reserve'));
+        f.css = '.ayna-ov-bar{position:fixed;top:0;left:300px;right:0;height:53px;background:rgb(1, 2, 3)}';
+        f.html = '<div class="ayna-ov-bar" data-ayna="1"><button>Send to Claude</button></div>';
+        sessionStorage.setItem('ayna-reserve', JSON.stringify(f));
+      });
+      await page.reload();
+      const copy = await page.evaluate(() => {
+        const bar = document.querySelector('#ayna-reserve-snap .ayna-ov-bar');
+        return {
+          text: bar?.textContent,
+          bg: bar && getComputedStyle(bar).backgroundColor,
+          clickable: bar && getComputedStyle(bar.querySelector('button')).pointerEvents,
+          slab: getComputedStyle(document.documentElement, '::before').content,
+          y: Math.round(document.getElementById('t').getBoundingClientRect().y),
+        };
+      });
+      assert.deepEqual(copy, { text: 'Send to Claude', bg: 'rgb(1, 2, 3)', clickable: 'none', slab: 'none', y: 53 });
     } finally {
       await browser.close();
     }
