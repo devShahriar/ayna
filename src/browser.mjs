@@ -208,11 +208,49 @@ function launchFailed(err, browser) {
  */
 export async function openBrowser({ headless = false, browser = chromeChannel() } = {}) {
   const resolved = resolveBrowser(browser);
+  let launched;
   try {
-    return await chromium.launch({ ...resolved, headless, ...launchOptions() });
+    launched = await chromium.launch({ ...resolved, headless, ...launchOptions() });
   } catch (err) {
     throw launchFailed(err, resolved);
   }
+  if (headless && process.platform === 'darwin') explainBackgroundQuit(launched);
+  return launched;
+}
+
+/*
+  macOS quits a headless browser that may not run in the background.
+
+  A headless browser has no window, so macOS counts it as a background app, and
+  where that app is not allowed to run in the background (System Settings ›
+  General › Login Items & Extensions) the system quits it about thirty seconds
+  after launch. MEASURED: a bare Playwright launch of Google Chrome with no ayna
+  code in the process, left idle, exited cleanly at 30.4–31.6s every time; no
+  launch flag tried (--disable-background-mode, --no-startup-window) changed it.
+
+  Nothing about that reaches Playwright except "Target page, context or browser
+  has been closed", which reads as ayna closing its own browser mid-run. So when
+  a headless browser goes away without being asked to, say what it most likely
+  was and where to fix it — once, on stderr, so a --json caller's stdout stays
+  clean.
+*/
+function explainBackgroundQuit(browser) {
+  const started = Date.now();
+  let closing = false;
+  const close = browser.close.bind(browser);
+  browser.close = (...args) => {
+    closing = true;
+    return close(...args);
+  };
+  browser.on('disconnected', () => {
+    if (closing) return;
+    const after = Math.round((Date.now() - started) / 1000);
+    process.stderr.write(
+      `  ! the browser quit on its own after ${after}s. On macOS this is usually the system closing a\n` +
+        '    headless browser that is not allowed to run in the background — allow it under\n' +
+        '    System Settings › General › Login Items & Extensions, or run with --headed.\n',
+    );
+  });
 }
 
 /*

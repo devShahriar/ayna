@@ -8,7 +8,7 @@
   standard ayna holds everyone else to — its own audit must come back clean, in
   both themes, on a desktop and on a phone.
 */
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -25,7 +25,7 @@ import {
 } from '../src/dashboard.mjs';
 import { contrast } from '../src/theme.mjs';
 import { DEFAULT_THEME } from '../src/config.mjs';
-import { tempDir, hasBrowser, fixtureSite } from './helpers.mjs';
+import { tempDir, hasBrowser, fixtureSite, launchBrowser } from './helpers.mjs';
 
 const exec = promisify(execFile);
 
@@ -343,16 +343,20 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
   let browser;
   let url;
   before(async () => {
-    const { openBrowser } = await import('../src/browser.mjs');
     tmp = await tempDir('ayna-dash-');
     closeQuietly((await seeded(tmp.dir)).db);
     const { file } = await writeDashboard(tmp.dir);
     url = pathToFileURL(file).href;
-    browser = await openBrowser({ headless: true });
   });
   after(async () => {
-    await browser?.close().catch(() => {});
     await tmp?.dispose();
+  });
+  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
+  beforeEach(async () => {
+    browser = await launchBrowser();
+  });
+  afterEach(async () => {
+    await browser?.close().catch(() => {});
   });
 
   test('passes ayna’s own audit in both themes, on a desktop and on a phone', async () => {
@@ -360,15 +364,17 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
     const found = [];
     for (const theme of ['ayna', 'light']) {
       for (const view of ['overview', 'tasks/task-0004', 'activity', 'agents']) {
+        // Sixteen audits outlast one browser on macOS, so each page gets its own.
+        const own = await launchBrowser();
         const report = await auditPage({
-          browser,
+          browser: own,
           url: `${url}?theme=${theme}#${view}`,
           viewports: [
             { name: 'desktop', width: 1440, height: 900 },
             { name: 'mobile', width: 390, height: 844 },
           ],
           outDir: path.join(tmp.dir, 'audit', `${theme}-${view.replace('/', '-')}`),
-        });
+        }).finally(() => own.close().catch(() => {}));
         assert.equal(report.unmeasured.length, 0, 'the audit actually ran');
         for (const [kind, n] of Object.entries(report.counts)) if (n) found.push(`${theme} #${view}: ${kind} ${n}`);
       }

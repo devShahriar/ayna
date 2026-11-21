@@ -12,7 +12,7 @@
   itself. That exclusion is right for auditing an app and exactly wrong for
   auditing the reviewer, so these tests run the same check with it removed.
 */
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -23,7 +23,7 @@ import { openBrowser } from '../src/browser.mjs';
 import { CHECKS } from '../src/audit.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { DEFAULT_THEME } from '../src/config.mjs';
-import { hasBrowser } from './helpers.mjs';
+import { hasBrowser, launchBrowser } from './helpers.mjs';
 
 /** The audit, but with ayna's own elements eligible to be found as coverers. */
 const CHECKS_INCLUDING_OURS = CHECKS.replace(
@@ -66,10 +66,11 @@ function serve(body) {
 
 describe('the overlay must not sit on the app', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
+  afterEach(async () => {
     await browser?.close().catch(() => {});
   });
 
@@ -172,10 +173,11 @@ describe('the overlay must not sit on the app', { skip: !hasBrowser && 'AYNA_SKI
 */
 describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
+  afterEach(async () => {
     await browser?.close().catch(() => {});
   });
 
@@ -238,10 +240,11 @@ describe('resizing the review window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER
 */
 describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
+  afterEach(async () => {
     await browser?.close().catch(() => {});
   });
 
@@ -347,10 +350,11 @@ describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_B
 */
 describe('the review panel meets the floor it enforces', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  // Per test: macOS quits a headless browser ~30s in. See launchBrowser.
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
+  afterEach(async () => {
     await browser?.close().catch(() => {});
   });
 
