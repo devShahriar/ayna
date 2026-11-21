@@ -9,12 +9,13 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { openBrowser } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { hasBrowser } from './helpers.mjs';
+import { isTestPath } from '../src/skipdirs.mjs';
 
 async function site() {
   const dir = await mkdtemp(path.join(tmpdir(), 'ayna-reload-'));
@@ -39,7 +40,7 @@ async function site() {
 }
 
 /** Comment, send, make `edit`, say applied; report what the window did. */
-async function round(browser, edit) {
+async function round(browser, edit, { say = true } = {}) {
   const { dir, srv, url } = await site();
   const events = [];
   let seen = null;
@@ -64,8 +65,8 @@ async function round(browser, edit) {
           for (let i = 0; i < 100 && !events.some((e) => e.event === 'round'); i++) await page.waitForTimeout(100);
           let loads = 0;
           page.on('load', () => loads++);
-          await edit(dir);
-          await page.evaluate(() => window.__aynaApplied());
+          await edit(dir, page, events);
+          if (say) await page.evaluate(() => window.__aynaApplied());
           for (let i = 0; i < 100 && !events.some((e) => e.event === 'gate'); i++) await page.waitForTimeout(100);
           seen = {
             loads,
@@ -114,4 +115,37 @@ describe('when a round lands', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
     assert.equal(seen.applied.swapped, false);
     assert.equal(seen.applied.reloaded, true);
   });
+
+  /*
+    A test written while a round was out was taken as the round's answer: the
+    window announced it applied, with only the test in it, before the change
+    the user asked for had been made.
+  */
+  test('a test file saved during a round is not taken as its answer', async () => {
+    const seen = await round(
+      browser,
+      async (dir, page, events) => {
+        await mkdir(path.join(dir, 'test'), { recursive: true });
+        await writeFile(path.join(dir, 'test', 'hero.test.mjs'), 'export {};\n');
+        await writeFile(path.join(dir, 'hero.spec.js'), 'export {};\n');
+        // Long enough for the edit-settle path (1.8s) to have fired on them.
+        await page.waitForTimeout(3000);
+        assert.equal(events.filter((e) => e.event === 'applied').length, 0, 'a test edit announced the round as applied');
+        // The real change does land the round, and only it is listed.
+        await writeFile(path.join(dir, 'styles.css'), 'h1 { font-style: italic; }\n');
+      },
+      { say: false },
+    );
+    assert.deepEqual(seen.applied.files.map((f) => f.file), ['styles.css']);
+    assert.equal(seen.style, 'italic');
+  });
+});
+
+test('isTestPath knows a test from a component that merely mentions one', () => {
+  for (const p of ['test/a.mjs', 'src/a.test.tsx', 'src/a.spec.ts', 'x/a_test.go', 'test_ui.py', 'app/__tests__/A.jsx', 'e2e/login.ts']) {
+    assert.equal(isTestPath(p), true, p);
+  }
+  for (const p of ['demo/index.html', 'src/contest.js', 'src/testimonials.tsx', 'src/spectrum.css', 'src/components/Test.vue', 'attest/x.js']) {
+    assert.equal(isTestPath(p), false, p);
+  }
 });

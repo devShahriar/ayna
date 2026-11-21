@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { openSessions, alive } from './sessions.mjs';
 import { openDb, appendEvent } from './db.mjs';
-import { SKIP_DIRS as SKIP_LIST } from './skipdirs.mjs';
+import { SKIP_DIRS as SKIP_LIST, isTestPath } from './skipdirs.mjs';
 
 /**
  * The bookkeeper.
@@ -80,6 +80,7 @@ export async function watchLoop({
       const parts = String(name).split(/[\\/]/);
       if (parts.some((p) => SKIP_DIRS.has(p))) return;
       if (!TEXT_EXT.has(path.extname(String(name)).toLowerCase())) return;
+      if (isTestPath(String(name))) return;
       editedAt = now();
     });
   } catch {

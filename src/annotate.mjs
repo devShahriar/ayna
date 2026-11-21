@@ -7,7 +7,7 @@ import path from 'node:path';
 import { gotoSettled, reloadSettled } from './browser.mjs';
 import { cropPng, pngSize } from './png.mjs';
 import { snapshotProject, roundChanges, hunks, undoChanges } from './rounds.mjs';
-import { SKIP_DIRS } from './skipdirs.mjs';
+import { SKIP_DIRS, isTestPath } from './skipdirs.mjs';
 import { themeTokens } from './theme.mjs';
 
 /**
@@ -416,9 +416,16 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
       if (err.code === 'ENOENT') lines = await scanInJs(projectDir, needle);
     }
 
-    for (const line of lines.slice(0, 4)) {
+    let kept = 0;
+    for (const line of lines) {
+      if (kept >= 4) break;
       const m = line.match(/^(.+?):(\d+):(.*)$/);
-      if (m) hits.push({ needle, file: path.relative(projectDir, m[1]), line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
+      if (!m) continue;
+      const file = path.relative(projectDir, m[1]);
+      // A test that mentions the class is not where the UI is edited.
+      if (isTestPath(file)) continue;
+      hits.push({ needle, file, line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
+      kept += 1;
     }
     if (hits.length >= 6) break;
   }
@@ -897,6 +904,8 @@ export async function runAnnotate({
         // Our own output changes constantly; so does anything generated.
         if (parts.some((part) => part === '.ayna' || SKIP_DIRS.includes(part))) return;
         if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) return;
+        // A test written meanwhile is not the round's answer; see isTestPath.
+        if (isTestPath(rel)) return;
         editedAt = Date.now();
         roundEdits.add(rel);
       });
