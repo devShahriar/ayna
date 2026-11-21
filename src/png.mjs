@@ -1,16 +1,3 @@
-/*
-  Crop a PNG in Node.
-
-  Exists so the review window can be captured without a clip. Asking Chromium
-  for a clipped screenshot makes it re-emulate the view onto the clip for the
-  length of the capture, and in a headed window that frame is shown: the window
-  flashes the cropped area scaled up to fill it, once per comment. Capturing the
-  viewport whole and cutting the region out here leaves the window untouched.
-
-  Handles what Chromium produces — 8-bit truecolor, with or without alpha,
-  non-interlaced — and nothing else; anything else throws, and the caller falls
-  back to a clipped capture.
-*/
 import { inflateSync, deflateSync, crc32 } from 'node:zlib';
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -46,17 +33,12 @@ function paeth(a, b, c) {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 }
 
-/** Size of a PNG, from its header. */
 export function pngSize(buf) {
   const ihdr = chunks(buf).find((c) => c.type === 'IHDR');
   if (!ihdr) throw new Error('PNG has no header');
   return { width: ihdr.data.readUInt32BE(0), height: ihdr.data.readUInt32BE(4) };
 }
 
-/**
- * Cut `rect` (in the image's own pixels) out of `buf`. The rect is clamped to
- * the image; an empty result throws.
- */
 export function cropPng(buf, rect) {
   const parts = chunks(buf);
   const ihdr = parts.find((c) => c.type === 'IHDR')?.data;
@@ -77,7 +59,6 @@ export function cropPng(buf, rect) {
   if (x1 <= x0 || y1 <= y0) throw new Error('crop is empty');
 
   const raw = inflateSync(Buffer.concat(parts.filter((c) => c.type === 'IDAT').map((c) => c.data)));
-  // Unfilter only as far as the last row needed; every row depends on the one above.
   let prev = Buffer.alloc(stride);
   const rows = [];
   for (let y = 0; y < y1; y++) {
@@ -101,7 +82,7 @@ export function cropPng(buf, rect) {
   const w = x1 - x0;
   const h = y1 - y0;
   const body = Buffer.alloc(h * (w * bpp + 1));
-  rows.forEach((row, i) => row.copy(body, i * (w * bpp + 1) + 1)); // filter byte 0: none
+  rows.forEach((row, i) => row.copy(body, i * (w * bpp + 1) + 1));
   const head = Buffer.from(ihdr);
   head.writeUInt32BE(w, 0);
   head.writeUInt32BE(h, 4);

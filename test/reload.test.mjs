@@ -1,10 +1,3 @@
-/*
-  What a round's changes do to the window when they land.
-
-  A reload rebuilds everything the user is looking at — the page, the bar, the
-  rail — to show what a stylesheet swap shows in place. A round that only
-  touched CSS should not reload; anything else still must.
-*/
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -39,7 +32,6 @@ async function site() {
   return { dir, srv, url: `http://127.0.0.1:${srv.address().port}/` };
 }
 
-/** Comment, send, make `edit`, say applied; report what the window did. */
 async function round(browser, edit, { say = true } = {}) {
   const { dir, srv, url } = await site();
   const events = [];
@@ -61,7 +53,6 @@ async function round(browser, edit, { say = true } = {}) {
           await page.locator('[class$="-save"]').click();
           await page.waitForTimeout(300);
           await page.evaluate(() => window.__aynaDone());
-          // The round is announced and its snapshot taken before anything lands.
           for (let i = 0; i < 100 && !events.some((e) => e.event === 'round'); i++) await page.waitForTimeout(100);
           let loads = 0;
           page.on('load', () => loads++);
@@ -105,11 +96,6 @@ describe('when a round lands', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
     assert.equal(seen.applied.reloaded, false);
   });
 
-  /*
-    Only a linked sheet's URL can be cache-busted. A changed file reached
-    through @import could keep its old rules while the sheet importing it
-    changed, and the swap would call half a fix done.
-  */
   test('a changed sheet the page only @imports means a reload, not a swap', async () => {
     const seen = await round(browser, async (dir) => {
       await writeFile(path.join(dir, 'extra.css'), 'h1 { font-style: italic; }\n');
@@ -132,11 +118,6 @@ describe('when a round lands', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
     assert.equal(seen.applied.reloaded, true);
   });
 
-  /*
-    A test written while a round was out was taken as the round's answer: the
-    window announced it applied, with only the test in it, before the change
-    the user asked for had been made.
-  */
   test('a test file saved during a round is not taken as its answer', async () => {
     const seen = await round(
       browser,
@@ -144,10 +125,8 @@ describe('when a round lands', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' },
         await mkdir(path.join(dir, 'test'), { recursive: true });
         await writeFile(path.join(dir, 'test', 'hero.test.mjs'), 'export {};\n');
         await writeFile(path.join(dir, 'hero.spec.js'), 'export {};\n');
-        // Long enough for the edit-settle path (1.8s) to have fired on them.
         await page.waitForTimeout(3000);
         assert.equal(events.filter((e) => e.event === 'applied').length, 0, 'a test edit announced the round as applied');
-        // The real change does land the round, and only it is listed.
         await writeFile(path.join(dir, 'styles.css'), 'h1 { font-style: italic; }\n');
       },
       { say: false },
@@ -163,7 +142,6 @@ test('isTestPath knows a test from a component that merely mentions one', () => 
   }
   for (const p of [
     'demo/index.html', 'src/contest.js', 'src/testimonials.tsx', 'src/spectrum.css', 'src/components/Test.vue', 'attest/x.js',
-    // Ordinary UI files that only look like tests; ignoring one would lose its edits.
     'src/components/Test/Button.vue', 'pages/tech-specs.html', 'ab-test.css', 'speed-test.html', 'split_test.js',
   ]) {
     assert.equal(isTestPath(p), false, p);

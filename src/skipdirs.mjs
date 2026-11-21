@@ -17,28 +17,9 @@ export const SKIP_DIRS = [
   'vendor', '__pycache__', '.venv', 'venv', '.yarn', '.pnpm-store',
 ];
 
-/*
-  Test files are never what a review is looking at.
-
-  The window treats any edit in the project as the round's work, and a test
-  written while a round was out was taken as the answer to it: the round was
-  announced as applied with nothing but the test in it, and the user's change
-  had not been made. A test is also never where a UI is edited, so it is no use
-  as a source location either.
-
-  Narrow on purpose: a false positive is worse than a miss. An ignored UI file
-  never lands a round, never shows in its changes and cannot be undone, so the
-  rule only claims what is unmistakably a test —
-    folders  test, tests, __tests__, __mocks__, spec, e2e, cypress — exactly,
-             lowercase, so a component folder called Test/ stays a component
-    files    foo.test.js, foo.spec.ts (any extension after .test/.spec),
-             foo_test.go, test_foo.py, foo_test.py, foo_spec.rb
-  Hyphenated names (ab-test.css, tech-specs.html) are ordinary UI files.
-*/
 const TEST_DIRS = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'e2e', 'cypress']);
 const TEST_FILE = /\.(test|spec)\.[^/\\]+$|_test\.go$|^test_[^/\\]+\.py$|_test\.py$|_spec\.rb$/;
 
-/** True for a project-relative path that belongs to the tests. */
 export function isTestPath(rel) {
   const parts = String(rel).split(/[\\/]/).filter(Boolean);
   if (!parts.length) return false;

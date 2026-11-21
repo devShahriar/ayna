@@ -125,16 +125,6 @@
     drag: null,
   };
 
-  /*
-    Holding the frame across a reload.
-
-    When Node's init script has put up a stand-in for the bar and rail — a copy
-    of how they looked as the last page went — the real chrome is built hidden
-    and stays hidden until it knows what state it is in. It used to draw its
-    default first ("Nothing yet.", the commenting bar) and switch to the real
-    state a frame or two later, which after every round read as the chrome
-    flashing. Up here because start() runs long before the code that uses it.
-  */
   let holdingFrame = !!document.getElementById('ayna-reserve');
   const frameReady = { state: false, feed: false };
 
@@ -1512,13 +1502,6 @@
     if (send) send.disabled = state.seq === 0;
   }
 
-  /*
-    `held` keeps a new pin out of sight until its comment's crop has been taken.
-
-    The pin sits on the very element being cropped, so the capture had to hide
-    it — and a pin that appears, vanishes for the length of a screenshot and
-    comes back is a flicker on every note. Arriving a moment later is not.
-  */
   function makePin(n, r, { held = false } = {}) {
     const pin = document.createElement('div');
     pin.className = NS + '-pin';
@@ -1539,12 +1522,6 @@
     pin.style.visibility = '';
   }
 
-  /*
-    Show a held pin once its comment is saved — or take it back if saving
-    failed. A failure used to leave the pin hidden for good while the count had
-    already gone up, so the number on the bar and the pins on the page
-    disagreed about how many notes there were.
-  */
   async function settlePin(pin, saving) {
     let res;
     try {
@@ -2565,16 +2542,6 @@
     if (Math.abs(next - previous) >= 1) docEl.style.setProperty('--ayna-overshoot', next + 'px');
   }
 
-  /*
-    Hand the frame's geometry to the next document.
-
-    The overlay arrives on `load`, so a reload — the one after every round on a
-    static server, a dev server's full reload, browsing to another page — first
-    painted the app at full size with no bar, then shoved it right by the rail
-    and down by the bar the moment ayna came back. Node's init script reads this
-    at document start and holds the space (and paints where the bar and rail go)
-    until the overlay takes over, so the page is laid out once, in its place.
-  */
   const RESERVE_KEY = 'ayna-reserve';
   function rememberFrame() {
     if (!bar || !reserved) return;
@@ -2597,11 +2564,6 @@
           over: cs.getPropertyValue('--ayna-overshoot').trim() || '0px',
           bar: box(bar),
           rail: box(consoleEl),
-          /*
-            A copy of the chrome as it stands, so the next document can show
-            exactly this until the overlay is back — not blank slabs where the
-            bar and rail were. The theme rides along, since it is applied late.
-          */
           css: document.querySelector('style[data-ayna-css]')?.textContent ?? '',
           vars: [...root].filter((n) => n.startsWith('--ayna')).map((n) => [n, root.getPropertyValue(n)]),
           html: (bar?.outerHTML ?? '') + (consoleEl?.outerHTML ?? ''),
@@ -2609,23 +2571,15 @@
         }),
       );
     } catch {
-      // Storage blocked: the next load shifts once, as it always did.
     }
   }
   window.addEventListener('pagehide', rememberFrame);
 
-  // The overlay owns the space now; the stand-in from the init script goes.
   function dropStandIn() {
     document.getElementById('ayna-reserve')?.remove();
     document.getElementById('ayna-reserve-snap')?.remove();
   }
 
-  /*
-    Reveal the real chrome once its state and its rail are in, and only then
-    take over the space — measured from the bar in its real state, so the page
-    is not moved for a default bar a pixel shorter and then moved back.
-    Bounded: a state call that never answers still lets the window go.
-  */
   function frameIsReady(part) {
     frameReady[part] = true;
     if (holdingFrame && frameReady.state && (frameReady.feed || !consoleEl)) releaseFrame();
@@ -2635,7 +2589,7 @@
     holdingFrame = false;
     if (bar) bar.style.visibility = '';
     if (consoleEl) consoleEl.style.visibility = '';
-    reserved = ''; // re-measure now that the bar is in its real state
+    reserved = '';
     reserveForBar();
     dropStandIn();
   }
@@ -2808,12 +2762,6 @@
 
   function closePopover() {
     clearInk();
-    /*
-      The highlight stays where the click left it while the box is open — hover
-      tracking is off — and nothing hid it afterwards. Saving a comment then
-      captured with it still drawn over the element, so the crop hid it and the
-      user watched it blink. The next mousemove draws it again where it belongs.
-    */
     hide();
     if (pop) {
       pop.remove();

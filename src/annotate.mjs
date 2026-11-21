@@ -62,19 +62,8 @@ import { themeTokens } from './theme.mjs';
   shadow put a dark smudge along the top of every crop of a nav.
 */
 export const WITHOUT_CHROME = '[data-ayna] { visibility: hidden !important; }';
-/*
-  Shadows go only where they would reach the crop.
-
-  This was `[data-ayna] { box-shadow: none }` — every shadow ayna draws, the
-  comment box's, the bar's, every pin's, switched off and back on for the
-  length of each capture. That is a blink across the whole window on every note,
-  to keep a shadow or two out of a few hundred pixels. Elements that sit close
-  enough for their shadow to fall into the crop are marked flat; everything
-  else is left alone.
-*/
 const WITHOUT_MARKED =
   '[data-ayna-crop] { visibility: hidden !important; } [data-ayna-flat] { box-shadow: none !important; }';
-// The widest shadow ayna casts (the comment box's 0 6px 20px), with room to spare.
 const SHADOW_REACH = 28;
 
 /*
@@ -113,29 +102,8 @@ export async function cropRegion(page, rect, pad) {
           Math.min(e.right, x + r.width) - Math.max(e.left, x) >= 1 &&
           Math.min(e.bottom, y + r.height) - Math.max(e.top, y) >= 1;
 
-        /*
-          Off screen entirely: nothing here can be captured without the
-          full-page path. Rare — the user pointed at it, so it was on screen a
-          moment ago.
-        */
         if (!meets(view)) return null;
 
-        /*
-          Partly on screen: capture the part the user can see, and say so.
-
-          This used to take the full-page path whenever any edge of the region
-          ran past the window — which is every section taller than the window,
-          and anything half scrolled away. That path makes Chromium lay the page
-          out at another size and back, and hides ayna's whole frame while it
-          does: the window visibly flinched on a large share of comments. The
-          part on screen is the part the user was looking at when they pointed;
-          the comment carries the element's full rect and selector, and
-          `truncated` tells Claude the crop is not the whole of it.
-
-          The app's own area is the edge when the region reaches into it at
-          all, so the bar and rail are never inside the crop and never need
-          hiding. Whatever lay under them was not visible to the user either.
-        */
         const edge = meets(app) ? app : view;
         const left = Math.max(edge.left, x - pad);
         const top = Math.max(edge.top, y - pad);
@@ -175,22 +143,7 @@ export async function cropRegion(page, rect, pad) {
   return { clip, fullPage: true, style: WITHOUT_CHROME, truncated: false };
 }
 
-/**
- * Re-fetch the page's same-origin stylesheets in place. True when the page's
- * rules changed as a result — the caller reloads otherwise.
- *
- * `files` are the round's changed stylesheets, project-relative. Every one has
- * to be a sheet the page links directly: only a <link>'s URL can be
- * cache-busted, so a changed file reached through @import (or bundled, or
- * served under another name) could keep its old rules while the linked sheet
- * that pulls it in changed — the hash would move and half the fix would be
- * missing. Anything not linked means a reload.
- */
 async function swapStylesheets(page, files) {
-  // A hash of every readable rule, so an edit that keeps the length still counts.
-  // Only the app's sheets: ayna adds and removes its own (a crop's hiding rule,
-  // a variant preview, the reload stand-in), and one of those coming or going
-  // mid-swap would read as the app's CSS having changed.
   const rulesHash = () =>
     page
       .evaluate(() => {
@@ -204,7 +157,6 @@ async function swapStylesheets(page, files) {
               for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0;
             }
           } catch {
-            // Cross-origin: unreadable, and not something this swap touches.
           }
         }
         return h;
@@ -222,8 +174,6 @@ async function swapStylesheets(page, files) {
         }
       });
       if (!links.length) return false;
-      // demo/styles.css is served as /styles.css: a linked path that ends the
-      // file's path, on a folder boundary, is that file.
       const served = links.map((l) => decodeURIComponent(new URL(l.href).pathname).replace(/^\/+/, ''));
       const linked = (rel) => served.some((p) => p && (rel === p || rel.endsWith('/' + p)));
       if (!changed.every(linked)) return false;
@@ -237,8 +187,6 @@ async function swapStylesheets(page, files) {
               const fresh = old.cloneNode();
               fresh.href = url.href;
               let settled = false;
-              // The old sheet stays until the new one has loaded, so nothing
-              // renders unstyled in between.
               const settle = (ok) => {
                 if (settled) return;
                 settled = true;
@@ -260,24 +208,8 @@ async function swapStylesheets(page, files) {
   return before !== null && after !== null && after !== before;
 }
 
-/** cropRegion's answer, as page.screenshot options. */
 const shotOptions = ({ truncated, ...opts }) => opts;
 
-/*
-  Take cropRegion's crop without asking Chromium for a clip.
-
-  A clipped capture — which is every Playwright screenshot, since it always
-  sends one — has Chromium re-emulate the view onto the clip while it captures.
-  Headless, nobody sees that. In the review window it is a frame of the cropped
-  area blown up to fill the window: MEASURED with a screencast, one frame at
-  1789x1342 showing nothing but the clip, between frames of the normal 2400x1342
-  page — on every comment saved and every region framed. Capturing the whole
-  viewport unclipped produced no such frame, so the window is captured whole and
-  the crop is cut out in Node.
-
-  The full-page fallback (a region entirely out of view) still goes through
-  Playwright; there is no unclipped way to reach pixels that are not on screen.
-*/
 export async function captureCrop(page, crop) {
   if (crop.fullPage) return page.screenshot(shotOptions(crop));
   try {
@@ -285,10 +217,8 @@ export async function captureCrop(page, crop) {
       document.getElementById('ayna-capture')?.remove();
       const style = document.createElement('style');
       style.id = 'ayna-capture';
-      // Playwright hid the caret for its captures; a raw capture has to say so.
       style.textContent = css + ' * { caret-color: transparent !important; }';
       document.documentElement.appendChild(style);
-      // Two frames: the hidden chrome has to be painted out before the capture.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       return { width: innerWidth, height: innerHeight };
     }, crop.style ?? '');
@@ -303,27 +233,14 @@ export async function captureCrop(page, crop) {
     } finally {
       await page.evaluate(() => document.getElementById('ayna-capture')?.remove()).catch(() => {});
     }
-    // Image pixels per CSS pixel, measured rather than read from devicePixelRatio,
-    // so browser zoom cannot put the crop in the wrong place.
     const scale = pngSize(png).width / view.width;
     const c = crop.clip;
     return cropPng(png, { x: c.x * scale, y: c.y * scale, width: c.width * scale, height: c.height * scale });
   } catch {
-    // Not Chromium, or a PNG this cannot read: a flicker beats no crop.
     return page.screenshot(shotOptions(crop));
   }
 }
 
-/*
-  Mark, hide and capture, one region at a time per page.
-
-  cropRegion marks the chrome to hide and captureCrop hides it with one shared
-  rule, so two captures that overlap — a region's preview still running when the
-  comment is saved — undo each other: one clears the other's marks, or removes
-  the rule while the other is still waiting to capture, and ayna's chrome lands
-  in the crop. Playwright queued its own screenshots per page; this does the
-  same for the whole sequence.
-*/
 const captureQueue = new WeakMap();
 export function captureRegion(page, rect, pad) {
   const run = (captureQueue.get(page) ?? Promise.resolve()).then(async () => {
@@ -334,29 +251,7 @@ export function captureRegion(page, rect, pad) {
   return run;
 }
 
-/*
-  Runs at the start of every document in the review window, before the app
-  paints.
-
-  The overlay is injected on `load` so a reload always picks up its current
-  code — which left every reload's first frames to the bare app: full width, no
-  bar, then a jump right and down when the overlay arrived, and the restored
-  scroll position landing off by the difference. The overlay leaves the frame's
-  geometry in sessionStorage as the page goes (see rememberFrame in overlay.js),
-  with a copy of the bar and rail as they stood; this puts the app in that same
-  box straight away and shows the copy where the chrome was, so the reload is
-  one layout instead of two and the chrome never blanks. The overlay builds
-  itself hidden behind the copy and removes it once it is in its real state.
-
-  Self-contained on purpose: Playwright serialises it into the page.
-*/
 export function holdTheFrame() {
-  /*
-    The top document only. An init script runs in every frame, and a
-    same-origin iframe shares the tab's sessionStorage — so it read the frame
-    meant for the page around it and put the stand-in up inside itself, where no
-    overlay ever runs to take it down again.
-  */
   if (window !== window.top) return;
   let f = null;
   try {
@@ -372,7 +267,6 @@ export function holdTheFrame() {
       ? `content:'';position:fixed;z-index:2147483638;pointer-events:none;left:${+b.x || 0}px;top:${+b.y || 0}px;` +
         `width:${+b.w || 0}px;height:${+b.h || 0}px;background:${color(b.bg)};`
       : 'content:none;';
-  // The copy of the chrome, when the last page left one; plain slabs otherwise.
   const copy = typeof f.html === 'string' && f.html && typeof f.css === 'string' && f.css;
   const vars = (Array.isArray(f.vars) ? f.vars : [])
     .filter(([n, v]) => /^--ayna-[\w-]+$/.test(String(n)) && !/[;{}]/.test(String(v)))
@@ -399,12 +293,6 @@ export function holdTheFrame() {
   }
   const mount = () => {
     document.documentElement.appendChild(style);
-    /*
-      The overlay takes this down, and it only arrives on `load`. A page whose
-      load never fires — a hung request — or an overlay that failed to inject
-      would otherwise sit shifted under a frozen, unclickable copy for good.
-      Bounded, and the bare page back is the old behaviour.
-    */
     setTimeout(() => {
       if (window.__aynaLoaded) return;
       style.remove();
@@ -412,18 +300,11 @@ export function holdTheFrame() {
     }, 5000);
     if (!snap) return;
     document.documentElement.appendChild(snap);
-    // The rail was scrolled to where the reader was; put the copy there too,
-    // before the first paint.
     requestAnimationFrame(() => {
       const lines = snap.querySelector('[class$="-console-lines"]');
       if (lines) lines.scrollTop = +f.railScroll || 0;
     });
   };
-  /*
-    At document start there is no <html> element yet — the parser has not made
-    one. Wait for it: a mutation callback runs at the parser's next microtask
-    checkpoint, which is still before the first paint.
-  */
   if (document.documentElement) {
     mount();
     return;
@@ -478,7 +359,6 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
       const m = line.match(/^(.+?):(\d+):(.*)$/);
       if (!m) continue;
       const file = path.relative(projectDir, m[1]);
-      // A test that mentions the class is not where the UI is edited.
       if (isTestPath(file)) continue;
       hits.push({ needle, file, line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
       kept += 1;
@@ -487,7 +367,6 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
   }
   return rankByPage(hits, pageUrl);
 }
-
 
 const GREP_EXCLUDES = SKIP_DIRS.map((d) => `--exclude-dir=${d}`);
 const TEXT_EXT = new Set([
@@ -677,12 +556,10 @@ export async function runAnnotate({
 
     // Crop the exact region the user pointed at, with a little breathing room.
     const regionFile = path.join(dir, 'region.png');
-    // Set when only part of the region was on screen, so the crop shows that part.
     let cropTruncated = false;
     try {
       const { crop, png } = await captureRegion(page, payload.rect, 12);
       await writeFile(regionFile, png);
-      // Only once there is a crop for the flag to describe.
       cropTruncated = crop.truncated;
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
@@ -749,7 +626,6 @@ export async function runAnnotate({
       rect: payload.rect,
       url: payload.url,
       regionScreenshot: existsSync(regionFile) ? regionFile : null,
-      // The crop holds only the on-screen part; `rect` and `elements` are the whole.
       regionTruncated: cropTruncated,
       attachments,
       sourceCandidates: source,
@@ -961,7 +837,6 @@ export async function runAnnotate({
         // Our own output changes constantly; so does anything generated.
         if (parts.some((part) => part === '.ayna' || SKIP_DIRS.includes(part))) return;
         if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) return;
-        // A test written meanwhile is not the round's answer; see isTestPath.
         if (isTestPath(rel)) return;
         editedAt = Date.now();
         roundEdits.add(rel);
@@ -1753,16 +1628,6 @@ export async function runAnnotate({
       roundFiles.set(round, changes);
       roundSnapshot = null;
       roundEdits.clear();
-      /*
-        A round that only touched stylesheets does not need a reload.
-
-        Reloading rebuilds the whole window to show what a stylesheet swap
-        shows in place: the page, the bar and the rail all go and come back,
-        and the scroll position has to be found again. Swapping the changed
-        sheets keeps everything where it is. Proven, not assumed — if the
-        page's rules did not change afterwards (an @import, a sheet the swap
-        did not reach), it reloads after all.
-      */
       const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
       const swapped = !changedItself && cssOnly && (await swapStylesheets(page, changes.map((c) => c.file)));
 
@@ -1771,7 +1636,6 @@ export async function runAnnotate({
         round,
         key: roundKey(round),
         via: reason,
-        // Decided before announcing, so the announcement says which happened.
         reloaded: !changedItself && !swapped,
         swapped,
         files: changes.map(({ file, status, added, removed }) => ({ file, status, added, removed })),
@@ -1796,8 +1660,6 @@ export async function runAnnotate({
         if (!changedItself && !swapped) {
           await reloadSettled(page);
           if (at && (at.x || at.y)) {
-            // Instant, not the page's own `scroll-behavior: smooth`: a glide
-            // after a reload is the page visibly hunting for where it was.
             await page
               .evaluate((p) => scrollTo({ left: p.x, top: p.y, behavior: 'instant' }), at)
               .catch(() => {});

@@ -71,7 +71,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     );
   const middlePixel = (buf) => pixelAt(buf);
 
-
   test('a visible region is captured without resizing the page', async () => {
     await drain();
     const opts = await cropRegion(page, await pageRect('#wide'), 12);
@@ -103,12 +102,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     assert.deepEqual(await drain(), []);
   });
 
-  /*
-    A section taller than the window — the most common thing to click once you
-    press ↑ a couple of times — took the full-page path, and the whole window
-    flinched with ayna's frame blinking out. Now the visible part is captured
-    and the crop says it is partial.
-  */
   test('a region only partly on screen is cropped to what shows, without a flinch', async () => {
     await page.evaluate(() => scrollTo(0, 800));
     await page.waitForTimeout(200);
@@ -133,8 +126,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
   });
 
   test('a region scrolled entirely out of view is still captured correctly', async () => {
-    // Nothing of it is on screen to crop, so this is the one case left for the
-    // full-page path.
     const opts = await cropRegion(page, await pageRect('#wide'), 12);
     assert.equal(opts.fullPage, true, 'off-screen regions need the full-page path');
     assert.equal(await middlePixel(await page.screenshot(opts)), '255,0,0');
@@ -186,10 +177,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
       await chrome.close();
     }
   });
-  /*
-    A clipped capture flashes the clip, scaled up, in a headed window. The crop
-    is cut from an unclipped capture instead, and has to be the same picture.
-  */
   test('the crop is cut from an unclipped capture, at the same place and size', async () => {
     await page.evaluate(() => scrollTo(0, 800));
     await page.waitForTimeout(200);
@@ -204,17 +191,9 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     assert.equal(await page.evaluate(() => !!document.getElementById('ayna-capture')), false, 'the capture style is gone');
   });
 
-  /*
-    The hiding rule and the marks are shared, so two captures in flight at once
-    — a region's preview, then the comment saved before it finished — undid
-    each other and ayna's chrome landed in a crop.
-  */
   test('captures that overlap still each hide the chrome over their region', async () => {
     await page.evaluate(() => scrollTo(0, 800));
     await page.waitForTimeout(200);
-    // Two targets side by side, each with one of ayna's marks over it, and
-    // frames slowed so the first capture is still waiting when the second
-    // starts — the window in which they used to clear each other's marks.
     const rects = await page.evaluate(() => {
       const out = [];
       for (const [id, x, colour] of [['a', 20, 'rgb(0,0,255)'], ['b', 300, 'rgb(255,255,0)']]) {
@@ -253,11 +232,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
     assert.throws(() => cropPng(full, { x: width + 5, y: 0, width: 10, height: 10 }), /empty/);
   });
 
-  /*
-    Partly under the bar is still in the app. Treating it as "outside" made the
-    crop use the whole window, which took in the bar and the rail and hid them —
-    both blinked on every such note.
-  */
   test('a region partly under the bar leaves the bar and rail alone, and far chrome keeps its shadow', async () => {
     const chrome = await context.newPage();
     try {
@@ -285,11 +259,6 @@ describe('cropping the page the user is looking at', { skip: !hasBrowser && 'AYN
   });
 });
 
-/*
-  A reload painted the bare app first — full width, no bar — then jumped right
-  and down when the overlay arrived. The init script puts it in its box from the
-  first frame, using what the overlay left behind.
-*/
 describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   test('the page is laid out in the reserved box before the overlay exists', async () => {
     const browser = await openBrowser({ headless: true });
@@ -322,8 +291,6 @@ describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYN
       });
       assert.deepEqual(at, { x: 300, y: 53, bar: 'rgb(18, 18, 20)' });
 
-      // With a copy of the chrome left behind, that copy is what shows — not
-      // blank slabs — and it cannot be clicked.
       await page.evaluate(() => {
         const f = JSON.parse(sessionStorage.getItem('ayna-reserve'));
         f.css = '.ayna-ov-bar{position:fixed;top:0;left:300px;right:0;height:53px;background:rgb(1, 2, 3)}';
@@ -343,7 +310,6 @@ describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYN
       });
       assert.deepEqual(copy, { text: 'Send to Claude', bg: 'rgb(1, 2, 3)', clickable: 'none', slab: 'none', y: 53 });
 
-      // A same-origin iframe shares the storage but is not the review window.
       const inFrame = await page.evaluate(async () => {
         const frame = document.createElement('iframe');
         frame.src = '/';
@@ -354,7 +320,6 @@ describe('a reload keeps the review frame in place', { skip: !hasBrowser && 'AYN
       });
       assert.deepEqual(inFrame, { standIn: false, copy: false }, 'nothing is put up inside an iframe');
 
-      // With no overlay arriving to take it down, it goes by itself.
       await page.waitForTimeout(5500);
       const left = await page.evaluate(() => ({
         standIn: !!document.getElementById('ayna-reserve'),
