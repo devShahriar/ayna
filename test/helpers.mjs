@@ -54,3 +54,31 @@ export async function press(page, act) {
   if (!(await target.isVisible())) await page.click('[data-act=overflow]');
   await target.click();
 }
+
+/*
+  Wait for a condition instead of for time.
+
+  Polls `check` until it returns something truthy (or stops throwing) and
+  returns that value; after `timeout` it throws the last error, or `message`.
+  A fixed sleep is either too short on a loaded machine (a flake) or longer
+  than needed everywhere else (a slow suite) — usually both. Node's own
+  t.waitFor needs 22.14, and CI runs the 22.13 floor.
+*/
+export async function eventually(check, { timeout = 5000, interval = 50, message } = {}) {
+  const deadline = Date.now() + timeout;
+  let last = null;
+  for (;;) {
+    try {
+      const value = await check();
+      if (value) return value;
+      last = null;
+    } catch (err) {
+      last = err;
+    }
+    if (Date.now() >= deadline) {
+      if (last) throw last;
+      throw new Error(message ?? `condition not met within ${timeout}ms`);
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}

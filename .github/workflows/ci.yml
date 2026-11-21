@@ -20,6 +20,11 @@ jobs:
         # have it without a flag. The floor is tested rather than the newest
         # 22, because a range is only as good as its oldest version.
         node: ['22.13', '24']
+        # Test files are dealt round-robin into shards; each shard gets its own
+        # runner, so the browser tests are not all contending for one machine.
+        shard: [1, 2]
+
+    name: test (${{ matrix.node }}, ${{ matrix.shard }}/2)
 
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +41,7 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - run: npm test
+      - run: node --test --test-shard=${{ matrix.shard }}/2 test/*.test.mjs
 
   lint:
     runs-on: ubuntu-latest
