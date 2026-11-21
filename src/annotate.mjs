@@ -1687,12 +1687,27 @@ export async function runAnnotate({
       roundFiles.set(round, changes);
       roundSnapshot = null;
       roundEdits.clear();
+      /*
+        A round that only touched stylesheets does not need a reload.
+
+        Reloading rebuilds the whole window to show what a stylesheet swap
+        shows in place: the page, the bar and the rail all go and come back,
+        and the scroll position has to be found again. Swapping the changed
+        sheets keeps everything where it is. Proven, not assumed — if the
+        page's rules did not change afterwards (an @import, a sheet the swap
+        did not reach), it reloads after all.
+      */
+      const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
+      const swapped = !changedItself && cssOnly && (await swapStylesheets(page));
+
       emit({
         event: 'applied',
         round,
         key: roundKey(round),
         via: reason,
-        reloaded: !changedItself,
+        // Decided before announcing, so the announcement says which happened.
+        reloaded: !changedItself && !swapped,
+        swapped,
         files: changes.map(({ file, status, added, removed }) => ({ file, status, added, removed })),
       });
 
@@ -1711,19 +1726,6 @@ export async function runAnnotate({
           judging was off screen exactly when they needed to look at it.
         */
         const at = await page.evaluate(() => ({ x: scrollX, y: scrollY })).catch(() => null);
-
-        /*
-          A round that only touched stylesheets does not need a reload.
-
-          Reloading rebuilds the whole window to show what a stylesheet swap
-          shows in place: the page, the bar and the rail all go and come back,
-          and the scroll position has to be found again. Swapping the changed
-          sheets keeps everything where it is. Proven, not assumed — if the
-          page's rules did not change afterwards (an @import, a sheet the swap
-          did not reach), it reloads after all.
-        */
-        const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
-        const swapped = !changedItself && cssOnly && (await swapStylesheets(page));
 
         if (!changedItself && !swapped) {
           await reloadSettled(page);
