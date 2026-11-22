@@ -43,6 +43,16 @@ jobs:
 
       - run: node --test --test-shard=${{ matrix.shard }}/2 test/*.test.mjs
 
+  # One stable check for branch protection, whatever the matrix looks like.
+  # always() + an explicit result check: a skipped job would count as passing.
+  tests-passed:
+    name: test
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success
+
   lint:
     runs-on: ubuntu-latest
     steps:
