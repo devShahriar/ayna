@@ -146,8 +146,8 @@ describe('getting out of "waiting for Claude"', { skip: !hasBrowser && 'AYNA_SKI
       await mkdir(path.join(dir, '.ayna'), { recursive: true });
       await writeFile(path.join(dir, '.ayna', 'noise.json'), '{"a":1}');
       await writeFile(path.join(dir, 'node_modules-ish.txt'), 'not source');
-      // A counted write ends the wait in ~3.5s: 1.8s of quiet, a 300ms poll, the reload.
-    }, { within: 6000 });
+      // A counted write ends the wait in ~3.5s (1.8s of quiet, a 300ms poll, the reload); 12s leaves >3x for a slow runner.
+    }, { within: 12000 });
     assert.equal(reached, false, 'writing under .ayna must not be read as an applied fix');
   });
 });
