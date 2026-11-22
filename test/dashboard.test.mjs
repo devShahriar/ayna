@@ -356,6 +356,9 @@ describe('dashboard: in a browser', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER se
   });
 
   test('passes ayna’s own audit in both themes, on a desktop and on a phone', async () => {
+    // Each page below gets its own browser; the shared one would only sit idle past 30s.
+    await browser.close();
+    browser = null;
     const { auditPage } = await import('../src/audit.mjs');
     const found = [];
     for (const theme of ['ayna', 'light']) {
