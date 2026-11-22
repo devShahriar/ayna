@@ -269,7 +269,7 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
 
       // The next round begins: the approved one gets out of the way.
       await press(page, 'more');
-      await page.waitForFunction(async () => (await window.__aynaState()).phase === 'commenting', null, { polling: 50, timeout: 5000 });
+      await eventually(async () => (await page.evaluate(() => window.__aynaState())).phase === 'commenting', { timeout: 5000 });
       await note(page, 'and bolder');
       seen.next = await rounds();
       seen.loose = await page.evaluate(() => {

@@ -327,7 +327,7 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
           });
           await page.fill('.ayna-ov-pop textarea', 'tighter');
           await page.click('.ayna-ov-save');
-          await page.waitForFunction(async () => (await window.__aynaCount()) === 1, null, { polling: 50, timeout: 10000 });
+          await eventually(async () => (await page.evaluate(() => window.__aynaCount())) === 1, { timeout: 10000 });
           await page.click('[data-act=send]');
           // The round must be open before the marker: opening it clears any earlier one.
           await page.waitForSelector('.ayna-ov-round[data-state=waiting]', { state: 'attached', timeout: 10000 });

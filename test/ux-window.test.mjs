@@ -25,7 +25,7 @@ const frames = (page) =>
 const popGone = (page) => page.waitForSelector('.ayna-ov-pop', { state: 'detached', timeout: 5000 }).catch(() => {});
 // Node has every note, so a round sent now carries them.
 const filed = (page, n) =>
-  page.waitForFunction(async (k) => (await window.__aynaCount()) >= k, n, { polling: 50, timeout: 10000 });
+  eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= n, { timeout: 10000 });
 // The round is open (its event is out), so the applied marker written next is not cleared.
 const roundOpen = (page) =>
   page.waitForSelector('.ayna-ov-round[data-state=waiting]', { state: 'attached', timeout: 10000 });
