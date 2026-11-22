@@ -1565,13 +1565,6 @@ export async function runAnnotate({
     comments,
   };
   await writeFile(commentsFile, JSON.stringify(manifest, null, 2));
-  /*
-    A scripted flow that failed is the caller's failure, not a review that
-    ended. Logging it and returning normally let every assertion inside a
-    test's onReady fail silently while the test passed.
-  */
-  // Awaited in full: the page is closed by now, so the flow cannot outlive the
-  // window by more than its own waits — and a late failure is still a failure.
   if (scripted) await scripted;
   if (scriptError) throw scriptError;
   return manifest;

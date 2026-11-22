@@ -18,7 +18,6 @@ import { openStore } from '../src/tasks.mjs';
 import { since as pendingEvents } from '../src/events.mjs';
 import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// Two frames: layout, observers and anything queued on rAF have all run.
 const frames = (page) =>
   page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
@@ -112,7 +111,6 @@ describe('trying something before writing it', { skip: !hasBrowser && 'AYNA_SKIP
 
   const size = (page) => page.evaluate(() => getComputedStyle(document.querySelector('.t')).fontSize);
   const showing = (page, n) => page.waitForFunction((k) => document.querySelector('.ayna-ov-preview-bar [data-part=label]')?.textContent.includes(` ${k}/`), n, { timeout: 5000 });
-  // The answer, once the window has written it to the log.
   const answered = (dir, from, kind) =>
     eventually(async () => {
       const { eventsSince, openDb } = await import('../src/db.mjs');
@@ -221,7 +219,6 @@ describe('asking for a design direction', { skip: !hasBrowser && 'AYNA_SKIP_BROW
           offered = await page.$$eval('.ayna-ov-act', (els) => els.map((e) => e.dataset.action));
           if (note) await page.fill('.ayna-ov-pop textarea', note);
           await page.click(`.ayna-ov-act[data-action=${action}]`);
-          // The box closes once Node has the request; the log write follows it.
           await page.waitForSelector('.ayna-ov-pop', { state: 'detached', timeout: 5000 }).catch(() => {});
           await eventually(async () => (await pendingEvents(dir)).events.some((e) => e.event === 'design-request')).catch(() => {});
           await page.close();
@@ -328,11 +325,9 @@ describe('a phone-sized window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' 
           await page.click('.ayna-ov-save');
           await eventually(async () => (await page.evaluate(() => window.__aynaCount())) === 1, { timeout: 10000 });
           await page.click('[data-act=send]');
-          // The round must be open before the marker: opening it clears any earlier one.
           await page.waitForSelector('.ayna-ov-round[data-state=waiting]', { state: 'attached', timeout: 10000 });
           await writeFile(path.join(dir, 'out', 'applied'), '1');
           await page.waitForSelector('[data-act=overflow]', { state: 'visible', timeout: 20000 });
-          // The reloaded rail has read the round back, so the bar knows it is your turn.
           await page.waitForSelector('.ayna-ov-round[data-state=ready]', { state: 'attached', timeout: 10000 });
           await frames(page);
 

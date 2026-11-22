@@ -15,10 +15,8 @@ import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// The pin shows at once; the comment is stored once the Tasks count includes it.
 const saved = (page, n) =>
   page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
-// Send returns before Node has cleared old markers; status.json says when it has.
 const phaseOf = async (out) => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase;
 const sent = (out) => eventually(async () => (await phaseOf(out)) === 'awaiting-claude', { timeout: 10000 });
 
@@ -158,7 +156,6 @@ describe('annotate round-trip', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
             await saved(page, 1);
             await page.click('[data-act=send]');
             await sent(out);
-            // Two 300ms watch ticks: a stale marker would have been acted on by now.
             await page.waitForTimeout(600);
             phaseAfterSend = await phaseOf(out);
             await writeFile(path.join(out, 'applied'), '1');
@@ -604,7 +601,6 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 15000,
             });
-            // The markers are drawn, then the progress line is filled in.
             await page.waitForFunction(() => document.querySelector('.ayna-ov-progress')?.textContent, null, {
               timeout: 5000,
             });
@@ -653,7 +649,6 @@ describe('per-comment approve / reject', { skip: !hasBrowser && 'AYNA_SKIP_BROWS
               await page.evaluate(() => document.querySelector('.ayna-ov-badge').textContent),
               /approved/i,
             );
-            // Approved reads as done: green, not the amber of work still owed.
             assert.deepEqual(
               await page.evaluate(() => [
                 getComputedStyle(document.querySelector('.ayna-ov-badge')).backgroundColor,

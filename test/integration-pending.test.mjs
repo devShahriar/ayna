@@ -14,7 +14,6 @@ import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// The note is saved, the round is open (old markers cleared), and the edits have landed.
 async function sendAndApply(page, out) {
   await eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= 1, {
     timeout: 10000,
@@ -154,7 +153,6 @@ describe('pending work survives, and closing is not a verdict', { skip: !hasBrow
           projectDir: site,
           viewport: { width: 900, height: 600 },
           onReady: async (page) => {
-            // Inside the app's area: the rail owns the left edge and the bar the top.
             const app = await page.evaluate(() => {
               const r = document.querySelector('#c').getBoundingClientRect();
               return { x: Math.max(r.left, 0), y: Math.max(r.top, 0) };

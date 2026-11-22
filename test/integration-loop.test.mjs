@@ -15,14 +15,12 @@ import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// The window holds `count` notes: __aynaSubmit has finished, so a Send after this carries them.
 const saved = (page, count) =>
   eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= count, {
     timeout: 10000,
     message: `the window never held ${count} note(s)`,
   });
 
-// Round `round` is open: the baseline and snapshot are taken and old markers cleared.
 const sent = (out, round) =>
   eventually(async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).round >= round, {
     timeout: 10000,
@@ -92,7 +90,6 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
               timeout: 20000,
             });
-            // `applied` has read the current round once its heartbeat is in.
             const { openDb } = await import('../src/db.mjs');
             const db = await openDb(dir);
             try {
@@ -748,7 +745,6 @@ describe('the loop keeps itself going', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
               }));
             await page.click('.title');
             await page.waitForSelector('.ayna-ov-pop textarea');
-            // The label is rechecked every 2s and the chips every 1s; a miss falls through to the asserts.
             const shows = (says, chips) =>
               page
                 .waitForFunction(

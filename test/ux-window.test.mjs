@@ -19,14 +19,11 @@ import { openStore } from '../src/tasks.mjs';
 import { pending as pendingWork } from '../src/events.mjs';
 import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// Two frames: layout, observers and anything queued on rAF have all run.
 const frames = (page) =>
   page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 const popGone = (page) => page.waitForSelector('.ayna-ov-pop', { state: 'detached', timeout: 5000 }).catch(() => {});
-// Node has every note, so a round sent now carries them.
 const filed = (page, n) =>
   eventually(async () => (await page.evaluate(() => window.__aynaCount())) >= n, { timeout: 10000 });
-// The round is open (its event is out), so the applied marker written next is not cleared.
 const roundOpen = (page) =>
   page.waitForSelector('.ayna-ov-round[data-state=waiting]', { state: 'attached', timeout: 10000 });
 
@@ -276,7 +273,6 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, {
             timeout: 20000,
           });
-          // Review markers are live and the bar has counted them: the startup list calls are done.
           await page.waitForFunction(
             () => document.querySelectorAll('.ayna-ov-rev').length === 6 && /6 left/.test(document.querySelector('.ayna-ov-progress')?.textContent),
             null,
@@ -296,7 +292,6 @@ describe('living with the window open', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
             await page.setViewportSize({ width: 1200 - i * 14, height: 800 });
           }
           duringDrag = await page.evaluate(() => window.__calls);
-          // Within the 600ms the settle was always given.
           await page.waitForFunction((d) => window.__calls > d, duringDrag, { timeout: 600 }).catch(() => {});
           afterSettle = await page.evaluate(() => window.__calls);
           await press(page, 'close');
@@ -408,7 +403,6 @@ describe('what everyone else is doing', { skip: !hasBrowser && 'AYNA_SKIP_BROWSE
           const b = await store.create({ comment: 'resize the logo', url });
           await store.claim(a.id, 'cursor-2');
           await store.claim(b.id, 'worker-1');
-          // The rail asks Node for agents about once a second.
           await page.waitForFunction(() => document.querySelectorAll('.ayna-ov-agent').length === 2, null, { timeout: 5000 }).catch(() => {});
           chips = await page.evaluate(() =>
             [...document.querySelectorAll('.ayna-ov-agent')].map((c) => c.textContent),
@@ -468,7 +462,6 @@ describe('resizing the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }
         viewport: { width: 1000, height: 700 },
         onReady: async (page) => {
           const measure = async (label) => {
-            // Settled: the re-measure after a resize is debounced (120ms).
             await page
               .waitForFunction(() => {
                 const b = document.body.getBoundingClientRect();

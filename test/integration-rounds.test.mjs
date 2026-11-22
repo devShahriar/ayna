@@ -15,10 +15,8 @@ import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// The pin shows at once; the comment is stored once the Tasks count includes it.
 const saved = (page, n) =>
   page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
-// Send returns before Node has cleared old markers; status.json says when it has.
 const sent = (out) =>
   eventually(
     async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase === 'awaiting-claude',
@@ -50,7 +48,6 @@ describe('more than one round in the same window', { skip: !hasBrowser && 'AYNA_
           projectDir: site,
           viewport: { width: 1100, height: 700 },
           onReady: async (page) => {
-            // Only the round's own comment is pending: round one is approved by then.
             const add = async (sel, txt) => {
               await page.click(sel);
               await page.waitForSelector('.ayna-ov-pop textarea');
@@ -164,7 +161,6 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
               { width: 480, height: 820 }, // narrow and tall
             ]) {
               await page.setViewportSize(size);
-              // Relayout runs on the next frame and settles 120ms after the last resize.
               await eventually(async () => {
                 const b = await inspect(page, '.ayna-ov-pop');
                 return b.onScreen && b.clearOfBar && (await clickable(page, '.ayna-ov-save'));
@@ -227,7 +223,6 @@ describe('the overlay survives being resized', { skip: !hasBrowser && 'AYNA_SKIP
             assert.ok(Math.abs(before.markerLeft - before.targetLeft) < 6, 'marker starts aligned');
 
             await page.setViewportSize({ width: 700, height: 900 });
-            // Repositioned on the next frame, re-rendered 200ms after; mid-render there is no marker.
             const aligned = async () => {
               const b = await boxOf();
               return Math.abs(b.markerLeft - b.targetLeft) < 6 && b;
@@ -402,7 +397,6 @@ describe('Claude proposing its own changes', { skip: !hasBrowser && 'AYNA_SKIP_B
               await page.evaluate(() => [...document.querySelectorAll('.ayna-ov-card button')].map((b) => b.textContent)),
               ['Leave it', 'Go ahead'],
             );
-            // Answering re-renders the markers; click one of the new ones, not a doomed old one.
             await page.evaluate(() => document.querySelectorAll('.ayna-ov-revbar').forEach((n) => (n.__stale = true)));
             await page.click('[data-act=go]');
             await page.waitForFunction(() => {
@@ -494,7 +488,6 @@ describe('auditing the window that is already open', { skip: !hasBrowser && 'AYN
             const before = await askForAudit();
             assert.equal(before.counts.covered, 0, 'nothing is covered in the state it loads in');
 
-            // The user switches to Browse and clicks into the state where things collide.
             await page.click('[data-act=setmode][data-mode=browse]');
             await page.click('#go');
             await page.waitForSelector('#deploy');

@@ -51,7 +51,6 @@ const CARD_CSS = '<style>.card{border:1px solid #ccc;padding:10px;margin:6px}</s
 
 const progress = (page) => page.evaluate(() => document.querySelector('.ayna-ov-progress')?.textContent ?? '');
 
-/** Press a verdict and wait for the bar to count it. */
 async function judge(page, button) {
   const before = await progress(page);
   await button.click({ timeout: 5000 });
@@ -110,7 +109,6 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
             });
           }
           await page.click('[data-act=send]');
-          // Sending clears any old marker, so it is written only once the round is out.
           await heard('round');
           await writeFile(path.join(out, 'applied'), '1');
           await heard('gate');
@@ -230,7 +228,6 @@ describe('ending a review', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, ()
       await page.waitForSelector('[data-act=stay]', { timeout: 5000 });
       midway = await page.evaluate(() => document.querySelector('.ayna-ov-hint')?.textContent);
       await page.click('[data-act=stay]');
-      // Past the 1.5s countdown, which Node holds, and the 300ms poll that closes the window.
       await page.waitForTimeout(Math.max(0, pressed + 2200 - Date.now()));
       stillOpen = !page.isClosed();
 

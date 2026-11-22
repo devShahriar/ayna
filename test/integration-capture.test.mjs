@@ -15,10 +15,8 @@ import { serveStatic } from '../src/server.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
-// The pin shows at once; the comment is stored once the Tasks count includes it.
 const saved = (page, n) =>
   page.waitForSelector(`[data-act=tasks][aria-label="Tasks, ${n} pending"]`, { state: 'attached', timeout: 10000 });
-// Send returns before Node has cleared old markers; status.json says when it has.
 const sent = (out) =>
   eventually(
     async () => JSON.parse(await readFile(path.join(out, 'status.json'), 'utf8')).phase === 'awaiting-claude',

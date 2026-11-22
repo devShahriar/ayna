@@ -2163,8 +2163,6 @@ async function follow(statusFile, { settle = false } = {}) {
     existsSync(statusFile) ? JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}')) : {};
 
   if (settle) {
-    // A newer round also ends the settle: review -> "Comment more" -> Send can
-    // all happen between two reads, and the phase alone would never show it.
     const from = (await read()).round ?? 0;
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {

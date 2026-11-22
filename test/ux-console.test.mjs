@@ -94,11 +94,9 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
     }
   }
 
-  // Two frames: layout, observers and anything queued on rAF have all run.
   const frames = (page) =>
     page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
-  // Until the rail shows `text` (it polls Node about once a second). A miss is left to the assertions.
   const railShows = (page, text, sel = '.ayna-ov-console') =>
     page
       .waitForFunction(([s, t]) => [...document.querySelectorAll(s)].some((n) => n.textContent.includes(t)), [sel, text], { timeout: 5000 })
@@ -125,7 +123,6 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
   // Send what is noted, have it land, and approve it: round 1, settled.
   const approvedRound = async (page, dir) => {
     await page.click('[data-act=send]');
-    // The round must be open before the marker: opening it clears any earlier one.
     await page.waitForSelector('.ayna-ov-round[data-state=waiting]', { timeout: 10000 });
     await writeFile(path.join(dir, 'out', 'applied'), '1');
     await page.waitForFunction(() => document.querySelector('[data-act=close]') !== null, null, { timeout: 20000 });
@@ -146,7 +143,6 @@ describe('the console in the window', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER 
       };
     });
 
-  // The newest card once `ok` holds of it, or as it stands when time runs out.
   const cardWhen = async (page, ok, timeout = 10000) => {
     let c;
     await eventually(async () => (c = await lastCard(page)) && ok(c), { timeout }).catch(() => {});
