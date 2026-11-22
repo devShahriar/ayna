@@ -259,15 +259,31 @@ describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_B
         onReady: async (page) => {
           await page.waitForTimeout(700);
           await page.evaluate(() => {
-            window.__w = { writes: 0, reads: 0 };
+            const w = (window.__w = { writes: 0, reads: 0, settles: [] });
+            let settle = null;
+            const later = window.setTimeout;
+            window.setTimeout = (fn, ms, ...a) =>
+              later(() => {
+                if (!(ms >= 100)) return fn(...a);
+                settle = { reads: 0 };
+                try {
+                  return fn(...a);
+                } finally {
+                  w.settles.push(settle.reads);
+                  settle = null;
+                }
+              }, ms);
             const sp = document.body.style.setProperty.bind(document.body.style);
             document.body.style.setProperty = (...a) => {
-              window.__w.writes += 1;
+              if (!settle) w.writes += 1;
               return sp(...a);
             };
             const gbcr = Element.prototype.getBoundingClientRect;
             Element.prototype.getBoundingClientRect = function (...a) {
-              if (this === document.body) window.__w.reads += 1;
+              if (this === document.body) {
+                if (settle) settle.reads += 1;
+                else w.reads += 1;
+              }
               return gbcr.apply(this, a);
             };
           });
@@ -276,17 +292,21 @@ describe('a resize costs nothing per frame', { skip: !hasBrowser && 'AYNA_SKIP_B
             await page.setViewportSize({ width: 1000 + i * 30, height: 700 + i * 10 });
             await page.waitForTimeout(16);
           }
-          during = await page.evaluate(() => ({ ...window.__w }));
+          during = await page.evaluate(() => ({ ...window.__w, settles: [...window.__w.settles] }));
           await page.waitForTimeout(500); // past the 120ms settle
-          after = await page.evaluate(() => ({ ...window.__w }));
+          after = await page.evaluate(() => ({ ...window.__w, settles: [...window.__w.settles] }));
           await page.close();
         },
       });
 
       assert.equal(during.writes, 0, `${during.writes} style writes during a drag — the per-frame relayout is back`);
-      assert.equal(during.reads, 0, `${during.reads} forced layouts during a drag`);
-      // The correction still has to happen, just once, and only at the end.
-      assert.ok(after.reads <= 2, `${after.reads} forced layouts after settling — expected the single correction`);
+      assert.equal(during.reads, 0, `${during.reads} forced layouts during a drag, outside the settle`);
+      // The correction still has to happen, just once per pause, and only when the window stops.
+      assert.equal(after.reads, 0, `${after.reads} forced layouts outside the settle once the drag ended`);
+      const worst = Math.max(0, ...after.settles);
+      assert.ok(worst <= 2, `one settle forced ${worst} layouts — expected the single correction`);
+      const sinceTheDrag = after.settles.length - during.settles.length;
+      assert.ok(sinceTheDrag <= 1, `${sinceTheDrag} settles after one drag ended — expected one`);
     } finally {
       srv.close();
       await rm(dir, { recursive: true, force: true });
