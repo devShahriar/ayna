@@ -14,7 +14,7 @@ npm test
 You need Node 22.13 or newer (the store is `node:sqlite`) and a Chromium-family
 browser — Google Chrome, Chromium, Brave, Edge or Vivaldi. Ayna drives your
 installed browser through `playwright-core`; it deliberately does **not**
-download a browser. CI tests the oldest supported 22 and 24, so check a change
+download a browser. CI tests the oldest supported 22 and 26, so check a change
 against both if it touches anything version-sensitive.
 
 If you have more than one browser installed, pick the one the tests should

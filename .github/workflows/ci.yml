@@ -22,7 +22,7 @@ jobs:
         # node:sqlite is what the store runs on, and 22.13 is the first 22 to
         # have it without a flag. The floor is tested rather than the newest
         # 22, because a range is only as good as its oldest version.
-        node: ['22.13', '24']
+        node: ['22.13', '26']
 
     steps:
       - uses: actions/checkout@v7
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Syntax check every source file
         run: |
