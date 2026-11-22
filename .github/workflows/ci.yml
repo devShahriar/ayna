@@ -9,9 +9,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -19,14 +23,11 @@ jobs:
         # have it without a flag. The floor is tested rather than the newest
         # 22, because a range is only as good as its oldest version.
         node: ['22.13', '24']
-        shard: [1, 2]
-
-    name: test (${{ matrix.node }}, ${{ matrix.shard }}/2)
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -38,21 +39,13 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - run: node --test --test-shard=${{ matrix.shard }}/2 test/*.test.mjs
-
-  tests-passed:
-    name: test
-    needs: test
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - run: test "${{ needs.test.result }}" = success
+      - run: npm test
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
 
