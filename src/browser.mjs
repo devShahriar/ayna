@@ -208,11 +208,40 @@ function launchFailed(err, browser) {
  */
 export async function openBrowser({ headless = false, browser = chromeChannel() } = {}) {
   const resolved = resolveBrowser(browser);
+  let launched;
   try {
-    return await chromium.launch({ ...resolved, headless, ...launchOptions() });
+    launched = await chromium.launch({ ...resolved, headless, ...launchOptions() });
   } catch (err) {
     throw launchFailed(err, resolved);
   }
+  if (headless && process.platform === 'darwin') explainBackgroundQuit(launched);
+  return launched;
+}
+
+function explainBackgroundQuit(browser) {
+  const started = Date.now();
+  let closing = false;
+  const close = browser.close.bind(browser);
+  browser.close = (...args) => {
+    closing = true;
+    return close(...args);
+  };
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const interrupted = () => {
+    closing = true;
+  };
+  for (const sig of signals) process.on(sig, interrupted);
+  browser.on('disconnected', () => {
+    for (const sig of signals) process.removeListener(sig, interrupted);
+    if (closing) return;
+    const after = Math.round((Date.now() - started) / 1000);
+    if (after < 20) return;
+    process.stderr.write(
+      `  ! the browser quit on its own after ${after}s. On macOS this is usually the system closing a\n` +
+        '    headless browser that is not allowed to run in the background — allow it under\n' +
+        '    System Settings › General › Login Items & Extensions, or run with --headed.\n',
+    );
+  });
 }
 
 /*

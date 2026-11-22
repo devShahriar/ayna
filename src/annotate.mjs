@@ -1524,12 +1524,15 @@ export async function runAnnotate({
   // Lets tests and scripted flows drive the overlay without a human at the mouse.
   // Deliberately not awaited: a real user clicks while the watch loop below is
   // running, and awaiting here would stall that loop and deadlock the round-trip.
+  let scripted = null;
+  let scriptError = null;
   if (onReady) {
-    onReady(page).catch(async (err) => {
+    scripted = onReady(page).catch(async (err) => {
       // Swallowing this would leave the watch loop below waiting for an approval
       // that can never come — an infinite hang with no explanation. Close the page
       // so the loop exits and the failure is visible.
       process.stderr.write(`[ayna] scripted interaction failed: ${err.message}\n`);
+      scriptError = err;
       await page.close().catch(() => {});
     });
   }
@@ -1749,8 +1752,8 @@ export async function runAnnotate({
       .evaluate(() => document.documentElement.scrollHeight > innerHeight + 4)
       .catch(() => true);
     await page.screenshot({ path: fullFile, fullPage: overflows, style: WITHOUT_CHROME }).catch(() => {});
-    if (ownsContext) await context.close().catch(() => {});
   }
+  if (ownsContext) await context.close().catch(() => {});
 
   phase = done ? 'approved' : 'closed';
   await writeStatus();
@@ -1765,6 +1768,8 @@ export async function runAnnotate({
     comments,
   };
   await writeFile(commentsFile, JSON.stringify(manifest, null, 2));
+  if (scripted) await scripted;
+  if (scriptError) throw scriptError;
   return manifest;
 }
 

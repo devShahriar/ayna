@@ -3,17 +3,16 @@
   them run once. That is exactly how `npm test` stayed broken for hours earlier in
   this project's life, so they get the same treatment as everything else.
 */
-import { test, describe, before, after } from 'node:test';
+import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { openBrowser } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runFlow, summarizeFlow } from '../src/flow.mjs';
 import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';
-import { tempDir, hasBrowser } from './helpers.mjs';
+import { tempDir, hasBrowser, launchBrowser } from './helpers.mjs';
 
 /** A page with a slow control, a noisy one, and something that covers a button. */
 async function appFixture(dir) {
@@ -45,11 +44,11 @@ async function appFixture(dir) {
 
 describe('flow', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
-    await browser?.close();
+  afterEach(async () => {
+    await browser?.close().catch(() => {});
   });
 
   test('runs the steps in order and records what each one did', async () => {
@@ -228,11 +227,11 @@ describe('flow', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
 
 describe('qa', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
-    await browser?.close();
+  afterEach(async () => {
+    await browser?.close().catch(() => {});
   });
 
   async function flowsDir(dir, flows) {
@@ -405,11 +404,11 @@ describe('qa', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
 
 describe('hitting a sign-in wall', { skip: !hasBrowser && 'AYNA_SKIP_BROWSER set' }, () => {
   let browser;
-  before(async () => {
-    browser = await openBrowser({ headless: true });
+  beforeEach(async () => {
+    browser = await launchBrowser();
   });
-  after(async () => {
-    await browser?.close();
+  afterEach(async () => {
+    await browser?.close().catch(() => {});
   });
 
   test('a login screen is reported as blocked, not audited as a page', async () => {

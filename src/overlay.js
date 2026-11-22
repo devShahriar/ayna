@@ -881,7 +881,7 @@
     }
     @keyframes ${NS}-rot { to { transform: rotate(360deg); } }
     .${NS}-pop {
-      position: fixed; z-index: 2147483646; width: 320px; max-width: calc(100vw - 16px);
+      position: fixed; z-index: 2147483646; width: 350px; max-width: calc(100vw - 16px); box-sizing: border-box;
       /* The panels follow the app too: a white card in a black UI is ayna
          announcing itself rather than fitting in. */
       background: var(--ayna-panel, #121214); color: var(--ayna-panel-text, #f4f2ef);
@@ -894,7 +894,7 @@
        reach is a row you cannot click. */
     .${NS}-body { overflow: auto; min-height: 0; }
     .${NS}-pop textarea {
-      width: 100%; min-height: 78px; resize: vertical; padding: 9px;
+      width: 100%; min-height: 78px; resize: vertical; padding: 9px; box-sizing: border-box;
       color: var(--ayna-panel-text, #f4f2ef);
       border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10)); border-radius: 8px; font: inherit;
       background: var(--ayna-panel, #121214);
@@ -1003,7 +1003,7 @@
       background: var(--ayna-accent, #de9446); color: var(--ayna-on-accent, #0a0a0a); display: flex; align-items: center;
       justify-content: center; cursor: pointer; white-space: nowrap;
     }
-    .${NS}-revpin[data-status=resolved] { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
+    .${NS}-revpin[data-status=approved], .${NS}-revpin[data-status=resolved] { background: var(--ayna-good, #7bc47f); color: var(--ayna-on-good, #0a0a0a); }
     .${NS}-revpin[data-status=rejected] { background: var(--ayna-bad, #e0685f); color: var(--ayna-on-bad, #0a0a0a); }
     .${NS}-revbar button {
       border: 0; border-radius: 999px; height: 20px; padding: 0 9px; cursor: pointer;
@@ -1075,7 +1075,7 @@
       40% { box-shadow: 0 0 0 3px var(--ayna-warn, #e0a458); }
     }
     .${NS}-card {
-      position: fixed; z-index: 2147483646; width: 300px; max-width: calc(100vw - 16px);
+      position: fixed; z-index: 2147483646; width: 330px; max-width: calc(100vw - 16px); box-sizing: border-box;
       background: var(--ayna-panel, #121214); color: var(--ayna-panel-text, #f4f2ef);
       border-radius: 12px; padding: 14px;
       box-shadow: 0 6px 20px rgba(0,0,0,.55); border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10));
@@ -1089,11 +1089,11 @@
       letter-spacing: .08em; font-weight: 700; padding: 3px 9px; border-radius: 999px;
       background: #fef3c7; color: #92400e; margin-bottom: 8px;
     }
-    .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
+    .${NS}-card[data-status=approved] .${NS}-badge, .${NS}-card[data-status=resolved] .${NS}-badge { background: #dcfce7; color: #166534; }
     .${NS}-card[data-status=rejected] .${NS}-badge { background: #fee2e2; color: #991b1b; }
     .${NS}-card[data-status=proposed] .${NS}-badge { background: #ede9fe; color: #5b21b6; }
     .${NS}-card textarea {
-      width: 100%; min-height: 54px; resize: vertical; padding: 8px; margin-top: 8px;
+      width: 100%; min-height: 54px; resize: vertical; padding: 8px; margin-top: 8px; box-sizing: border-box;
       border: 1px solid var(--ayna-panel-line, rgba(255,255,255,.10)); border-radius: 8px; font: inherit;
       color: var(--ayna-panel-text, #f4f2ef); background: var(--ayna-panel, #121214);
     }

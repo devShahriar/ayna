@@ -14,7 +14,7 @@ npm test
 You need Node 22.13 or newer (the store is `node:sqlite`) and a Chromium-family
 browser — Google Chrome, Chromium, Brave, Edge or Vivaldi. Ayna drives your
 installed browser through `playwright-core`; it deliberately does **not**
-download a browser. CI tests the oldest supported 22 and 24, so check a change
+download a browser. CI tests the oldest supported 22 and 26, so check a change
 against both if it touches anything version-sensitive.
 
 If you have more than one browser installed, pick the one the tests should
@@ -35,9 +35,13 @@ npm test                     # everything
 AYNA_SKIP_BROWSER=1 npm test # unit tests only, no Chrome needed
 ```
 
-`test/unit.test.mjs` is fast and pure. `test/integration.test.mjs` drives a real
-Chrome — it is slower, and it is where the bugs actually get caught, so please keep
-it passing.
+`test/unit.test.mjs` is fast and pure. `test/integration-*.test.mjs` and
+`test/ux-*.test.mjs` drive a real Chrome — they are slower, and they are where the
+bugs actually get caught, so please keep them passing.
+
+Test files run in parallel, but the tests inside one file run one after another, so
+the slowest file sets the length of the whole run. Keep each browser test file under
+about a minute; when one grows past that, split it by `describe`.
 
 **A new behavior needs a test.** Several genuine bugs in this repo were found by a
 test disagreeing with an assumption, including a port-selection bug that made the
