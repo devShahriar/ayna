@@ -1570,7 +1570,9 @@ export async function runAnnotate({
     ended. Logging it and returning normally let every assertion inside a
     test's onReady fail silently while the test passed.
   */
-  if (scripted) await Promise.race([scripted, new Promise((r) => setTimeout(r, 2000))]);
+  // Awaited in full: the page is closed by now, so the flow cannot outlive the
+  // window by more than its own waits — and a late failure is still a failure.
+  if (scripted) await scripted;
   if (scriptError) throw scriptError;
   return manifest;
 }
