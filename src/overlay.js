@@ -125,6 +125,9 @@
     drag: null,
   };
 
+  let holdingFrame = !!document.getElementById('ayna-reserve');
+  const frameReady = { state: false, feed: false };
+
   // addInitScript runs at document-start, before <html> exists — build the UI only
   // once there is a document to attach it to.
   let hl = null;
@@ -138,6 +141,7 @@
   function start() {
   const css = document.createElement('style');
   css.setAttribute('data-ayna', '1');
+  css.setAttribute('data-ayna-css', '');
   css.textContent = `
     .${NS}-hl {
       position: absolute; pointer-events: none; z-index: 2147483640;
@@ -1140,6 +1144,7 @@
   bar = document.createElement('div');
   bar.className = NS + '-bar';
   bar.setAttribute('data-ayna', '1');
+  if (holdingFrame) bar.style.visibility = 'hidden';
   document.documentElement.appendChild(bar);
   // Listened for on the bar, which outlives the markup each phase rebuilds.
   bar.addEventListener('click', (ev) => {
@@ -1177,7 +1182,8 @@
         if (st.phase === 'reviewing') setPhase('review');
         else if (st.phase === 'awaiting-claude') setPhase('waiting');
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => frameIsReady('state'));
   } else if (window.__aynaCount) {
     window.__aynaCount().then((n) => {
       if (typeof n === 'number' && n > state.seq) {
@@ -1496,10 +1502,11 @@
     if (send) send.disabled = state.seq === 0;
   }
 
-  function makePin(n, r) {
+  function makePin(n, r, { held = false } = {}) {
     const pin = document.createElement('div');
     pin.className = NS + '-pin';
     pin.setAttribute('data-ayna', '1');
+    if (held) pin.style.visibility = 'hidden';
     pin.innerHTML = '<b></b><i>×</i>';
     pin.querySelector('b').textContent = String(n);
     pin.title = 'Click to remove this comment';
@@ -1511,6 +1518,26 @@
   }
 
   /* A mistaken pin should be one click to undo, not a reason to restart. */
+  function showPin(pin) {
+    pin.style.visibility = '';
+  }
+
+  async function settlePin(pin, saving) {
+    let res;
+    try {
+      res = await saving;
+    } catch {
+      pin.remove();
+      state.pins = state.pins.filter((p) => p !== pin);
+      state.seq = Math.max(0, state.seq - 1);
+      refreshCount();
+      return null;
+    }
+    showPin(pin);
+    bindPinRemoval(pin, res && res.id);
+    return res;
+  }
+
   function bindPinRemoval(pin, id) {
     if (!id) return;
     pin.addEventListener('click', async (ev) => {
@@ -2230,10 +2257,10 @@
 
       const n = ++state.seq;
       // A reorder deserves a marker too, and the same one-click undo.
-      const pin = makePin(n, rectOf(d.el));
+      const pin = makePin(n, rectOf(d.el), { held: true });
       refreshCount();
 
-      const res = await window.__aynaSubmit({
+      await settlePin(pin, window.__aynaSubmit({
         kind: 'move',
         comment:
           'Reorder: move ' + movedDesc + ' ' + (d.placeBefore ? 'before ' : 'after ') + beforeDesc +
@@ -2259,8 +2286,7 @@
         images: [],
         viewport: { width: window.innerWidth, height: window.innerHeight },
         url: location.href,
-      });
-      bindPinRemoval(pin, res && res.id);
+      }));
       refreshTaskCount();
     },
     true,
@@ -2325,7 +2351,7 @@
     measured correction happens once, when the window stops moving.
   */
   function reserveForBar({ correct = true } = {}) {
-    if (!bar) return;
+    if (!bar || holdingFrame) return;
 
     /*
       Re-measure whenever the bar changes shape, not when we think it might have.
@@ -2471,6 +2497,7 @@
     root.style.setProperty('height', tall, 'important');
     root.style.setProperty('min-height', tall, 'important');
     root.style.setProperty('width', wide, 'important');
+    dropStandIn();
 
     /*
       Then check, because the arithmetic is not the whole story.
@@ -2515,8 +2542,65 @@
     if (Math.abs(next - previous) >= 1) docEl.style.setProperty('--ayna-overshoot', next + 'px');
   }
 
+  const RESERVE_KEY = 'ayna-reserve';
+  function rememberFrame() {
+    if (!bar || !reserved) return;
+    try {
+      const cs = getComputedStyle(document.documentElement);
+      const box = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.width && r.height
+          ? { x: r.left, y: r.top, w: r.width, h: r.height, bg: getComputedStyle(el).backgroundColor }
+          : null;
+      };
+      const root = document.documentElement.style;
+      const lines = consoleEl?.querySelector('.' + NS + '-console-lines');
+      sessionStorage.setItem(
+        RESERVE_KEY,
+        JSON.stringify({
+          top: cs.getPropertyValue('--ayna-inset-top').trim() || '0px',
+          left: cs.getPropertyValue('--ayna-inset-left').trim() || '0px',
+          over: cs.getPropertyValue('--ayna-overshoot').trim() || '0px',
+          bar: box(bar),
+          rail: box(consoleEl),
+          css: document.querySelector('style[data-ayna-css]')?.textContent ?? '',
+          vars: [...root].filter((n) => n.startsWith('--ayna')).map((n) => [n, root.getPropertyValue(n)]),
+          html: (bar?.outerHTML ?? '') + (consoleEl?.outerHTML ?? ''),
+          railScroll: lines ? lines.scrollTop : 0,
+        }),
+      );
+    } catch {
+    }
+  }
+  window.addEventListener('pagehide', rememberFrame);
+
+  function dropStandIn() {
+    document.getElementById('ayna-reserve')?.remove();
+    document.getElementById('ayna-reserve-snap')?.remove();
+  }
+
+  function frameIsReady(part) {
+    frameReady[part] = true;
+    if (holdingFrame && frameReady.state && (frameReady.feed || !consoleEl)) releaseFrame();
+  }
+  function releaseFrame() {
+    if (!holdingFrame) return;
+    holdingFrame = false;
+    if (bar) bar.style.visibility = '';
+    if (consoleEl) consoleEl.style.visibility = '';
+    reserved = '';
+    reserveForBar();
+    dropStandIn();
+  }
+  if (holdingFrame) setTimeout(releaseFrame, 1500);
+
   /** Put the page back exactly as it was; a review must leave no trace. */
   function releaseBarSpace() {
+    dropStandIn();
+    try {
+      sessionStorage.removeItem(RESERVE_KEY);
+    } catch {}
     const root = document.body;
     document.documentElement.style.removeProperty('--ayna-bar-h');
     document.documentElement.style.removeProperty('--ayna-inset-top');
@@ -2678,6 +2762,7 @@
 
   function closePopover() {
     clearInk();
+    hide();
     if (pop) {
       pop.remove();
       pop = null;
@@ -2976,11 +3061,10 @@
       closePopover();
 
       const n = ++state.seq;
-      const pin = makePin(n, r);
+      const pin = makePin(n, r, { held: true });
       refreshCount();
 
-      const res = await window.__aynaSubmit(payload);
-      bindPinRemoval(pin, res && res.id);
+      await settlePin(pin, window.__aynaSubmit(payload));
       refreshTaskCount(); // the list gained one; say so without opening it
     });
   }
@@ -4276,6 +4360,7 @@
       await readFeed();
     } finally {
       pumping = false;
+      frameIsReady('feed');
     }
   }
 
@@ -4344,6 +4429,7 @@
     consoleEl = document.createElement('div');
     consoleEl.className = NS + '-console';
     consoleEl.setAttribute('data-ayna', '1');
+    if (holdingFrame) consoleEl.style.visibility = 'hidden';
     consoleEl.innerHTML =
       '<div class="' + NS + '-console-head">' +
         '<span class="' + NS + '-dotlive"></span><span class="' + NS + '-console-title">Activity</span>' +

@@ -129,7 +129,8 @@ describe('knowing the browsers', () => {
       process.env.PATH = dir;
       const found = findBrowser('chromium');
       if (process.platform === 'linux') {
-        assert.equal(found, binary, 'chromium on $PATH should be found on linux');
+        const installed = pathsFor('chromium').find((p) => existsSync(p));
+        assert.equal(found, installed ?? binary, 'on linux $PATH is the fallback behind the canonical paths');
       } else {
         // Elsewhere the search does not run. The canonical paths decide, so
         // the answer is either a canonical path or nothing — never ours.
@@ -156,6 +157,10 @@ describe('choosing one', () => {
       handing Playwright `channel: 'brave'` gets `Unsupported chromium
       channel "brave"`, which is a worse error than the one it replaced.
     */
+    if (!findBrowser('brave')) {
+      assert.throws(() => resolveBrowser('brave'), /Brave is not installed[\s\S]*Looked in/);
+      return;
+    }
     const r = resolveBrowser('brave');
     if (r.channel) {
       // Brave is not installed here and there is no channel for it, so this

@@ -212,6 +212,7 @@ Each comment gives you:
 | `region` | present for `kind: "region"` — the exact rect they framed. `regionScreenshot` is that area, and `elements[]` are the elements inside it. Treat the crop as the subject: the comment is about the whole area, not one node. |
 | `comment` | what they want changed |
 | `regionScreenshot` | **a crop of exactly what they selected** — Read it |
+| `regionTruncated` | `true` when the selection ran past the window — the crop shows only the part that was on screen; `rect` and `elements[]` describe the whole |
 | `attachments` | reference images they pasted — Read these too |
 | `selector` | the precise DOM path, e.g. `#hero > div.container > h1` |
 | `elements[]` | **every element this comment covers.** Shift-click means one comment can target several — each entry has its own `selector`, `styles` and `sourceCandidates`. Apply the change to all of them. |

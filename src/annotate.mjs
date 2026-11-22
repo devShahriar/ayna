@@ -5,8 +5,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { gotoSettled, reloadSettled } from './browser.mjs';
+import { cropPng, pngSize } from './png.mjs';
 import { snapshotProject, roundChanges, hunks, undoChanges } from './rounds.mjs';
-import { SKIP_DIRS } from './skipdirs.mjs';
+import { SKIP_DIRS, isTestPath } from './skipdirs.mjs';
 import { themeTokens } from './theme.mjs';
 
 /**
@@ -36,8 +37,10 @@ import { themeTokens } from './theme.mjs';
  * A clip *without* `fullPage` fires no resize events at all. Its coordinates are
  * viewport-relative rather than page-relative, so subtract the scroll offset. That
  * only works while the region is on screen — which it is, because the user just
- * pointed at it. Anything scrolled out falls back to the disruptive path, since a
- * silently truncated crop of what they framed would be worse than a flinch.
+ * pointed at it. A region only partly on screen (a section taller than the
+ * window, say) is cropped to the part that shows and reported `truncated`, so the
+ * crop is never silently short; only a region entirely out of view still takes
+ * the disruptive path.
  */
 /*
   ayna's own chrome, hidden for the length of a capture.
@@ -59,7 +62,9 @@ import { themeTokens } from './theme.mjs';
   shadow put a dark smudge along the top of every crop of a nav.
 */
 export const WITHOUT_CHROME = '[data-ayna] { visibility: hidden !important; }';
-const WITHOUT_MARKED = '[data-ayna-crop] { visibility: hidden !important; } [data-ayna] { box-shadow: none !important; }';
+const WITHOUT_MARKED =
+  '[data-ayna-crop] { visibility: hidden !important; } [data-ayna-flat] { box-shadow: none !important; }';
+const SHADOW_REACH = 28;
 
 /*
   Replace a file whole, never in place.
@@ -81,18 +86,10 @@ export async function cropRegion(page, rect, pad) {
   // One trip to the page: measure, work out the clip, and mark what it covers.
   const onScreen = await page
     .evaluate(
-      ([r, pad]) => {
-        // Judge visibility on the region itself, then clamp the padding to the
-        // edges. Testing the padded box instead rejects anything full-width —
-        // the padding alone puts it past the right edge — which is most of what
-        // people click, so the fast path would exist and never be taken.
+      ([r, pad, reach]) => {
         const x = r.x - scrollX;
         const y = r.y - scrollY;
-        if (x < 0 || y < 0 || x + r.width > innerWidth || y + r.height > innerHeight) return null;
-
-        // A region inside the app's own area is padded only up to that area's
-        // edge, so the bar and the rail beside it are never in the crop and
-        // never need hiding. One already under them keeps the viewport's edges.
+        const view = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
         const css = getComputedStyle(document.documentElement);
         const inset = (name) => parseFloat(css.getPropertyValue(name)) || 0;
         const app = {
@@ -101,8 +98,13 @@ export async function cropRegion(page, rect, pad) {
           right: innerWidth,
           bottom: innerHeight - inset('--ayna-inset-bottom'),
         };
-        const inApp = x >= app.left && y >= app.top && x + r.width <= app.right && y + r.height <= app.bottom;
-        const edge = inApp ? app : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+        const meets = (e) =>
+          Math.min(e.right, x + r.width) - Math.max(e.left, x) >= 1 &&
+          Math.min(e.bottom, y + r.height) - Math.max(e.top, y) >= 1;
+
+        if (!meets(view)) return null;
+
+        const edge = meets(app) ? app : view;
         const left = Math.max(edge.left, x - pad);
         const top = Math.max(edge.top, y - pad);
         const clip = {
@@ -111,19 +113,26 @@ export async function cropRegion(page, rect, pad) {
           width: Math.max(8, Math.min(edge.right, x + r.width + pad) - left),
           height: Math.max(8, Math.min(edge.bottom, y + r.height + pad) - top),
         };
+        const truncated = x < edge.left || y < edge.top || x + r.width > edge.right || y + r.height > edge.bottom;
 
-        for (const el of document.querySelectorAll('[data-ayna-crop]')) el.removeAttribute('data-ayna-crop');
+        for (const el of document.querySelectorAll('[data-ayna-crop], [data-ayna-flat]')) {
+          el.removeAttribute('data-ayna-crop');
+          el.removeAttribute('data-ayna-flat');
+        }
+        const hits = (b, m) =>
+          b.right > clip.x - m && b.left < clip.x + clip.width + m && b.bottom > clip.y - m && b.top < clip.y + clip.height + m;
         for (const el of document.querySelectorAll('[data-ayna]')) {
           const b = el.getBoundingClientRect();
-          const overlaps = b.right > clip.x && b.left < clip.x + clip.width && b.bottom > clip.y && b.top < clip.y + clip.height;
-          if (b.width && b.height && overlaps) el.setAttribute('data-ayna-crop', '');
+          if (!b.width || !b.height) continue;
+          if (hits(b, 0)) el.setAttribute('data-ayna-crop', '');
+          else if (hits(b, reach)) el.setAttribute('data-ayna-flat', '');
         }
-        return clip;
+        return { clip, truncated };
       },
-      [rect, pad],
+      [rect, pad, SHADOW_REACH],
     )
     .catch(() => null);
-  if (onScreen) return { clip: onScreen, fullPage: false, style: WITHOUT_MARKED };
+  if (onScreen) return { clip: onScreen.clip, fullPage: false, style: WITHOUT_MARKED, truncated: onScreen.truncated };
 
   const clip = {
     x: Math.max(0, rect.x - pad),
@@ -131,7 +140,181 @@ export async function cropRegion(page, rect, pad) {
     width: Math.max(8, rect.width + pad * 2),
     height: Math.max(8, rect.height + pad * 2),
   };
-  return { clip, fullPage: true, style: WITHOUT_CHROME };
+  return { clip, fullPage: true, style: WITHOUT_CHROME, truncated: false };
+}
+
+async function swapStylesheets(page, files) {
+  const rulesHash = () =>
+    page
+      .evaluate(() => {
+        let h = 0;
+        for (const sheet of document.styleSheets) {
+          const owner = sheet.ownerNode;
+          if (owner && (owner.hasAttribute?.('data-ayna') || /^ayna-/.test(owner.id || ''))) continue;
+          try {
+            for (const rule of sheet.cssRules) {
+              const t = rule.cssText;
+              for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0;
+            }
+          } catch {
+          }
+        }
+        return h;
+      })
+      .catch(() => null);
+
+  const before = await rulesHash();
+  const done = await page
+    .evaluate(async (changed) => {
+      const links = [...document.querySelectorAll('link[rel~="stylesheet"][href]')].filter((l) => {
+        try {
+          return new URL(l.href).origin === location.origin;
+        } catch {
+          return false;
+        }
+      });
+      if (!links.length) return false;
+      const served = links.map((l) => decodeURIComponent(new URL(l.href).pathname).replace(/^\/+/, ''));
+      const linked = (rel) => served.some((p) => p && (rel === p || rel.endsWith('/' + p)));
+      if (!changed.every(linked)) return false;
+      const stamp = String(Date.now());
+      await Promise.all(
+        links.map(
+          (old) =>
+            new Promise((resolve) => {
+              const url = new URL(old.href);
+              url.searchParams.set('ayna', stamp);
+              const fresh = old.cloneNode();
+              fresh.href = url.href;
+              let settled = false;
+              const settle = (ok) => {
+                if (settled) return;
+                settled = true;
+                (ok ? old : fresh).remove();
+                resolve();
+              };
+              fresh.addEventListener('load', () => settle(true), { once: true });
+              fresh.addEventListener('error', () => settle(false), { once: true });
+              setTimeout(() => settle(false), 5000);
+              old.after(fresh);
+            }),
+        ),
+      );
+      return true;
+    }, files)
+    .catch(() => false);
+  if (!done) return false;
+  const after = await rulesHash();
+  return before !== null && after !== null && after !== before;
+}
+
+const shotOptions = ({ truncated, ...opts }) => opts;
+
+export async function captureCrop(page, crop) {
+  if (crop.fullPage) return page.screenshot(shotOptions(crop));
+  try {
+    const view = await page.evaluate(async (css) => {
+      document.getElementById('ayna-capture')?.remove();
+      const style = document.createElement('style');
+      style.id = 'ayna-capture';
+      style.textContent = css + ' * { caret-color: transparent !important; }';
+      document.documentElement.appendChild(style);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return { width: innerWidth, height: innerHeight };
+    }, crop.style ?? '');
+    let png;
+    try {
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        png = Buffer.from((await cdp.send('Page.captureScreenshot', { format: 'png' })).data, 'base64');
+      } finally {
+        cdp.detach().catch(() => {});
+      }
+    } finally {
+      await page.evaluate(() => document.getElementById('ayna-capture')?.remove()).catch(() => {});
+    }
+    const scale = pngSize(png).width / view.width;
+    const c = crop.clip;
+    return cropPng(png, { x: c.x * scale, y: c.y * scale, width: c.width * scale, height: c.height * scale });
+  } catch {
+    return page.screenshot(shotOptions(crop));
+  }
+}
+
+const captureQueue = new WeakMap();
+export function captureRegion(page, rect, pad) {
+  const run = (captureQueue.get(page) ?? Promise.resolve()).then(async () => {
+    const crop = await cropRegion(page, rect, pad);
+    return { crop, png: await captureCrop(page, crop) };
+  });
+  captureQueue.set(page, run.catch(() => {}));
+  return run;
+}
+
+export function holdTheFrame() {
+  if (window !== window.top) return;
+  let f = null;
+  try {
+    f = JSON.parse(sessionStorage.getItem('ayna-reserve') || 'null');
+  } catch {
+    return;
+  }
+  if (!f) return;
+  const len = (v) => (/^[\d.]+px$/.test(String(v)) ? v : '0px');
+  const color = (v) => (/^[#\w(),.\s%-]+$/.test(String(v || '')) ? v : '#121214');
+  const slab = (b) =>
+    b
+      ? `content:'';position:fixed;z-index:2147483638;pointer-events:none;left:${+b.x || 0}px;top:${+b.y || 0}px;` +
+        `width:${+b.w || 0}px;height:${+b.h || 0}px;background:${color(b.bg)};`
+      : 'content:none;';
+  const copy = typeof f.html === 'string' && f.html && typeof f.css === 'string' && f.css;
+  const vars = (Array.isArray(f.vars) ? f.vars : [])
+    .filter(([n, v]) => /^--ayna-[\w-]+$/.test(String(n)) && !/[;{}]/.test(String(v)))
+    .map(([n, v]) => `${n}:${v};`)
+    .join('');
+  const style = document.createElement('style');
+  style.id = 'ayna-reserve';
+  style.setAttribute('data-ayna', '1');
+  style.textContent =
+    (copy ? f.css : '') +
+    `html{${vars}--ayna-inset-top:${len(f.top)};--ayna-inset-left:${len(f.left)};--ayna-overshoot:${len(f.over)}}` +
+    'body{transform:translate(var(--ayna-inset-left),var(--ayna-inset-top))!important;' +
+    'height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
+    'min-height:max(120px,calc(100dvh - var(--ayna-inset-top) - var(--ayna-overshoot)))!important;' +
+    'width:max(200px,calc(100dvw - var(--ayna-inset-left)))!important}' +
+    (copy ? '#ayna-reserve-snap,#ayna-reserve-snap *{pointer-events:none!important}' : `html::before{${slab(f.bar)}}html::after{${slab(f.rail)}}`);
+  let snap = null;
+  if (copy) {
+    snap = document.createElement('div');
+    snap.id = 'ayna-reserve-snap';
+    snap.setAttribute('data-ayna', '1');
+    snap.setAttribute('aria-hidden', 'true');
+    snap.innerHTML = f.html;
+  }
+  const mount = () => {
+    document.documentElement.appendChild(style);
+    setTimeout(() => {
+      if (window.__aynaLoaded) return;
+      style.remove();
+      snap?.remove();
+    }, 5000);
+    if (!snap) return;
+    document.documentElement.appendChild(snap);
+    requestAnimationFrame(() => {
+      const lines = snap.querySelector('[class$="-console-lines"]');
+      if (lines) lines.scrollTop = +f.railScroll || 0;
+    });
+  };
+  if (document.documentElement) {
+    mount();
+    return;
+  }
+  const wait = new MutationObserver(() => {
+    if (!document.documentElement) return;
+    wait.disconnect();
+    mount();
+  });
+  wait.observe(document, { childList: true });
 }
 
 /**
@@ -170,15 +353,20 @@ async function findInSource(projectDir, { id, classes, text }, pageUrl) {
       if (err.code === 'ENOENT') lines = await scanInJs(projectDir, needle);
     }
 
-    for (const line of lines.slice(0, 4)) {
+    let kept = 0;
+    for (const line of lines) {
+      if (kept >= 4) break;
       const m = line.match(/^(.+?):(\d+):(.*)$/);
-      if (m) hits.push({ needle, file: path.relative(projectDir, m[1]), line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
+      if (!m) continue;
+      const file = path.relative(projectDir, m[1]);
+      if (isTestPath(file)) continue;
+      hits.push({ needle, file, line: Number(m[2]), preview: m[3].trim().slice(0, 120) });
+      kept += 1;
     }
     if (hits.length >= 6) break;
   }
   return rankByPage(hits, pageUrl);
 }
-
 
 const GREP_EXCLUDES = SKIP_DIRS.map((d) => `--exclude-dir=${d}`);
 const TEXT_EXT = new Set([
@@ -322,6 +510,7 @@ export async function runAnnotate({
     }));
   // A persistent context opens with a page already; reuse it rather than stacking.
   const page = context.pages()[0] ?? (await context.newPage());
+  await page.addInitScript(holdTheFrame);
 
   const comments = [];
   let nextId = 1;
@@ -350,6 +539,7 @@ export async function runAnnotate({
         styles: t.styles ?? {},
         url: t.url,
         regionScreenshot: t.regionScreenshot,
+        regionTruncated: t.regionTruncated ?? false,
         attachments: t.attachments ?? [],
         sourceCandidates: t.sourceCandidates ?? [],
         rounds: [],
@@ -366,8 +556,11 @@ export async function runAnnotate({
 
     // Crop the exact region the user pointed at, with a little breathing room.
     const regionFile = path.join(dir, 'region.png');
+    let cropTruncated = false;
     try {
-      await page.screenshot({ path: regionFile, ...(await cropRegion(page, payload.rect, 12)) });
+      const { crop, png } = await captureRegion(page, payload.rect, 12);
+      await writeFile(regionFile, png);
+      cropTruncated = crop.truncated;
     } catch {
       // An off-screen or zero-size target just means no crop; the comment still stands.
     }
@@ -433,6 +626,7 @@ export async function runAnnotate({
       rect: payload.rect,
       url: payload.url,
       regionScreenshot: existsSync(regionFile) ? regionFile : null,
+      regionTruncated: cropTruncated,
       attachments,
       sourceCandidates: source,
     };
@@ -458,6 +652,7 @@ export async function runAnnotate({
           rect: record.rect,
           styles: record.styles,
           sourceCandidates: record.sourceCandidates,
+          ...(record.regionTruncated ? { regionTruncated: true } : {}),
         },
         { regionScreenshot: record.regionScreenshot, attachments: record.attachments },
       );
@@ -642,6 +837,7 @@ export async function runAnnotate({
         // Our own output changes constantly; so does anything generated.
         if (parts.some((part) => part === '.ayna' || SKIP_DIRS.includes(part))) return;
         if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) return;
+        if (isTestPath(rel)) return;
         editedAt = Date.now();
         roundEdits.add(rel);
       });
@@ -1066,7 +1262,7 @@ export async function runAnnotate({
   */
   await page.exposeFunction('__aynaPreview', async (rect) => {
     try {
-      const buf = await page.screenshot(await cropRegion(page, rect, 8));
+      const { png: buf } = await captureRegion(page, rect, 8);
       return 'data:image/png;base64,' + buf.toString('base64');
     } catch {
       return null;
@@ -1432,12 +1628,16 @@ export async function runAnnotate({
       roundFiles.set(round, changes);
       roundSnapshot = null;
       roundEdits.clear();
+      const cssOnly = changes.length > 0 && changes.every((c) => /\.css$/i.test(c.file) && c.status !== 'deleted');
+      const swapped = !changedItself && cssOnly && (await swapStylesheets(page, changes.map((c) => c.file)));
+
       emit({
         event: 'applied',
         round,
         key: roundKey(round),
         via: reason,
-        reloaded: !changedItself,
+        reloaded: !changedItself && !swapped,
+        swapped,
         files: changes.map(({ file, status, added, removed }) => ({ file, status, added, removed })),
       });
 
@@ -1457,10 +1657,12 @@ export async function runAnnotate({
         */
         const at = await page.evaluate(() => ({ x: scrollX, y: scrollY })).catch(() => null);
 
-        if (!changedItself) {
+        if (!changedItself && !swapped) {
           await reloadSettled(page);
           if (at && (at.x || at.y)) {
-            await page.evaluate((p) => scrollTo(p.x, p.y), at).catch(() => {});
+            await page
+              .evaluate((p) => scrollTo({ left: p.x, top: p.y, behavior: 'instant' }), at)
+              .catch(() => {});
           }
         }
         // The overlay is injected per load and that is asynchronous — without

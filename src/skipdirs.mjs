@@ -16,3 +16,13 @@ export const SKIP_DIRS = [
   '.turbo', '.cache', '.parcel-cache', 'dist', 'build', 'out', 'coverage',
   'vendor', '__pycache__', '.venv', 'venv', '.yarn', '.pnpm-store',
 ];
+
+const TEST_DIRS = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'e2e', 'cypress']);
+const TEST_FILE = /\.(test|spec)\.[^/\\]+$|_test\.go$|^test_[^/\\]+\.py$|_test\.py$|_spec\.rb$/;
+
+export function isTestPath(rel) {
+  const parts = String(rel).split(/[\\/]/).filter(Boolean);
+  if (!parts.length) return false;
+  if (parts.slice(0, -1).some((p) => TEST_DIRS.has(p))) return true;
+  return TEST_FILE.test(parts[parts.length - 1]);
+}
