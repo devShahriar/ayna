@@ -226,9 +226,18 @@ function explainBackgroundQuit(browser) {
     closing = true;
     return close(...args);
   };
+  // Ctrl-C and friends: Playwright closes the browser itself, around the wrapper.
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const interrupted = () => {
+    closing = true;
+  };
+  for (const sig of signals) process.on(sig, interrupted);
   browser.on('disconnected', () => {
+    for (const sig of signals) process.removeListener(sig, interrupted);
     if (closing) return;
     const after = Math.round((Date.now() - started) / 1000);
+    // The system quits it about 30s in; an exit much sooner is something else.
+    if (after < 20) return;
     process.stderr.write(
       `  ! the browser quit on its own after ${after}s. On macOS this is usually the system closing a\n` +
         '    headless browser that is not allowed to run in the background — allow it under\n' +
