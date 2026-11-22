@@ -9,14 +9,13 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { openStore } from '../src/tasks.mjs';
-import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
+import { since as pendingEvents } from '../src/events.mjs';
 import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
 // Two frames: layout, observers and anything queued on rAF have all run.

@@ -12,14 +12,13 @@
   itself. That exclusion is right for auditing an app and exactly wrong for
   auditing the reviewer, so these tests run the same check with it removed.
 */
-import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
+import { test, describe, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { openBrowser } from '../src/browser.mjs';
 import { CHECKS } from '../src/audit.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
 import { DEFAULT_THEME } from '../src/config.mjs';

@@ -4,16 +4,15 @@
 
   Set AYNA_SKIP_BROWSER=1 to skip them (e.g. on a machine with no Chrome).
 */
-import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
+import { test, describe, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { openBrowser, capture, captureRoutes, routeSlug } from '../src/browser.mjs';
+import { capture, captureRoutes, routeSlug } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
-import { runAnnotate, cropRegion } from '../src/annotate.mjs';
+import { runAnnotate } from '../src/annotate.mjs';
 import { tempDir, fixtureSite, hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
 
 // The pin shows at once; the comment is stored once the Tasks count includes it.

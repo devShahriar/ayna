@@ -6,7 +6,7 @@
   measuring, and they are pinned here because every one of them is invisible in a
   screenshot and silent in a normal test.
 */
-import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
+import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { existsSync } from 'node:fs';
@@ -14,11 +14,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { openBrowser, gotoSettled } from '../src/browser.mjs';
 import { runAnnotate } from '../src/annotate.mjs';
-import { openStore } from '../src/tasks.mjs';
-import { pending as pendingWork, since as pendingEvents } from '../src/events.mjs';
-import { hasBrowser, press, launchBrowser, eventually } from './helpers.mjs';
+import { hasBrowser, launchBrowser, eventually } from './helpers.mjs';
 
 /** A server that behaves like a real dev server: it never stops talking. */
 function pollingServer(bodyHtml, { doctype = true } = {}) {

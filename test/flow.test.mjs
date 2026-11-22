@@ -3,13 +3,12 @@
   them run once. That is exactly how `npm test` stayed broken for hours earlier in
   this project's life, so they get the same treatment as everything else.
 */
-import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
+import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { openBrowser } from '../src/browser.mjs';
 import { serveStatic } from '../src/server.mjs';
 import { runFlow, summarizeFlow } from '../src/flow.mjs';
 import { loadFlows, runSuite, compareWithBaseline } from '../src/qa.mjs';

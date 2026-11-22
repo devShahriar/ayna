@@ -13,14 +13,13 @@
   any of this means moving focus, which must never happen in a window someone is
   using.
 */
-import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
+import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { openBrowser } from '../src/browser.mjs';
 import { auditPage, CHECKS, FOCUS_CHECKS, SEVERITY } from '../src/audit.mjs';
 import { hasBrowser, launchBrowser } from './helpers.mjs';
 
